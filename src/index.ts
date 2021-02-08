@@ -7,22 +7,22 @@ import path from "path";
 
 const argv = require("minimist")(process.argv.slice(2));
 
-console.log(argv.open);
-
 if (argv.h || argv.help) {
   console.log("LiaScript-LiveServer");
   console.log("");
   console.log("-h", "--help", "      show this help");
   console.log("-i", "--input", "     input ReadMe.md file");
   console.log("-p", "--port", "      used port number (default: 3000)");
+  console.log("-l", "--live", "      do live reload on file change");
   console.log("-o", "--open", "      open in browser");
 
   process.exit();
 }
 
 const port = argv.p || argv.port || 3000;
-const openInBrowser = argv.open;
-const input = argv.i || argv.input;
+const openInBrowser = argv.o || argv.open;
+const input = argv.i || argv.input || ".";
+const liveReload = argv.l || argv.live;
 
 var project = {
   path: null,
@@ -49,29 +49,64 @@ app.get("/liascript/", function (req, res) {
   res.redirect("/liascript/index.html");
 });
 
+app.get("/liascript/index.html", function (req, res) {
+  if (liveReload) {
+    fs.readFile(
+      __dirname + "/liascript/index.html",
+      "utf8",
+      function (err, data) {
+        res.send(
+          data.replace(
+            "</head>",
+            "<script type='text/javascript' src='/reloader/reloader.browser.js'></script></head>"
+          )
+        );
+      }
+    );
+  } else {
+    res.sendFile(req.path, { root: __dirname });
+  }
+});
+
+// load everything from the liascript folder
 app.get("/liascript/*", function (req, res) {
   res.sendFile(req.path, { root: __dirname });
 });
+// ignore this one
+app.get("/sw.js", function (req, res) {});
 
+// pass the reloader, to be used for live updates
+app.get("/reloader/*", function (req, res) {
+  res.sendFile(req.path, { root: __dirname });
+});
+
+// everything else comes from the current project folder
 app.get("/*", function (req, res) {
   res.sendFile(req.originalUrl, { root: project.path });
 });
 
-console.log("starting live server on port", port);
+let localURL = "http://localhost:" + port;
 
-app.listen(port);
+if (project.path && project.readme) {
+  localURL +=
+    "/liascript/index.html?http://localhost:" + port + "/" + project.readme;
+}
+
+console.log(`starting LiaScript server on port "${localURL}"`);
+
+if (liveReload) {
+  console.log(`Watching for changes in folder: "${project.path}"`);
+  const reload = require("reloadsh.js")(app, [project.path]);
+
+  reload.listen(port, () => {
+    console.log("Server listen on", port);
+  });
+} else {
+  app.listen(port);
+}
 
 if (openInBrowser) {
-  if (typeof project.readme === "string") {
-    doOpen(
-      "http://localhost:" +
-        port +
-        "/liascript/index.html?http://localhost:" +
-        port +
-        "/" +
-        project.readme
-    );
-  }
+  doOpen(localURL);
 }
 
 // async function print(path: string) {

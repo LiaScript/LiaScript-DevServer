@@ -41,12 +41,18 @@
         "staticOutDir": "liascript"
       },
       {
+        "staticPath": "node_modules/reloadsh.js/reloader.browser.js",
+        "staticOutDir": "reloader"
+      },
+      {
         "staticPath": "static",
         "staticOutDir": "assets"
       }
     ]
   },
   "dependencies": {
-    "minimist": "^1.2.5"
+    "livereload-express": "^1.0.3",
+    "minimist": "^1.2.5",
+    "reloadsh.js": "^2.2.1"
   }
 }
