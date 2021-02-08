@@ -4,6 +4,7 @@ import doOpen from "open";
 
 import fs from "fs";
 import path from "path";
+const cors = require("cors");
 
 const argv = require("minimist")(process.argv.slice(2));
 
@@ -15,6 +16,11 @@ if (argv.h || argv.help) {
   console.log("-p", "--port", "      used port number (default: 3000)");
   console.log("-l", "--live", "      do live reload on file change");
   console.log("-o", "--open", "      open in browser");
+  console.log(
+    "-t",
+    "--test",
+    "      test online on https://LiaScript.github.io"
+  );
 
   process.exit();
 }
@@ -23,6 +29,7 @@ const port = argv.p || argv.port || 3000;
 const openInBrowser = argv.o || argv.open;
 const input = argv.i || argv.input || ".";
 const liveReload = argv.l || argv.live;
+const testOnline = argv.t || argv.test;
 
 var project = {
   path: null,
@@ -81,7 +88,7 @@ app.get("/reloader/*", function (req, res) {
 });
 
 // everything else comes from the current project folder
-app.get("/*", function (req, res) {
+app.get("/*", cors(), function (req, res) {
   res.sendFile(req.originalUrl, { root: project.path });
 });
 
@@ -92,7 +99,15 @@ if (project.path && project.readme) {
     "/liascript/index.html?http://localhost:" + port + "/" + project.readme;
 }
 
-console.log(`starting LiaScript server on port "${localURL}"`);
+if (testOnline) {
+  localURL =
+    "https://LiaScript.github.io/course/?http://localhost:" +
+    port +
+    "/" +
+    project.readme;
+}
+
+console.log(`starting LiaScript server on "${localURL}"`);
 
 if (liveReload) {
   console.log(`Watching for changes in folder: "${project.path}"`);
