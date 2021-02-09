@@ -230,6 +230,7 @@ if (testOnline && project.readme) {
 
 liascript();
 console.log(`starting server on ${localURL}`);
+console.log("hit Ctrl-c to close the server");
 
 if (liveReload) {
   console.log(`Watching for changes in folder: "${project.path}"`);
