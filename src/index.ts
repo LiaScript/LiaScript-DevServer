@@ -1,3 +1,4 @@
+require("dotenv").config();
 import express from "express";
 const app = express();
 import doOpen from "open";
@@ -9,19 +10,43 @@ const handlebars = require("express-handlebars");
 
 const argv = require("minimist")(process.argv.slice(2));
 
+function liascript() {
+  console.log(" _     _       ____            _       _");
+  console.log("| |   (_) __ _/ ___|  ___ _ __(_)_ __ | |_");
+  console.log("| |   | |/ _` \\___ \\ / __| '__| | '_ \\| __|");
+  console.log("| |___| | (_| |___) | (__| |  | | |_) | |_ ");
+  console.log("|_____|_|\\__,_|____/ \\___|_|  |_| .__/ \\__|");
+  console.log("                                |_|");
+  console.log();
+}
+
 if (argv.h || argv.help) {
-  console.log("LiaScript-LiveServer");
-  console.log("");
+  liascript();
+
   console.log("-h", "--help", "      show this help");
-  console.log("-i", "--input", "     input ReadMe.md file");
+  console.log(
+    "-i",
+    "--input",
+    "     input README.md file or folder (default: .)"
+  );
   console.log("-p", "--port", "      used port number (default: 3000)");
   console.log("-l", "--live", "      do live reload on file change");
-  console.log("-o", "--open", "      open in browser");
+  console.log("-o", "--open", "      open in default browser");
   console.log(
     "-t",
     "--test",
     "      test online on https://LiaScript.github.io"
   );
+
+  console.log();
+  console.log(
+    "-r",
+    "--responsivevoiceKey",
+    "   add your own responsivevoice key,"
+  );
+  console.log("                           for your projects from. For more");
+  console.log("                           information visit:");
+  console.log("                           https://responsivevoice.org");
 
   process.exit();
 }
@@ -31,11 +56,12 @@ const openInBrowser = argv.o || argv.open;
 const input = argv.i || argv.input || ".";
 const liveReload = argv.l || argv.live;
 const testOnline = argv.t || argv.test;
+const responsivevoiceKey =
+  argv.r || argv.responsivevoiceKey || process.env.RESPONSIVE_VOICE_KEY;
 
 var project = {
   path: null,
   readme: null,
-  searchPath: "./",
 };
 
 if (input) {
@@ -145,13 +171,27 @@ app.get("/liascript/index.html", function (req, res) {
         res.send(
           data.replace(
             "</head>",
-            "<script type='text/javascript' src='/reloader/reloader.browser.js'></script></head>"
+            `<script type='text/javascript' src='/reloader/reloader.browser.js'></script>
+            <script type='text/javascript' src='https://code.responsivevoice.org/responsivevoice.js?key=${responsivevoiceKey}'></script>
+            </head>`
           )
         );
       }
     );
   } else {
-    res.sendFile(req.path, { root: __dirname });
+    fs.readFile(
+      __dirname + "/liascript/index.html",
+      "utf8",
+      function (err, data) {
+        res.send(
+          data.replace(
+            "</head>",
+            `<script type='text/javascript' src='https://code.responsivevoice.org/responsivevoice.js?key=${responsivevoiceKey}'></script>
+            </head>`
+          )
+        );
+      }
+    );
   }
 });
 
@@ -188,7 +228,8 @@ if (testOnline && project.readme) {
     project.readme;
 }
 
-console.log(`starting LiaScript server on "${localURL}"`);
+liascript();
+console.log(`starting server on ${localURL}`);
 
 if (liveReload) {
   console.log(`Watching for changes in folder: "${project.path}"`);
