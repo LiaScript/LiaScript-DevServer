@@ -24,8 +24,10 @@
     "url": "https://github.com/LiaScript/LiveServer/issues"
   },
   "homepage": "https://github.com/LiaScript/LiveServer#readme",
+  "dependencies": {
+    "@liascript/editor": "^1.0.0--0.8.12"
+  },
   "devDependencies": {
-    "@liascript/editor": "^1.0.0--0.8.12",
     "@types/express": "^4.17.11",
     "cors": "^2.8.5",
     "dotenv": "^5.0.1",
@@ -41,10 +43,6 @@
   },
   "staticFiles": {
     "staticPath": [
-      {
-        "staticPath": "node_modules/@liascript/editor/dist",
-        "staticOutDir": "liascript"
-      },
       {
         "staticPath": "node_modules/reloadsh.js/reloader.browser.js",
         "staticOutDir": "reloader"

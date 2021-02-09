@@ -10,6 +10,10 @@ const handlebars = require("express-handlebars");
 
 const argv = require("minimist")(process.argv.slice(2));
 
+const liascriptPath = path.normalize(
+  __dirname + "/../node_modules/@liascript/editor/dist"
+);
+
 function liascript() {
   console.log(" _     _       ____            _       _");
   console.log("| |   (_) __ _/ ___|  ___ _ __(_)_ __ | |_");
@@ -164,40 +168,32 @@ app.get("/liascript/", function (req, res) {
 
 app.get("/liascript/index.html", function (req, res) {
   if (liveReload) {
-    fs.readFile(
-      __dirname + "/liascript/index.html",
-      "utf8",
-      function (err, data) {
-        res.send(
-          data.replace(
-            "</head>",
-            `<script type='text/javascript' src='/reloader/reloader.browser.js'></script>
+    fs.readFile(liascriptPath + "/index.html", "utf8", function (err, data) {
+      res.send(
+        data.replace(
+          "</head>",
+          `<script type='text/javascript' src='/reloader/reloader.browser.js'></script>
             <script type='text/javascript' src='https://code.responsivevoice.org/responsivevoice.js?key=${responsivevoiceKey}'></script>
             </head>`
-          )
-        );
-      }
-    );
+        )
+      );
+    });
   } else {
-    fs.readFile(
-      __dirname + "/liascript/index.html",
-      "utf8",
-      function (err, data) {
-        res.send(
-          data.replace(
-            "</head>",
-            `<script type='text/javascript' src='https://code.responsivevoice.org/responsivevoice.js?key=${responsivevoiceKey}'></script>
+    fs.readFile(liascriptPath + "/index.html", "utf8", function (err, data) {
+      res.send(
+        data.replace(
+          "</head>",
+          `<script type='text/javascript' src='https://code.responsivevoice.org/responsivevoice.js?key=${responsivevoiceKey}'></script>
             </head>`
-          )
-        );
-      }
-    );
+        )
+      );
+    });
   }
 });
 
 // load everything from the liascript folder
 app.get("/liascript/*", function (req, res) {
-  res.sendFile(req.path, { root: __dirname });
+  res.sendFile(req.params[0], { root: liascriptPath });
 });
 // ignore this one
 app.get("/sw.js", function (req, res) {});
