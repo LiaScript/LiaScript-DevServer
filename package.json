@@ -1,6 +1,6 @@
 {
   "name": "@liascript/liveserver",
-  "version": "1.0.0",
+  "version": "1.0.0--0.8.12",
   "description": "Run a LiaScript development server locally",
   "main": "dist/index.js",
   "scripts": {
@@ -10,8 +10,18 @@
   },
   "repository": {
     "type": "git",
-    "url": "git://github.com/LiaScript/LiveServer.git"
+    "url": "git://github.com/LiaScript/LiaScript-LiveServer.git"
   },
+  "bugs": {
+    "url": "https://github.com/LiaScript/LiaScript-LiveServer/issues",
+    "email": "LiaScript@web.de"
+  },
+  "homepage": "https://github.com/LiaScript/LiaScript-LiveServer/README.md",
+  "bin": {
+    "liascript-liveserver": "dist/index.js",
+    "liaserver": "dist/index.js"
+  },
+  "preferGlobal": true,
   "keywords": [
     "LiaScript",
     "OER",
@@ -20,10 +30,6 @@
   ],
   "author": "André Dietrich",
   "license": "ISC",
-  "bugs": {
-    "url": "https://github.com/LiaScript/LiveServer/issues"
-  },
-  "homepage": "https://github.com/LiaScript/LiveServer#readme",
   "dependencies": {
     "@liascript/editor": "^1.0.0--0.8.12",
     "reloadsh.js": "^2.2.1"
