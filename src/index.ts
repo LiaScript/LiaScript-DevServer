@@ -115,9 +115,15 @@ app.get("/home*", function (req, res) {
     });
   } else if (stats.isFile()) {
     if (req.params[0].endsWith(".md")) {
-      res.redirect(
-        `/liascript/index.html?http://localhost:${port}/${req.params[0]}`
-      );
+      if (testOnline) {
+        res.redirect(
+          `https://LiaScript.github.io/course/?http://localhost:${port}/${req.params[0]}`
+        );
+      } else {
+        res.redirect(
+          `/liascript/index.html?http://localhost:${port}/${req.params[0]}`
+        );
+      }
     } else {
       res.sendFile(req.params[0], { root: project.path });
     }
@@ -174,7 +180,7 @@ if (project.path && project.readme) {
     "/liascript/index.html?http://localhost:" + port + "/" + project.readme;
 }
 
-if (testOnline) {
+if (testOnline && project.readme) {
   localURL =
     "https://LiaScript.github.io/course/?http://localhost:" +
     port +
