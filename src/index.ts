@@ -14,6 +14,10 @@ const liascriptPath = path.normalize(
   __dirname + "/../node_modules/@liascript/editor/dist"
 );
 
+const reloadPath = path.normalize(
+  __dirname + "/../node_modules/reloadsh.js/reloader.browser.js"
+);
+
 function liascript() {
   console.log(" _     _       ____            _       _");
   console.log("| |   (_) __ _/ ___|  ___ _ __(_)_ __ | |_");
@@ -172,7 +176,7 @@ app.get("/liascript/index.html", function (req, res) {
       res.send(
         data.replace(
           "</head>",
-          `<script type='text/javascript' src='/reloader/reloader.browser.js'></script>
+          `<script type='text/javascript' src='/reloader/reloader.js'></script>
             <script type='text/javascript' src='https://code.responsivevoice.org/responsivevoice.js?key=${responsivevoiceKey}'></script>
             </head>`
         )
@@ -200,8 +204,8 @@ app.get("/sw.js", function (req, res) {});
 app.get("/favicon.ico", function (req, res) {});
 
 // pass the reloader, to be used for live updates
-app.get("/reloader/*", function (req, res) {
-  res.sendFile(req.path, { root: __dirname });
+app.get("/reloader/reloader.js", function (req, res) {
+  res.sendFile(reloadPath);
 });
 
 // everything else comes from the current project folder
@@ -225,16 +229,11 @@ if (testOnline && project.readme) {
 }
 
 liascript();
-console.log(`starting server on ${localURL}`);
-console.log("hit Ctrl-c to close the server");
-
 if (liveReload) {
   console.log(`Watching for changes in folder: "${project.path}"`);
   const reload = require("reloadsh.js")(app, [project.path]);
 
-  reload.listen(port, () => {
-    console.log("Server listen on", port);
-  });
+  reload.listen(port);
 } else {
   app.listen(port);
 }
@@ -242,3 +241,6 @@ if (liveReload) {
 if (openInBrowser) {
   doOpen(localURL);
 }
+
+console.log(`starting server on ${localURL}`);
+console.log("hit Ctrl-c to close the server");
