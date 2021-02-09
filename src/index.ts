@@ -5,6 +5,7 @@ import doOpen from "open";
 import fs from "fs";
 import path from "path";
 const cors = require("cors");
+const handlebars = require("express-handlebars");
 
 const argv = require("minimist")(process.argv.slice(2));
 
@@ -34,6 +35,7 @@ const testOnline = argv.t || argv.test;
 var project = {
   path: null,
   readme: null,
+  searchPath: "./",
 };
 
 if (input) {
@@ -48,8 +50,80 @@ if (input) {
   }
 }
 
+app.set("view engine", "hbs");
+app.engine(
+  "hbs",
+  handlebars({
+    layoutsDir: __dirname + "/../views/layouts",
+    extname: "hbs",
+  })
+);
+
+app.use(express.static("assets"));
+
 app.get("/", function (req, res) {
-  res.sendFile("./assets/index.html", { root: __dirname });
+  res.redirect("/home");
+});
+
+app.get("/home*", function (req, res) {
+  const currentPath = project.path + "/" + req.params[0];
+
+  const stats = fs.lstatSync(currentPath);
+
+  // Is it a directory?
+  if (stats.isDirectory()) {
+    const files = fs.readdirSync(currentPath).filter((e) => {
+      return e[0] !== ".";
+    });
+
+    let basePath = "/home";
+    let pathNames = req.params[0].split("/").filter((e) => {
+      return e !== "";
+    });
+
+    let paths: { name: string; href: string }[] = [];
+    for (let i = 0; i < pathNames.length; i++) {
+      basePath += "/" + pathNames[i];
+      paths.push({ name: pathNames[i], href: basePath });
+    }
+
+    res.render("main", {
+      layout: "index",
+      path: paths,
+      file: files
+        .map((file) => {
+          return {
+            name: file,
+            href: `http://localhost:${port}/home${req.params[0]}/${file}`,
+            isDirectory: fs.lstatSync(currentPath + "/" + file).isDirectory(),
+          };
+        })
+        .sort((a, b) => {
+          if (a.isDirectory && !b.isDirectory) {
+            return -1;
+          } else if (!a.isDirectory && b.isDirectory) {
+            return 1;
+          } else {
+            if (a.name.toLocaleLowerCase() < b.name.toLocaleLowerCase()) {
+              return -1;
+            } else {
+              return 1;
+            }
+          }
+          return 0;
+        }),
+    });
+  } else if (stats.isFile()) {
+    if (req.params[0].endsWith(".md")) {
+      res.redirect(
+        `/liascript/index.html?http://localhost:${port}/${req.params[0]}`
+      );
+    } else {
+      res.sendFile(req.params[0], { root: project.path });
+    }
+  } else {
+    res.send("ups, something went wrong");
+  }
 });
 
 app.get("/liascript/", function (req, res) {
@@ -81,6 +155,7 @@ app.get("/liascript/*", function (req, res) {
 });
 // ignore this one
 app.get("/sw.js", function (req, res) {});
+app.get("/favicon.ico", function (req, res) {});
 
 // pass the reloader, to be used for live updates
 app.get("/reloader/*", function (req, res) {
@@ -123,11 +198,3 @@ if (liveReload) {
 if (openInBrowser) {
   doOpen(localURL);
 }
-
-// async function print(path: string) {
-//   const dir = await fs.promises.opendir(path);
-//   for await (const dirent of dir) {
-//     console.log(dirent.name);
-//   }
-// }
-// print("./").catch(console.error);
