@@ -1,7 +1,7 @@
 {
-  "name": "@liascript/liveserver",
+  "name": "@liascript/devserver",
   "version": "1.0.0--0.8.12",
-  "description": "Run a LiaScript development server locally",
+  "description": "Run a development server for LiaScript locally",
   "main": "dist/index.js",
   "scripts": {
     "build": "npx parcel build --target node --no-source-maps --log-level 4 src/index.ts",
@@ -9,16 +9,16 @@
   },
   "repository": {
     "type": "git",
-    "url": "git://github.com/LiaScript/LiaScript-LiveServer.git"
+    "url": "git://github.com/LiaScript/LiaScript-DevServer.git"
   },
   "bugs": {
-    "url": "https://github.com/LiaScript/LiaScript-LiveServer/issues",
+    "url": "https://github.com/LiaScript/LiaScript-DevServer/issues",
     "email": "LiaScript@web.de"
   },
-  "homepage": "https://github.com/LiaScript/LiaScript-LiveServer/README.md",
+  "homepage": "https://github.com/LiaScript/LiaScript-DevServer/README.md",
   "bin": {
-    "liascript-liveserver": "dist/index.js",
-    "liaserv": "dist/index.js"
+    "liascript-devserver": "dist/index.js",
+    "liadev": "dist/index.js"
   },
   "preferGlobal": true,
   "keywords": [

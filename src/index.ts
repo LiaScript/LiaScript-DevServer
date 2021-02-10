@@ -28,10 +28,17 @@ function liascript() {
   console.log();
 }
 
+if (argv.v || argv.version) {
+  console.log("DevServer: 1.0.0");
+  console.log("LiaScript: 0.8.12");
+  process.exit();
+}
+
 if (argv.h || argv.help) {
   liascript();
 
   console.log("-h  --help       show this help");
+  console.log("-v  --version    show version information");
   console.log("-i  --input      input README.md file or folder (default: .)");
   console.log("-p  --port       used port number (default: 3000)");
   console.log("-l  --live       do live reload on file change");
@@ -53,8 +60,6 @@ const openInBrowser = argv.o || argv.open;
 const input = argv.i || argv.input || ".";
 const liveReload = argv.l || argv.live || false;
 const testOnline = argv.t || argv.test;
-
-console.warn("live-reload:", liveReload);
 
 let responsiveVoice: string | undefined;
 
@@ -250,8 +255,13 @@ liascript();
 const server = require("reloadsh.js")(app, liveReload ? [project.path] : []);
 
 if (liveReload) {
-  console.log(`Watching for changes in folder: "${project.path}"`);
+  console.log(`✨ watching for changes in folder: "${project.path}"`);
 }
+
+server.on("error", (e: any) => {
+  console.error("🚨 error =>", e.message);
+  process.exit();
+});
 
 server.listen(port);
 
@@ -259,5 +269,5 @@ if (openInBrowser) {
   doOpen(localURL);
 }
 
-console.log(`starting server on ${localURL}`);
-console.log("hit Ctrl-c to close the server");
+console.log(`📡 starting server on ${localURL}`);
+console.log("✨ hit Ctrl-c to close the server");
