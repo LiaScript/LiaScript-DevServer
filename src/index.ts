@@ -61,8 +61,6 @@ const input = argv.i || argv.input || ".";
 const liveReload = argv.l || argv.live || false;
 const testOnline = argv.t || argv.test;
 
-console.warn("live-reload:", liveReload);
-
 let responsiveVoice: string | undefined;
 
 if (argv.r || argv.responsiveVoice) {
