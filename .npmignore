@@ -1,5 +1,5 @@
+.env
 .cache
 .vscode
-dist
 node_modules
-.env
+src

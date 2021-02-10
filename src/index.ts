@@ -31,30 +31,19 @@ function liascript() {
 if (argv.h || argv.help) {
   liascript();
 
-  console.log("-h", "--help", "      show this help");
-  console.log(
-    "-i",
-    "--input",
-    "     input README.md file or folder (default: .)"
-  );
-  console.log("-p", "--port", "      used port number (default: 3000)");
-  console.log("-l", "--live", "      do live reload on file change");
-  console.log("-o", "--open", "      open in default browser");
-  console.log(
-    "-t",
-    "--test",
-    "      test online on https://LiaScript.github.io"
-  );
-
+  console.log("-h  --help       show this help");
+  console.log("-i  --input      input README.md file or folder (default: .)");
+  console.log("-p  --port       used port number (default: 3000)");
+  console.log("-l  --live       do live reload on file change");
+  console.log("-o  --open       open in default browser");
+  console.log("-t  --test       test online on https://LiaScript.github.io");
   console.log();
-  console.log(
-    "-r",
-    "--responsivevoiceKey",
-    "   add your own responsivevoice key,"
-  );
-  console.log("                           for your projects from. For more");
-  console.log("                           information visit:");
-  console.log("                           https://responsivevoice.org");
+  console.log("-r  --responsiveVoice  add optional responsiveVoice support,");
+  console.log("                       or pass your own responsiveVoice key.");
+  console.log("                       Adding this feature might slow down");
+  console.log("                       the reloading speed.");
+  console.log("                       For more information visit:");
+  console.log("                       https://responsivevoice.org");
 
   process.exit();
 }
@@ -62,10 +51,22 @@ if (argv.h || argv.help) {
 const port = argv.p || argv.port || 3000;
 const openInBrowser = argv.o || argv.open;
 const input = argv.i || argv.input || ".";
-const liveReload = argv.l || argv.live;
+const liveReload = argv.l || argv.live || false;
 const testOnline = argv.t || argv.test;
-const responsivevoiceKey =
-  argv.r || argv.responsivevoiceKey || process.env.RESPONSIVE_VOICE_KEY;
+
+console.warn("live-reload:", liveReload);
+
+let responsiveVoice: string | undefined;
+
+if (argv.r || argv.responsiveVoice) {
+  let active = argv.r || argv.responsiveVoice;
+
+  if (typeof active === "string") {
+    responsiveVoice = active;
+  } else {
+    responsiveVoice = process.env.RESPONSIVE_VOICE_KEY;
+  }
+}
 
 var project = {
   path: null,
@@ -88,12 +89,12 @@ app.set("view engine", "hbs");
 app.engine(
   "hbs",
   handlebars({
-    layoutsDir: __dirname + "/../views/layouts",
+    layoutsDir: path.normalize(__dirname + "/../views/layouts"),
+    defaultLayout: "main",
     extname: "hbs",
   })
 );
-
-app.use(express.static("assets"));
+app.set("views", path.normalize(__dirname + "/../views"));
 
 app.get("/", function (req, res) {
   res.redirect("/home");
@@ -171,27 +172,44 @@ app.get("/liascript/", function (req, res) {
 });
 
 app.get("/liascript/index.html", function (req, res) {
-  if (liveReload) {
+  // ------------------------------------
+  if (liveReload && responsiveVoice) {
     fs.readFile(liascriptPath + "/index.html", "utf8", function (err, data) {
       res.send(
         data.replace(
           "</head>",
           `<script type='text/javascript' src='/reloader/reloader.js'></script>
-            <script type='text/javascript' src='https://code.responsivevoice.org/responsivevoice.js?key=${responsivevoiceKey}'></script>
-            </head>`
+           <script type='text/javascript' src='https://code.responsivevoice.org/responsivevoice.js?key=${responsiveVoice}'></script>
+           </head>`
         )
       );
     });
-  } else {
+  }
+  // ------------------------------------
+  else if (liveReload) {
     fs.readFile(liascriptPath + "/index.html", "utf8", function (err, data) {
       res.send(
         data.replace(
           "</head>",
-          `<script type='text/javascript' src='https://code.responsivevoice.org/responsivevoice.js?key=${responsivevoiceKey}'></script>
-            </head>`
+          `<script type='text/javascript' src='/reloader/reloader.js'></script></head>`
         )
       );
     });
+  }
+  // ------------------------------------
+  else if (responsiveVoice) {
+    fs.readFile(liascriptPath + "/index.html", "utf8", function (err, data) {
+      res.send(
+        data.replace(
+          "</head>",
+          `<script type='text/javascript' src='https://code.responsivevoice.org/responsivevoice.js?key=${responsiveVoice}'></script></head>`
+        )
+      );
+    });
+  }
+  // ------------------------------------
+  else {
+    res.sendFile(liascriptPath + "/index.html");
   }
 });
 
@@ -229,14 +247,13 @@ if (testOnline && project.readme) {
 }
 
 liascript();
+const server = require("reloadsh.js")(app, liveReload ? [project.path] : []);
+
 if (liveReload) {
   console.log(`Watching for changes in folder: "${project.path}"`);
-  const reload = require("reloadsh.js")(app, [project.path]);
-
-  reload.listen(port);
-} else {
-  app.listen(port);
 }
+
+server.listen(port);
 
 if (openInBrowser) {
   doOpen(localURL);
