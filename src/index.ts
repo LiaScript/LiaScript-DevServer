@@ -28,10 +28,17 @@ function liascript() {
   console.log();
 }
 
+if (argv.v || argv.version) {
+  console.log("LiveServer: 1.0.0");
+  console.log("LiaScript:  0.8.12");
+  process.exit();
+}
+
 if (argv.h || argv.help) {
   liascript();
 
   console.log("-h  --help       show this help");
+  console.log("-v  --version    show version information");
   console.log("-i  --input      input README.md file or folder (default: .)");
   console.log("-p  --port       used port number (default: 3000)");
   console.log("-l  --live       do live reload on file change");
