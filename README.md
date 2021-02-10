@@ -106,7 +106,7 @@ $ liascript-devserver
 The server starts locally on port 3000, thus, if you open your browser and type
 in the URL http://localhost:3000 you should see a similar image
 
-[navigation-preview](pics/navigation.gif)
+![navigation-preview](pics/navigation.gif)
 
 However, if you add the `--input` parameter (shortcut `-i`) and pass it another
 folder, this will be used as the root folder for the subsequent navigation.
@@ -133,7 +133,7 @@ $ liascript-devserver --input ../LiaBooks/docs/README.md
 ✨ hit Ctrl-c to close the server
 ```
 
-[preview](pics/preview.gif)
+![preview](pics/preview.gif)
 
 ### `--open`
 
@@ -157,7 +157,7 @@ manually via pressing `F5` do not use this option.
 $ liascript-devserver --live --open --input ../LiaBooks/docs/README.md
 ```
 
-[live-update](pics/live-update.gif)
+![live-update](pics/live-update.gif)
 
 ### `--port`
 
