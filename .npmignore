@@ -2,4 +2,5 @@
 .cache
 .vscode
 node_modules
+pics
 src
