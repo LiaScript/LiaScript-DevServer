@@ -15,7 +15,7 @@
     "url": "https://github.com/LiaScript/LiaScript-DevServer/issues",
     "email": "LiaScript@web.de"
   },
-  "homepage": "https://github.com/LiaScript/LiaScript-DevServer/README.md",
+  "homepage": "https://github.com/LiaScript/LiaScript-DevServer/blob/main/README.md",
   "bin": {
     "liascript-devserver": "dist/index.js",
     "liadev": "dist/index.js"
@@ -28,7 +28,7 @@
     "devServer"
   ],
   "author": "André Dietrich",
-  "license": "ISC",
+  "license": "MIT",
   "dependencies": {
     "@liascript/editor": "^1.0.0--0.8.12",
     "cors": "^2.8.5",
