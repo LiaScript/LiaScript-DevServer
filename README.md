@@ -89,7 +89,7 @@ LiaScript: 0.8.12
 If you run the command `liascript-devserver` without any commands, the server
 will run from your current directory and give you the following output.
 
-``` bash
+``` text
 $ liascript-devserver
 
  _     _       ____            _       _
@@ -112,7 +112,7 @@ However, if you add the `--input` parameter (shortcut `-i`) and pass it another
 folder, this will be used as the root folder for the subsequent navigation.
 
 ``` bash
-$ liascript-devserver --input ../LiaBooks
+liascript-devserver --input ../LiaBooks
 ```
 
 But you can also refer to a specific Markdown file, in this case, the course
@@ -120,15 +120,9 @@ will be rendered immediately by the LiaScript interpreter, if you open the
 following link in your browser.
 
 ``` bash
-$ liascript-devserver --input ../LiaBooks/docs/README.md
+liascript-devserver --input ../LiaBooks/docs/README.md
 
- _     _       ____            _       _
-| |   (_) __ _/ ___|  ___ _ __(_)_ __ | |_
-| |   | |/ _  \___ \ / __| '__| | '_ \| __|
-| |___| | (_| |___) | (__| |  | | |_) | |_
-|_____|_|\__,_|____/ \___|_|  |_| .__/ \__|
-                                |_|
-
+...
 📡 starting server on http://localhost:3000/liascript/index.html?http://localhost:3000/README.md
 ✨ hit Ctrl-c to close the server
 ```
@@ -142,7 +136,7 @@ will open your default browser with the displayed URL automatically.
 
 
 ``` bash
-$ liascript-devserver --open --input ../LiaBooks
+liascript-devserver --open -i ../LiaBooks
 ```
 
 
@@ -154,7 +148,7 @@ reload will be automatically triggered. If you prefer to reload your changes
 manually via pressing `F5` do not use this option.
 
 ``` bash
-$ liascript-devserver --live --open --input ../LiaBooks/docs/README.md
+liascript-devserver --live -o -i ../LiaBooks/docs/README.md
 ```
 
 ![live-update](pics/live-update.gif)
@@ -167,15 +161,9 @@ folders or the port-number is already occupied by another process or server,
 this will will be shown by the following error message:
 
 ``` bash
-$ liascript-devserver --open --input ../LiaBooks
+liascript-devserver -o -i ../LiaBooks
 
- _     _       ____            _       _
-| |   (_) __ _/ ___|  ___ _ __(_)_ __ | |_
-| |   | |/ _` \___ \ / __| '__| | '_ \| __|
-| |___| | (_| |___) | (__| |  | | |_) | |_
-|_____|_|\__,_|____/ \___|_|  |_| .__/ \__|
-                                |_|
-
+...
 📡 starting server on http://localhost:3000/liascript/index.html?http://localhost:3000/README.md
 ✨ hit Ctrl-c to close the server
 🚨 error => listen EADDRINUSE: address already in use :::3000
@@ -185,15 +173,9 @@ However, by using `--port 3001` or `-p 3001` you can redefine this number and
 run different servers separately:
 
 ``` bash
-$ liascript-devserver --port 3001 -o -i ../LiaBooks
+liascript-devserver --port 3001 -o -i ../LiaBooks
 
- _     _       ____            _       _
-| |   (_) __ _/ ___|  ___ _ __(_)_ __ | |_
-| |   | |/ _` \___ \ / __| '__| | '_ \| __|
-| |___| | (_| |___) | (__| |  | | |_) | |_
-|_____|_|\__,_|____/ \___|_|  |_| .__/ \__|
-                                |_|
-
+...
 📡 starting server on http://localhost:3001/liascript/index.html?http://localhost:3001/README.md
 ✨ hit Ctrl-c to close the server
 ```
@@ -206,15 +188,9 @@ online on the LiaScript project website: https://LiaScript.github.io
 See how the URL changes by setting the parameter `--test`:
 
 ``` bash
-$ liascript-devserver --test -o -i ../LiaBooks/docs/README.md
+liascript-devserver --test -o -i ../LiaBooks/docs/README.md
 
- _     _       ____            _       _
-| |   (_) __ _/ ___|  ___ _ __(_)_ __ | |_
-| |   | |/ _` \___ \ / __| '__| | '_ \| __|
-| |___| | (_| |___) | (__| |  | | |_) | |_
-|_____|_|\__,_|____/ \___|_|  |_| .__/ \__|
-                                |_|
-
+...
 📡 starting server on https://LiaScript.github.io/course/?http://localhost:3000/README.md
 ✨ hit Ctrl-c to close the server
 ```
@@ -234,14 +210,4 @@ own key from your own project/website like this:
 
 ``` bash
 $ liascript-devserver --responsiveVoice YOURKEY -i ../LiaBooks
-
- _     _       ____            _       _
-| |   (_) __ _/ ___|  ___ _ __(_)_ __ | |_
-| |   | |/ _` \___ \ / __| '__| | '_ \| __|
-| |___| | (_| |___) | (__| |  | | |_) | |_
-|_____|_|\__,_|____/ \___|_|  |_| .__/ \__|
-                                |_|
-
-📡 starting server on http://localhost:3000
-✨ hit Ctrl-c to close the server
 ```
