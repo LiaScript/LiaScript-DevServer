@@ -252,10 +252,18 @@ if (testOnline && project.readme) {
 }
 
 liascript();
-const server = require("reloadsh.js")(app, liveReload ? [project.path] : []);
+const server = require("reloadsh.js")(
+  app,
+  liveReload ? [path.join(project.path, project.readme || "")] : []
+);
 
 if (liveReload) {
-  console.log(`✨ watching for changes in folder: "${project.path}"`);
+  console.log(
+    `✨ watching for changes on: "${path.join(
+      project.path,
+      project.readme || ""
+    )}"`
+  );
 }
 
 server.on("error", (e: any) => {
