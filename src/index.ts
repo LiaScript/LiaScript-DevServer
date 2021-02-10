@@ -255,8 +255,13 @@ liascript();
 const server = require("reloadsh.js")(app, liveReload ? [project.path] : []);
 
 if (liveReload) {
-  console.log(`Watching for changes in folder: "${project.path}"`);
+  console.log(`✨ watching for changes in folder: "${project.path}"`);
 }
+
+server.on("error", (e: any) => {
+  console.error("🚨 error =>", e.message);
+  process.exit();
+});
 
 server.listen(port);
 
@@ -264,5 +269,5 @@ if (openInBrowser) {
   doOpen(localURL);
 }
 
-console.log(`starting server on ${localURL}`);
-console.log("hit Ctrl-c to close the server");
+console.log(`📡 starting server on ${localURL}`);
+console.log("✨ hit Ctrl-c to close the server");
