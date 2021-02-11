@@ -2,13 +2,13 @@ require("dotenv").config();
 import express from "express";
 const app = express();
 import doOpen from "open";
-
 import fs from "fs";
 import path from "path";
 const cors = require("cors");
 const handlebars = require("express-handlebars");
 
 const argv = require("minimist")(process.argv.slice(2));
+const ip = require("ip");
 
 const liascriptPath = path.normalize(
   __dirname + "/../node_modules/@liascript/editor/dist"
@@ -277,5 +277,9 @@ if (openInBrowser) {
   doOpen(localURL);
 }
 
-console.log(`📡 starting server on ${localURL}`);
+console.log("📡 starting server");
+console.log(`   - local:           ${localURL}`);
+console.log(
+  `   - on your network: ${localURL.replace("localhost", ip.address())}`
+);
 console.log("✨ hit Ctrl-c to close the server");

@@ -80,7 +80,7 @@ updated separately, we use two different version, one for the devServer and one
 for LiaScript.
 
 ``` text
-DevServer: 1.0.0
+DevServer: 1.0.2
 LiaScript: 0.8.12
 ```
 
@@ -99,7 +99,9 @@ $ liascript-devserver
 |_____|_|\__,_|____/ \___|_|  |_| .__/ \__|
                                 |_|
 
-📡 starting server on http://localhost:3000
+📡 starting server
+   - local:           http://localhost:3000
+   - on your network: http://192.168.2.114:3000
 ✨ hit Ctrl-c to close the server
 ```
 
@@ -123,7 +125,9 @@ following link in your browser.
 liascript-devserver --input ../LiaBooks/docs/README.md
 
 ...
-📡 starting server on http://localhost:3000/liascript/index.html?http://localhost:3000/README.md
+📡 starting server
+   - local:           http://localhost:3000/liascript/index.html?http://localhost:3000/README.md
+   - on your network: http://192.168.2.114:3000/liascript/index.html?http://192.168.2.114:3000/README.md
 ✨ hit Ctrl-c to close the server
 ```
 
@@ -164,7 +168,9 @@ this will will be shown by the following error message:
 liascript-devserver -o -i ../LiaBooks
 
 ...
-📡 starting server on http://localhost:3000/liascript/index.html?http://localhost:3000/README.md
+📡 starting server
+   - local:           http://localhost:3000/liascript/index.html?http://localhost:3000/README.md
+   - on your network: http://192.168.2.114:3000/liascript/index.html?http://192.168.2.114:3000/README.md
 ✨ hit Ctrl-c to close the server
 🚨 error => listen EADDRINUSE: address already in use :::3000
 ```
@@ -176,7 +182,9 @@ run different servers separately:
 liascript-devserver --port 3001 -o -i ../LiaBooks
 
 ...
-📡 starting server on http://localhost:3001/liascript/index.html?http://localhost:3001/README.md
+📡 starting server
+   - local:           http://localhost:3001/liascript/index.html?http://localhost:3001/README.md
+   - on your network: http://192.168.2.114:3001/liascript/index.html?http://192.168.2.114:3001/README.md
 ✨ hit Ctrl-c to close the server
 ```
 
@@ -191,7 +199,9 @@ See how the URL changes by setting the parameter `--test`:
 liascript-devserver --test -o -i ../LiaBooks/docs/README.md
 
 ...
-📡 starting server on https://LiaScript.github.io/course/?http://localhost:3000/README.md
+📡 starting server
+   - local:           https://LiaScript.github.io/course/?http://localhost:3000/README.md
+   - on your network: https://LiaScript.github.io/course/?http://192.168.2.114:3000/README.md
 ✨ hit Ctrl-c to close the server
 ```
 
