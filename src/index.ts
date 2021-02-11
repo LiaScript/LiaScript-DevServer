@@ -40,6 +40,7 @@ if (argv.h || argv.help) {
   console.log("-h  --help       show this help");
   console.log("-v  --version    show version information");
   console.log("-i  --input      input README.md file or folder (default: .)");
+  console.log("-n  --hostname   hostname of your server (default: localhost)");
   console.log("-p  --port       used port number (default: 3000)");
   console.log("-l  --live       do live reload on file change");
   console.log("-o  --open       open in default browser");
@@ -56,6 +57,7 @@ if (argv.h || argv.help) {
 }
 
 const port = argv.p || argv.port || 3000;
+const hostname = argv.n || argv.hostname || "localhost";
 const openInBrowser = argv.o || argv.open;
 const input = argv.i || argv.input || ".";
 const liveReload = argv.l || argv.live || false;
@@ -134,7 +136,7 @@ app.get("/home*", function (req, res) {
         .map((file) => {
           return {
             name: file,
-            href: `http://localhost:${port}/home${req.params[0]}/${file}`,
+            href: `http://${hostname}:${port}/home${req.params[0]}/${file}`,
             isDirectory: fs.lstatSync(currentPath + "/" + file).isDirectory(),
           };
         })
@@ -157,11 +159,11 @@ app.get("/home*", function (req, res) {
     if (req.params[0].toLocaleLowerCase().endsWith(".md")) {
       if (testOnline) {
         res.redirect(
-          `https://LiaScript.github.io/course/?http://localhost:${port}/${req.params[0]}`
+          `https://LiaScript.github.io/course/?http://${hostname}:${port}/${req.params[0]}`
         );
       } else {
         res.redirect(
-          `/liascript/index.html?http://localhost:${port}/${req.params[0]}`
+          `/liascript/index.html?http://${hostname}:${port}/${req.params[0]}`
         );
       }
     } else {
@@ -236,16 +238,16 @@ app.get("/*", cors(), function (req, res) {
   res.sendFile(req.originalUrl, { root: project.path });
 });
 
-let localURL = "http://localhost:" + port;
+let localURL = "http://" + hostname + ":" + port;
 
 if (project.path && project.readme) {
   localURL +=
-    "/liascript/index.html?http://localhost:" + port + "/" + project.readme;
+    "/liascript/index.html?http://" + hostname + ":" + port + "/" + project.readme;
 }
 
 if (testOnline && project.readme) {
   localURL =
-    "https://LiaScript.github.io/course/?http://localhost:" +
+    "https://LiaScript.github.io/course/?http://" + hostname + ":" +
     port +
     "/" +
     project.readme;
@@ -280,6 +282,6 @@ if (openInBrowser) {
 console.log("📡 starting server");
 console.log(`   - local:           ${localURL}`);
 console.log(
-  `   - on your network: ${localURL.replace("localhost", ip.address())}`
+  `   - on your network: ${localURL.replace(localURL, ip.address())}`
 );
 console.log("✨ hit Ctrl-c to close the server");
