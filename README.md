@@ -80,7 +80,7 @@ updated separately, we use two different version, one for the devServer and one
 for LiaScript.
 
 ``` text
-DevServer: 1.0.2
+DevServer: 1.0.3
 LiaScript: 0.8.12
 ```
 
