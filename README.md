@@ -6,8 +6,6 @@ server that can be used locally to preview courses within the browser.
 
 ## Install
 
-
-
 ### NodeJS
 
 If you haven't installed it yet, you will have to install NodeJS for your
@@ -21,7 +19,7 @@ https://nodejs.org/en/download/
 
 Open the terminal on your system and type the following command.
 
-``` bash
+```bash
 npm install -g @liascript/devserver
 ```
 
@@ -36,11 +34,11 @@ You can run the devServer by typing `liascript-devserver` or the short-cut
 `liadev` into your terminal. The following command will print out some help
 information on command-line parameters that you can use:
 
-``` bash
+```bash
 liascript-devserver --help
 ```
 
-``` text
+```text
  _     _       ____            _       _
 | |   (_) __ _/ ___|  ___ _ __(_)_ __ | |_
 | |   | |/ _` \___ \ / __| '__| | '_ \| __|
@@ -71,7 +69,7 @@ liascript-devserver --help
 Use this to identify the current version, but you can alternatively also use the
 shortcut `-v`:
 
-``` bash
+```bash
 liascript-devserver --version
 ```
 
@@ -79,8 +77,8 @@ At the moment this should give the following results. Since LiaScript gets
 updated separately, we use two different version, one for the devServer and one
 for LiaScript.
 
-``` text
-DevServer: 1.0.3
+```text
+DevServer: 1.0.4
 LiaScript: 0.8.12
 ```
 
@@ -89,7 +87,7 @@ LiaScript: 0.8.12
 If you run the command `liascript-devserver` without any commands, the server
 will run from your current directory and give you the following output.
 
-``` text
+```text
 $ liascript-devserver
 
  _     _       ____            _       _
@@ -113,7 +111,7 @@ in the URL http://localhost:3000 you should see a similar image
 However, if you add the `--input` parameter (shortcut `-i`) and pass it another
 folder, this will be used as the root folder for the subsequent navigation.
 
-``` bash
+```bash
 liascript-devserver --input ../LiaBooks
 ```
 
@@ -121,7 +119,7 @@ But you can also refer to a specific Markdown file, in this case, the course
 will be rendered immediately by the LiaScript interpreter, if you open the
 following link in your browser.
 
-``` bash
+```bash
 liascript-devserver --input ../LiaBooks/docs/README.md
 
 ...
@@ -138,11 +136,9 @@ liascript-devserver --input ../LiaBooks/docs/README.md
 **If you want to open the preview immediately, then use this parameter.** It
 will open your default browser with the displayed URL automatically.
 
-
-``` bash
+```bash
 liascript-devserver --open -i ../LiaBooks
 ```
-
 
 ### `--live`
 
@@ -151,7 +147,7 @@ file changes within the defined folder. When you type and save your document, a
 reload will be automatically triggered. If you prefer to reload your changes
 manually via pressing `F5` do not use this option.
 
-``` bash
+```bash
 liascript-devserver --live -o -i ../LiaBooks/docs/README.md
 ```
 
@@ -164,7 +160,7 @@ used as the default value. If you want to start multiple servers on different
 folders or the port-number is already occupied by another process or server,
 this will will be shown by the following error message:
 
-``` bash
+```bash
 liascript-devserver -o -i ../LiaBooks
 
 ...
@@ -178,7 +174,7 @@ liascript-devserver -o -i ../LiaBooks
 However, by using `--port 3001` or `-p 3001` you can redefine this number and
 run different servers separately:
 
-``` bash
+```bash
 liascript-devserver --port 3001 -o -i ../LiaBooks
 
 ...
@@ -195,7 +191,7 @@ online on the LiaScript project website: https://LiaScript.github.io
 
 See how the URL changes by setting the parameter `--test`:
 
-``` bash
+```bash
 liascript-devserver --test -o -i ../LiaBooks/docs/README.md
 
 ...
@@ -209,7 +205,6 @@ liascript-devserver --test -o -i ../LiaBooks/docs/README.md
 > server is only used to serve local data and not the LiaScript website.
 > Additionally you will have to remove the courses manually from the index.
 
-
 ### `--responsiveVoice`
 
 Automated Text2Speech is **Not** enabled by default, since it reduces the reload
@@ -217,7 +212,6 @@ speed. But you can add this support by add this parameter, in this case the
 LiaScript project key is automatically injected. However, you can also pass your
 own key from your own project/website like this:
 
-
-``` bash
+```bash
 $ liascript-devserver --responsiveVoice YOURKEY -i ../LiaBooks
 ```

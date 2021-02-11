@@ -1,54 +1,85 @@
-
 <h4>
-<code>
-<pre>
- _     _       ____            _       _
+  <code>
+    <pre>
+      _     _       ____            _       _
 | |   (_) __ _/ ___|  ___ _ __(_)_ __ | |_
 | |   | |/ _` \___ \ / __| '__| | '_ \| __|
 | |___| | (_| |___) | (__| |  | | |_) | |_
 |_____|_|\__,_|____/ \___|_|  |_| .__/ \__|
                                 |_|
-[ DevServer: 1.0.3--0.8.12 ]
-</pre>
-</code>
+[ DevServer: 1.0.4--0.8.12 ]
+    </pre>
+  </code>
 </h4>
 
-
-<div style="font-size: 1.5em; padding: 20px 0px; display: flex; align-items: center; height: 40px;">
-
-<a href="/">
-    <svg style="display: inline-block; vertical-align: middle;" width="30px" height="30px" viewBox="0 0 1792 1792">
-        <path fill="#babdb6" d="M1472 992v480q0 26-19 45t-45 19h-384v-384h-256v384h-384q-26 0-45-19t-19-45v-480q0-1 .5-3t.5-3l575-474 575 474q1 2 1 6zm223-69l-62 74q-8 9-21 11h-3q-13 0-21-7l-692-577-692 577q-12 8-24 7-13-2-21-11l-62-74q-8-10-7-23.5t11-21.5l719-599q32-26 76-26t76 26l244 204v-195q0-14 9-23t23-9h192q14 0 23 9t9 23v408l219 182q10 8 11 21.5t-7 23.5z">
-        </path>
+<div
+  style='font-size: 1.5em; padding: 20px 0px; display: flex; align-items: center; height: 40px;'
+>
+  <a href='/'>
+    <svg
+      style='display: inline-block; vertical-align: middle;'
+      width='30px'
+      height='30px'
+      viewBox='0 0 1792 1792'
+    >
+      <path
+        fill='#babdb6'
+        d='M1472 992v480q0 26-19 45t-45 19h-384v-384h-256v384h-384q-26 0-45-19t-19-45v-480q0-1 .5-3t.5-3l575-474 575 474q1 2 1 6zm223-69l-62 74q-8 9-21 11h-3q-13 0-21-7l-692-577-692 577q-12 8-24 7-13-2-21-11l-62-74q-8-10-7-23.5t11-21.5l719-599q32-26 76-26t76 26l244 204v-195q0-14 9-23t23-9h192q14 0 23 9t9 23v408l219 182q10 8 11 21.5t-7 23.5z'
+      >
+      </path>
     </svg>
-</a>
-{{#each path}}
-<span style="padding: 0px 6px;">/ <a style="color: #60B5CC;" href="{{this.href}}">{{this.name}}</a></span>
-{{/each}}
-
-
+  </a>
+  {{#each path}}
+    <span style='padding: 0px 6px;'>
+      /
+      <a style='color: #60B5CC;' href="{{this.href}}">
+        {{this.name}}
+      </a>
+    </span>
+  {{/each}}
 </div>
 
+<div style='border: 1px solid #c7c7c7; border-radius: 5px;'>
+  <div
+    style='display: block; padding: 7px 12px; background-color: #fafafa; border-radius: 5px; text-align: center; font-weight: bold;'
+  >
+    File Navigation
+  </div>
 
-<div style="border: 1px solid #c7c7c7; border-radius: 5px;">
-    <div style="display: block; padding: 7px 12px; background-color: #fafafa; border-radius: 5px; text-align: center; font-weight: bold;">
-        File Navigation
+  {{#each file}}
+    <div
+      style='display: block; padding: 7px 12px; border-top: 1px solid #e1e1e1'
+    >
+      {{#if this.isDirectory}}
+        <svg
+          style='display: inline-block; vertical-align: middle; padding-right: 0.5em;'
+          width='16px'
+          height='16px'
+          viewBox='0 0 1792 1792'
+        >
+          <path
+            fill='#babdb6'
+            d='M1728 608v704q0 92-66 158t-158 66h-1216q-92 0-158-66t-66-158v-960q0-92 66-158t158-66h320q92 0 158 66t66 158v32h672q92 0 158 66t66 158z'
+          >
+          </path>
+        </svg>
+      {{else}}
+        <svg
+          style='display: inline-block; vertical-align: middle; padding-right: 0.5em;'
+          width='16px'
+          height='16px'
+          viewBox='0 0 1792 1792'
+        >
+          <path
+            fill='#babdb6'
+            d='M1596 380q28 28 48 76t20 88v1152q0 40-28 68t-68 28h-1344q-40 0-68-28t-28-68v-1600q0-40 28-68t68-28h896q40 0 88 20t76 48zm-444-244v376h376q-10-29-22-41l-313-313q-12-12-41-22zm384 1528v-1024h-416q-40 0-68-28t-28-68v-416h-768v1536h1280zm-1024-864q0-14 9-23t23-9h704q14 0 23 9t9 23v64q0 14-9 23t-23 9h-704q-14 0-23-9t-9-23v-64zm736 224q14 0 23 9t9 23v64q0 14-9 23t-23 9h-704q-14 0-23-9t-9-23v-64q0-14 9-23t23-9h704zm0 256q14 0 23 9t9 23v64q0 14-9 23t-23 9h-704q-14 0-23-9t-9-23v-64q0-14 9-23t23-9h704z'
+          >
+          </path>
+        </svg>
+      {{/if}}
+      <a style='color: #60B5CC' href="{{this.href}}">
+        {{this.name}}
+      </a>
     </div>
-
-    {{#each file}}
-        <div style="display: block; padding: 7px 12px; border-top: 1px solid #e1e1e1">
-            {{#if this.isDirectory}}
-                <svg style="display: inline-block; vertical-align: middle; padding-right: 0.5em;" width="16px" height="16px" viewBox="0 0 1792 1792">
-                    <path fill="#babdb6" d="M1728 608v704q0 92-66 158t-158 66h-1216q-92 0-158-66t-66-158v-960q0-92 66-158t158-66h320q92 0 158 66t66 158v32h672q92 0 158 66t66 158z">
-                    </path>
-                </svg>
-            {{else}}
-                <svg style="display: inline-block; vertical-align: middle; padding-right: 0.5em;" width="16px" height="16px" viewBox="0 0 1792 1792">
-                    <path fill="#babdb6" d="M1596 380q28 28 48 76t20 88v1152q0 40-28 68t-68 28h-1344q-40 0-68-28t-28-68v-1600q0-40 28-68t68-28h896q40 0 88 20t76 48zm-444-244v376h376q-10-29-22-41l-313-313q-12-12-41-22zm384 1528v-1024h-416q-40 0-68-28t-28-68v-416h-768v1536h1280zm-1024-864q0-14 9-23t23-9h704q14 0 23 9t9 23v64q0 14-9 23t-23 9h-704q-14 0-23-9t-9-23v-64zm736 224q14 0 23 9t9 23v64q0 14-9 23t-23 9h-704q-14 0-23-9t-9-23v-64q0-14 9-23t23-9h704zm0 256q14 0 23 9t9 23v64q0 14-9 23t-23 9h-704q-14 0-23-9t-9-23v-64q0-14 9-23t23-9h704z">
-                    </path>
-                </svg>
-            {{/if}}
-            <a style="color: #60B5CC" href="{{this.href}}">{{this.name}}</a>
-        </div>
-    {{/each}}
+  {{/each}}
 </div>
