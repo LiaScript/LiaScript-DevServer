@@ -11,11 +11,11 @@ const argv = require('minimist')(process.argv.slice(2))
 const ip = require('ip')
 
 const liascriptPath = path.resolve(
-  path.join(process.env.PWD, 'node_modules/@liascript/editor/dist')
+  path.join(__dirname, '../node_modules/@liascript/editor/dist')
 )
 
 const reloadPath = path.resolve(
-  path.join(process.env.PWD, 'node_modules/reloadsh.js/reloader.browser.js')
+  path.join(__dirname, '../node_modules/reloadsh.js/reloader.browser.js')
 )
 
 function liascript() {
@@ -29,7 +29,7 @@ function liascript() {
 }
 
 if (argv.v || argv.version) {
-  console.log('DevServer: 1.0.6')
+  console.log('DevServer: 1.0.7')
   console.log('LiaScript: 0.10.8')
   process.exit()
 }
@@ -96,12 +96,12 @@ app.set('view engine', 'hbs')
 app.engine(
   'hbs',
   handlebars({
-    layoutsDir: path.normalize(process.env.PWD + '/views/layouts'),
+    layoutsDir: path.resolve(__dirname + '/../views/layouts'),
     defaultLayout: 'main',
     extname: 'hbs',
   })
 )
-app.set('views', path.normalize(process.env.PWD + '/views'))
+app.set('views', path.resolve(__dirname + '/../views'))
 
 app.get('/', function (req, res) {
   res.redirect('/home')
