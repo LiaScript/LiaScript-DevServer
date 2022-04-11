@@ -96,12 +96,12 @@ app.set('view engine', 'hbs')
 app.engine(
   'hbs',
   handlebars({
-    layoutsDir: path.normalize(__dirname + '/../views/layouts'),
+    layoutsDir: path.normalize(process.env.PWD + '/views/layouts'),
     defaultLayout: 'main',
     extname: 'hbs',
   })
 )
-app.set('views', path.normalize(__dirname + '/../views'))
+app.set('views', path.normalize(process.env.PWD + '/views'))
 
 app.get('/', function (req, res) {
   res.redirect('/home')
