@@ -33,11 +33,11 @@
     "@liascript/editor": "^1.1.0--0.10.8",
     "cors": "^2.8.5",
     "dotenv": "^5.0.1",
-    "express": "^4.17.1",
-    "express-handlebars": "^5.2.0",
+    "express": "^4.17.3",
+    "express-handlebars": "^5.3.5",
     "ip": "^1.1.5",
-    "minimist": "^1.2.5",
-    "open": "^7.4.0",
+    "minimist": "^1.2.6",
+    "open": "^7.4.2",
     "reloadsh.js": "^2.2.1"
   },
   "devDependencies": {

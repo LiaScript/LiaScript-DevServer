@@ -10,12 +10,12 @@ const handlebars = require('express-handlebars')
 const argv = require('minimist')(process.argv.slice(2))
 const ip = require('ip')
 
-const liascriptPath = path.normalize(
-  __dirname + '/../node_modules/@liascript/editor/dist'
+const liascriptPath = path.resolve(
+  path.join(process.env.PWD, 'node_modules/@liascript/editor/dist')
 )
 
-const reloadPath = path.normalize(
-  __dirname + '/../node_modules/reloadsh.js/reloader.browser.js'
+const reloadPath = path.resolve(
+  path.join(process.env.PWD, 'node_modules/reloadsh.js/reloader.browser.js')
 )
 
 function liascript() {
@@ -30,7 +30,7 @@ function liascript() {
 
 if (argv.v || argv.version) {
   console.log('DevServer: 1.0.5')
-  console.log('LiaScript: 0.10.8')
+  console.log('LiaScript: 0.10.7')
   process.exit()
 }
 
