@@ -10,12 +10,12 @@ const handlebars = require('express-handlebars')
 const argv = require('minimist')(process.argv.slice(2))
 const ip = require('ip')
 
-const liascriptPath = path.resolve(
-  path.join(__dirname, '../node_modules/@liascript/editor/dist')
-)
+const dirname = argv.node_modules || path.join(__dirname, '../node_modules')
+
+const liascriptPath = path.resolve(path.join(dirname, '@liascript/editor/dist'))
 
 const reloadPath = path.resolve(
-  path.join(__dirname, '../node_modules/reloadsh.js/reloader.browser.js')
+  path.join(dirname, 'reloadsh.js/reloader.browser.js')
 )
 
 function liascript() {
