@@ -305,7 +305,7 @@ export function start(
   console.log('📡 starting server')
   console.log(`   - local:           ${localURL}`)
   console.log(
-    `   - on your network: ${localURL.replace(localURL, ip.address())}`
+    `   - on your network: ${localURL.replace(hostname, ip.address())}`
   )
 
   serverPointer = server
