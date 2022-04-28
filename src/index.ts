@@ -44,12 +44,19 @@ liascript()
 
 server.init(argv.node_modules)
 
-server.run(
-  argv.p || argv.port,
-  argv.n || argv.hostname,
-  argv.i || argv.input,
-  argv.o || argv.open,
-  argv.r || argv.responsiveVoice || process.env.RESPONSIVE_VOICE_KEY,
-  argv.l || argv.live,
-  argv.t || argv.test
-)
+try {
+  server.start(
+    argv.p || argv.port,
+    argv.n || argv.hostname,
+    argv.i || argv.input,
+    argv.r || argv.responsiveVoice || process.env.RESPONSIVE_VOICE_KEY,
+    argv.l || argv.live,
+    argv.o || argv.open,
+    argv.t || argv.test
+  )
+} catch (e) {
+  console.error('Error: ', e.message)
+  process.exit()
+}
+
+console.log('✨ hit Ctrl-c to close the server')

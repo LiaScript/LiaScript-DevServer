@@ -1,30 +1,40 @@
 require('dotenv').config()
-import express from 'express'
-const app = express()
-import doOpen from 'open'
-import fs from 'fs'
-import path from 'path'
+import * as express from 'express'
+
+import * as fs from 'fs'
+import * as path from 'path'
+
 const cors = require('cors')
 const handlebars = require('express-handlebars')
 const ip = require('ip')
+const open = require('open')
 
-var dirname
-var liascriptPath
-var reloadPath
+const app: express.Application = express()
+
+var dirname = ''
+var node_modules
+var reloadPath = ''
+var liascriptPath = ''
+
+var serverPointer: any
 
 init(__dirname)
 
-export function init(node_modules?: string) {
-  dirname = node_modules || path.join(__dirname, '../node_modules')
+export function init(serverPath?: string, nodeModulesPath?: string) {
+  dirname = serverPath || path.join(__dirname, '..')
 
-  liascriptPath = path.resolve(path.join(dirname, '@liascript/editor/dist'))
+  node_modules = nodeModulesPath || path.join(dirname, 'node_modules')
 
   reloadPath = path.resolve(
-    path.join(dirname, 'reloadsh.js/reloader.browser.js')
+    path.join(node_modules, 'reloadsh.js/reloader.browser.js')
+  )
+
+  liascriptPath = path.resolve(
+    path.join(node_modules, '@liascript/editor/dist')
   )
 }
 
-export function run(
+export function start(
   port?: number,
   hostname?: string,
   input?: string,
@@ -40,9 +50,12 @@ export function run(
   liveReload = liveReload || false
   testOnline = testOnline || false
 
-  var project = {
-    path: null,
-    readme: null,
+  var project: {
+    path: string
+    readme?: string
+  } = {
+    path: input,
+    readme: undefined,
   }
 
   if (input) {
@@ -61,30 +74,30 @@ export function run(
   app.engine(
     'hbs',
     handlebars({
-      layoutsDir: path.resolve(__dirname + '/../views/layouts'),
+      layoutsDir: path.resolve(path.join(dirname, 'views/layouts')),
       defaultLayout: 'main',
       extname: 'hbs',
     })
   )
-  app.set('views', path.resolve(__dirname + '/../views'))
+  app.set('views', path.resolve(path.join(dirname, 'views')))
 
-  app.get('/', function (req, res) {
+  app.get('/', function (req: express.Request, res: express.Response) {
     res.redirect('/home')
   })
 
-  app.get('/home*', function (req, res) {
+  app.get('/home*', function (req: express.Request, res: express.Response) {
     const currentPath = project.path + '/' + req.params[0]
 
     const stats = fs.lstatSync(currentPath)
 
     // Is it a directory?
     if (stats.isDirectory()) {
-      const files = fs.readdirSync(currentPath).filter((e) => {
+      const files = fs.readdirSync(currentPath).filter((e: string) => {
         return e[0] !== '.'
       })
 
       let basePath = '/home'
-      let pathNames = req.params[0].split('/').filter((e) => {
+      let pathNames = req.params[0].split('/').filter((e: string) => {
         return e !== ''
       })
 
@@ -98,27 +111,40 @@ export function run(
         layout: 'index',
         path: paths,
         file: files
-          .map((file) => {
+          .map((file: string) => {
             return {
               name: file,
               href: `http://${hostname}:${port}/home${req.params[0]}/${file}`,
               isDirectory: fs.lstatSync(currentPath + '/' + file).isDirectory(),
             }
           })
-          .sort((a, b) => {
-            if (a.isDirectory && !b.isDirectory) {
-              return -1
-            } else if (!a.isDirectory && b.isDirectory) {
-              return 1
-            } else {
-              if (a.name.toLocaleLowerCase() < b.name.toLocaleLowerCase()) {
-                return -1
-              } else {
-                return 1
+          .sort(
+            (
+              a: {
+                name: string
+                href: string
+                isDirectory: boolean
+              },
+              b: {
+                name: string
+                href: string
+                isDirectory: boolean
               }
+            ) => {
+              if (a.isDirectory && !b.isDirectory) {
+                return -1
+              } else if (!a.isDirectory && b.isDirectory) {
+                return 1
+              } else {
+                if (a.name.toLocaleLowerCase() < b.name.toLocaleLowerCase()) {
+                  return -1
+                } else {
+                  return 1
+                }
+              }
+              return 0
             }
-            return 0
-          }),
+          ),
       })
     } else if (stats.isFile()) {
       if (req.params[0].toLocaleLowerCase().endsWith('.md')) {
@@ -139,67 +165,94 @@ export function run(
     }
   })
 
-  app.get('/liascript/', function (req, res) {
-    res.redirect('/liascript/index.html')
-  })
+  app.get(
+    '/liascript/',
+    function (req: express.Request, res: express.Response) {
+      res.redirect('/liascript/index.html')
+    }
+  )
 
-  app.get('/liascript/index.html', function (req, res) {
-    // ------------------------------------
-    if (liveReload && responsiveVoice) {
-      fs.readFile(liascriptPath + '/index.html', 'utf8', function (err, data) {
-        res.send(
-          data.replace(
-            '</head>',
-            `<script type='text/javascript' src='/reloader/reloader.js'></script>
+  app.get(
+    '/liascript/index.html',
+    function (req: express.Request, res: express.Response) {
+      // ------------------------------------
+      if (liveReload && responsiveVoice) {
+        fs.readFile(
+          liascriptPath + '/index.html',
+          'utf8',
+          function (err: any, data: string) {
+            res.send(
+              data.replace(
+                '</head>',
+                `<script type='text/javascript' src='/reloader/reloader.js'></script>
              <script type='text/javascript' src='https://code.responsivevoice.org/responsivevoice.js?key=${responsiveVoice}'></script>
              </head>`
-          )
+              )
+            )
+          }
         )
-      })
-    }
-    // ------------------------------------
-    else if (liveReload) {
-      fs.readFile(liascriptPath + '/index.html', 'utf8', function (err, data) {
-        res.send(
-          data.replace(
-            '</head>',
-            `<script type='text/javascript' src='/reloader/reloader.js'></script></head>`
-          )
+      }
+      // ------------------------------------
+      else if (liveReload) {
+        fs.readFile(
+          liascriptPath + '/index.html',
+          'utf8',
+          function (err: any, data: string) {
+            res.send(
+              data.replace(
+                '</head>',
+                `<script type='text/javascript' src='/reloader/reloader.js'></script></head>`
+              )
+            )
+          }
         )
-      })
-    }
-    // ------------------------------------
-    else if (responsiveVoice) {
-      fs.readFile(liascriptPath + '/index.html', 'utf8', function (err, data) {
-        res.send(
-          data.replace(
-            '</head>',
-            `<script type='text/javascript' src='https://code.responsivevoice.org/responsivevoice.js?key=${responsiveVoice}'></script></head>`
-          )
+      }
+      // ------------------------------------
+      else if (responsiveVoice) {
+        fs.readFile(
+          liascriptPath + '/index.html',
+          'utf8',
+          function (err: any, data: string) {
+            res.send(
+              data.replace(
+                '</head>',
+                `<script type='text/javascript' src='https://code.responsivevoice.org/responsivevoice.js?key=${responsiveVoice}'></script></head>`
+              )
+            )
+          }
         )
-      })
+      }
+      // ------------------------------------
+      else {
+        res.sendFile(liascriptPath + '/index.html')
+      }
     }
-    // ------------------------------------
-    else {
-      res.sendFile(liascriptPath + '/index.html')
-    }
-  })
+  )
 
   // load everything from the liascript folder
-  app.get('/liascript/*', function (req, res) {
-    res.sendFile(req.params[0], { root: liascriptPath })
-  })
+  app.get(
+    '/liascript/*',
+    function (req: express.Request, res: express.Response) {
+      res.sendFile(req.params[0], { root: liascriptPath })
+    }
+  )
   // ignore this one
-  app.get('/sw.js', function (req, res) {})
-  app.get('/favicon.ico', function (req, res) {})
+  app.get('/sw.js', function (req: express.Request, res: express.Response) {})
+  app.get(
+    '/favicon.ico',
+    function (req: express.Request, res: express.Response) {}
+  )
 
   // pass the reloader, to be used for live updates
-  app.get('/reloader/reloader.js', function (req, res) {
-    res.sendFile(reloadPath)
-  })
+  app.get(
+    '/reloader/reloader.js',
+    function (req: express.Request, res: express.Response) {
+      res.sendFile(reloadPath)
+    }
+  )
 
   // everything else comes from the current project folder
-  app.get('/*', cors(), function (req, res) {
+  app.get('/*', cors(), function (req: express.Request, res: express.Response) {
     res.sendFile(req.originalUrl, { root: project.path })
   })
 
@@ -233,21 +286,20 @@ export function run(
   if (liveReload) {
     console.log(
       `✨ watching for changes on: "${path.join(
-        project.path,
+        project.path || '',
         project.readme || ''
       )}"`
     )
   }
 
   server.on('error', (e: any) => {
-    console.error('🚨 error =>', e.message)
-    process.exit()
+    throw e
   })
 
   server.listen(port)
 
   if (openInBrowser) {
-    doOpen(localURL)
+    open(localURL)
   }
 
   console.log('📡 starting server')
@@ -255,5 +307,12 @@ export function run(
   console.log(
     `   - on your network: ${localURL.replace(localURL, ip.address())}`
   )
-  console.log('✨ hit Ctrl-c to close the server')
+
+  serverPointer = server
+}
+
+export function stop() {
+  if (serverPointer) {
+    serverPointer.close()
+  }
 }
