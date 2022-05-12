@@ -8,13 +8,36 @@ const cors = require('cors')
 const handlebars = require('express-handlebars')
 const ip = require('ip')
 const open = require('open')
+const bodyParser = require('body-parser')
 
 const app: express.Application = express()
+app.use(bodyParser.json())
 
 var dirname = ''
 var node_modules
 var reloadPath = ''
 var liascriptPath = ''
+
+const gotoScript = `<script>
+if (!window.LIA) {
+  window.LIA = {}
+}
+
+var filename__ = document.location.search.replace("?"+document.location.origin, "")
+
+window.LIA.lineGoto = function(linenumber) {
+  fetch("/lineGoto", {
+    method: "POST",
+    headers: {'Content-Type': 'application/json'}, 
+    body: JSON.stringify({
+      "linenumber": linenumber,
+      "filename": filename__
+    })
+  }).then(res => {
+    console.log("Goto line", linenumber);
+  });
+}
+</script>`
 
 var serverPointer: any
 
@@ -41,7 +64,8 @@ export function start(
   responsiveVoice?: string,
   liveReload?: boolean,
   openInBrowser?: boolean,
-  testOnline?: boolean
+  testOnline?: boolean,
+  gotoCallback?: (linenumber: number, filename: string) => void
 ) {
   port = port || 3000
   hostname = hostname || 'localhost'
@@ -186,6 +210,7 @@ export function start(
                 '</head>',
                 `<script type='text/javascript' src='/reloader/reloader.js'></script>
              <script type='text/javascript' src='https://code.responsivevoice.org/responsivevoice.js?key=${responsiveVoice}'></script>
+             ${gotoScript}
              </head>`
               )
             )
@@ -201,7 +226,9 @@ export function start(
             res.send(
               data.replace(
                 '</head>',
-                `<script type='text/javascript' src='/reloader/reloader.js'></script></head>`
+                `<script type='text/javascript' src='/reloader/reloader.js'></script>
+                ${gotoScript}
+                </head>`
               )
             )
           }
@@ -216,7 +243,9 @@ export function start(
             res.send(
               data.replace(
                 '</head>',
-                `<script type='text/javascript' src='https://code.responsivevoice.org/responsivevoice.js?key=${responsiveVoice}'></script></head>`
+                `<script type='text/javascript' src='https://code.responsivevoice.org/responsivevoice.js?key=${responsiveVoice}'></script>
+                ${gotoScript}
+                </head>`
               )
             )
           }
@@ -224,7 +253,13 @@ export function start(
       }
       // ------------------------------------
       else {
-        res.sendFile(liascriptPath + '/index.html')
+        fs.readFile(
+          liascriptPath + '/index.html',
+          'utf8',
+          function (err: any, data: string) {
+            res.send(data.replace('</head>', `${gotoScript}</head>`))
+          }
+        )
       }
     }
   )
@@ -250,6 +285,22 @@ export function start(
       res.sendFile(reloadPath)
     }
   )
+
+  // react to click-events
+  app.post('/lineGoto', function (req: express.Request, res: express.Response) {
+    if (gotoCallback) {
+      try {
+        const linenumber = req.body.linenumber
+        const filename = req.body.filename
+        gotoCallback(linenumber, filename)
+      } catch (e) {
+        console.warn(
+          "lineGoto event with wrong datatype, you have to provide {'linenumber': int, 'filename': string}"
+        )
+      }
+    }
+    return res.json({})
+  })
 
   // everything else comes from the current project folder
   app.get('/*', cors(), function (req: express.Request, res: express.Response) {
