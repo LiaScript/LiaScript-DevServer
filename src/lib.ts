@@ -8,7 +8,6 @@ const cors = require('cors')
 const handlebars = require('express-handlebars')
 const ip = require('ip')
 const open = require('open')
-const uuid = require('uuid')
 const bodyParser = require('body-parser')
 
 const app: express.Application = express()
