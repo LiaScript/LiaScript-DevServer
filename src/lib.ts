@@ -8,6 +8,7 @@ const cors = require('cors')
 const handlebars = require('express-handlebars')
 const ip = require('ip')
 const open = require('open')
+const uuid = require('uuid')
 const bodyParser = require('body-parser')
 
 const app: express.Application = express()
@@ -17,6 +18,8 @@ var dirname = ''
 var node_modules
 var reloadPath = ''
 var liascriptPath = ''
+
+var clients = []
 
 const gotoScript = `<script>
 if (!window.LIA) {
@@ -37,6 +40,19 @@ window.LIA.lineGoto = function(linenumber) {
     console.log("Goto line", linenumber);
   });
 }
+
+const events = new EventSource('/gotoLine');
+events.onmessage = (event) => {
+  try {
+    const data = JSON.parse(event.data);
+    if (data.filename == filename__) {
+      console.log("goto line:", data.linenumber);
+      window.LIA.gotoLine(data.linenumber)
+    }
+  } catch (e) {
+    console.warn("gotoLine failed")
+  }
+};
 </script>`
 
 var serverPointer: any
@@ -108,6 +124,8 @@ export function start(
   app.get('/', function (req: express.Request, res: express.Response) {
     res.redirect('/home')
   })
+
+  app.get('/gotoLine', eventsHandler)
 
   app.get('/home*', function (req: express.Request, res: express.Response) {
     const currentPath = project.path + '/' + req.params[0]
@@ -366,4 +384,46 @@ export function stop() {
   if (serverPointer) {
     serverPointer.close()
   }
+}
+
+export function gotoLine(linenumber: number, filename: string) {
+  clients.forEach((client) =>
+    client.response.write(
+      `data: ${JSON.stringify({
+        linenumber: linenumber,
+        filename: filename,
+      })}\n\n`
+    )
+  )
+}
+
+function eventsHandler(
+  request: express.Request,
+  response: express.Response,
+  next: any
+) {
+  const headers = {
+    'Content-Type': 'text/event-stream',
+    Connection: 'keep-alive',
+    'Cache-Control': 'no-cache',
+  }
+  response.writeHead(200, headers)
+
+  const data = `data: \n\n`
+
+  response.write(data)
+
+  const clientId = Date.now()
+
+  const newClient = {
+    id: clientId,
+    response,
+  }
+
+  clients.push(newClient)
+
+  request.on('close', () => {
+    console.log(`${clientId} Connection closed`)
+    clients = clients.filter((client) => client.id !== clientId)
+  })
 }
