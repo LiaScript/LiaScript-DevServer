@@ -79,7 +79,7 @@ for LiaScript.
 
 ```text
 DevServer: 1.1.2
-LiaScript: 0.10.30
+LiaScript: 0.10.31
 ```
 
 ### `--input`
