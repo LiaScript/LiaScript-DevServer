@@ -1,6 +1,6 @@
 {
   "name": "@liascript/devserver",
-  "version": "1.1.2--0.12.11",
+  "version": "1.1.2--0.12.12",
   "description": "Run a development server for LiaScript locally",
   "main": "dist/index.js",
   "scripts": {
@@ -32,7 +32,7 @@
   "author": "André Dietrich",
   "license": "MIT",
   "dependencies": {
-    "@liascript/editor": "^1.1.2--0.12.11",
+    "@liascript/editor": "^1.1.2--0.12.12",
     "body-parser": "^1.20.0",
     "cors": "^2.8.5",
     "dotenv": "^5.0.1",
