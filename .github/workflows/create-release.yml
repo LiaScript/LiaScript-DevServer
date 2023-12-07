@@ -1,7 +1,7 @@
 on:
   push:
-    branches:
-      - main
+    tags: 
+      - "*"
 
 name: Create Release
 
@@ -28,8 +28,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: 1.2.25
-          release_name: Release 1.2.25
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ github.ref }}
           body: |
             Download your OS specific binary from below
           draft: false
