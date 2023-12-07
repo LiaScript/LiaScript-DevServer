@@ -16,6 +16,8 @@ jobs:
             node-version: '14'
         - name: Create Release
           run: |
+            npm install -g pkg
+            
             npm install
             npm run build
             npm run release
