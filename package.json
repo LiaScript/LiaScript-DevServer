@@ -7,7 +7,7 @@
     "build": "npx parcel build src/index.ts && npm run shebang && npm run lib",
     "lib": "tsc --module commonjs -d src/lib.ts --outDir dist",
     "shebang": "sed  -i '1i #!/usr/bin/env node\\n' dist/index.js && chmod +x dist/index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "package": "pkg . -C GZip"
   },
   "repository": {
     "type": "git",
@@ -56,5 +56,12 @@
       "context": "node",
       "optimize": true
     }
+  },
+  "pkg": {
+    "assets": [
+      "node_modules/@liascript/editor/dist/**/*",
+      "node_modules/reloadsh.js/reloader.browser.js",
+      "views/**/*"
+    ]
   }
 }
