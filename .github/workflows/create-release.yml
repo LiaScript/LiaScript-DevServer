@@ -1,25 +1,35 @@
 on:
-    push:
-        branches:
-        - main
+  push:
+    branches:
+      - main
 
 name: Create Release
 
-
 jobs:
-    build:
-        runs-on: ubuntu-latest
-        steps:
-        - uses: actions/checkout@v2
-        - uses: actions/setup-node@v2
-          with:
-            node-version: '14'
-        - name: Create Release
-          run: |
-            npm install -g pkg
-            
-            npm install
-            npm run build
-            npm run release
-            
-    
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v2
+      - name: Setup Node
+        uses: actions/setup-node@v2
+        with:
+          node-version: '14'
+      - name: Create Release
+        run: |
+          npm install -g pkg
+
+          npm install
+          npm run build
+          npm run release
+      - name: Upload Release
+        uses: actions/create-release@v1
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ github.ref }}
+          body: |
+            Changes in this Release
+            - Added Feature 1
+            - Added Feature 2
+          draft: false
+          prerelease: false
