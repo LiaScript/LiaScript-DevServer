@@ -1,0 +1,23 @@
+on:
+    push:
+        branches:
+        - main
+
+name: Create Release
+
+
+jobs:
+    build:
+        runs-on: ubuntu-latest
+        steps:
+        - uses: actions/checkout@v2
+        - uses: actions/setup-node@v2
+          with:
+            node-version: '14'
+        - name: Create Release
+          run: |
+            npm install
+            npm run build
+            npm run release
+            
+    

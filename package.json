@@ -7,7 +7,7 @@
     "build": "npx parcel build src/index.ts && npm run shebang && npm run lib",
     "lib": "tsc --module commonjs -d src/lib.ts --outDir dist",
     "shebang": "sed  -i '1i #!/usr/bin/env node\\n' dist/index.js && chmod +x dist/index.js",
-    "package": "pkg . -C GZip"
+    "release": "pkg . -C GZip"
   },
   "repository": {
     "type": "git",
