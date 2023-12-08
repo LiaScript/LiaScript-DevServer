@@ -18,7 +18,7 @@ var node_modules
 var reloadPath = ''
 var liascriptPath = ''
 
-var clients = []
+var clients: any[] = []
 
 const gotoScript = `<script>
 if (!window.LIA) {
