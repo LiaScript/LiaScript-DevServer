@@ -40,8 +40,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./devserver-linux
-          asset_name: devserver-linux
+          asset_path: ./release/linux/liascript-devserver
+          asset_name: liascript-devserver-linux
           asset_content_type: application/x-executable
       - name: Upload MacOS Asset
         uses: actions/upload-release-asset@v1
@@ -49,8 +49,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./devserver-macos
-          asset_name: devserver-macos
+          asset_path: ./release/macos/liascript-devserver
+          asset_name: liascript-devserver-macos
           asset_content_type: application/octet-stream
       - name: Upload Windows Asset
         uses: actions/upload-release-asset@v1
@@ -58,7 +58,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./devserver-win.exe
-          asset_name: devserver-win.exe
+          asset_path: ./release/windows/liascript-devserver.exe
+          asset_name: liascript-devserver-win.exe
           asset_content_type: application/vnd.microsoft.portable-executable
     

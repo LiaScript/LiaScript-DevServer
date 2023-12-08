@@ -7,7 +7,10 @@
     "build": "npx parcel build src/index.ts && npm run shebang && npm run lib",
     "lib": "tsc --module commonjs -d src/lib.ts --outDir dist",
     "shebang": "sed  -i '1i #!/usr/bin/env node\\n' dist/index.js && chmod +x dist/index.js",
-    "release": "pkg . -C GZip"
+    "release": "npm run release_win && npm run release_linux && npm run release_macos",
+    "release_win": "pkg . -t node18-win --output release/windows/liascript-devserver -C GZip",
+    "release_linux": "pkg . -t node18-linux --output release/linux/liascript-devserver -C GZip",
+    "release_macos": "pkg . -t node18-macos --output release/macos/liascript-devserver -C GZip"
   },
   "repository": {
     "type": "git",

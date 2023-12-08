@@ -6,6 +6,12 @@ server that can be used locally to preview courses within the browser.
 
 ## Install
 
+You can directly download the latest version for your system from the assets:
+
+https://github.com/LiaScript/LiaScript-DevServer/releases/
+
+or install it via the NodeJS package manager `npm` ...
+
 ### NodeJS
 
 If you haven't installed it yet, you will have to install NodeJS for your
