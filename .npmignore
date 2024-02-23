@@ -1,5 +1,6 @@
 .env
 .cache
+.github
 .parcel-cache
 .vscode
 node_modules
