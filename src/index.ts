@@ -13,7 +13,7 @@ function liascript() {
 }
 
 if (argv.v || argv.version) {
-  console.log('DevServer: 1.1.14')
+  console.log('DevServer: 1.1.15')
   console.log('LiaScript: 0.15.1')
   process.exit()
 }
