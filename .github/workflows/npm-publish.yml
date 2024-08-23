@@ -1,0 +1,37 @@
+on:
+  push:
+    tags:
+      - '*'
+  workflow_dispatch:
+
+name: Publish on NPM
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v2
+
+      - name: Setup Node
+        uses: actions/setup-node@v2
+        with:
+          node-version: '16'
+
+      - name: Install Node.js dependencies
+        run: '[[ -f package-lock.json || -f npm-shrinkwrap.json ]] && npm ci || true'
+
+      - name: Building Project
+        run: npm run build
+
+      - name: Configure npm
+        run: |
+          npm config set //registry.npmjs.org/:_authToken ${NODE_AUTH_TOKEN}
+          npm config list
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_PUBLISH_KEY }}
+
+      - name: Publish to npm
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_PUBLISH_KEY }}
