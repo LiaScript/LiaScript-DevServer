@@ -1,7 +1,7 @@
 on:
   push:
-    tags: 
-      - "*"
+    tags:
+      - '*'
 
 name: Create Release
 
@@ -14,7 +14,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v2
         with:
-          node-version: '14'
+          node-version: '18'
       - name: Building Package
         run: |
           npm install -g pkg
@@ -61,4 +61,3 @@ jobs:
           asset_path: ./release/windows/liascript-devserver.exe
           asset_name: liascript-devserver-win.exe
           asset_content_type: application/vnd.microsoft.portable-executable
-    
