@@ -285,7 +285,17 @@ export function start(
   app.get(
     '/liascript/*',
     function (req: express.Request, res: express.Response) {
-      res.sendFile(req.params[0], { root: liascriptPath })
+      res.sendFile(req.params[0], { root: liascriptPath }, (err) => {
+        if (err) {
+          // Extract the file path by removing the '/liascript/' prefix
+          const projectPath = req.params[0]
+          console.log(
+            `File not found in liascriptPath, trying project.path: ${projectPath}`,
+            project.path
+          )
+          res.sendFile(projectPath, { root: project.path })
+        }
+      })
     }
   )
   // ignore this one
