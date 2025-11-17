@@ -222,6 +222,10 @@ export function start(
           liascriptPath + '/index.html',
           'utf8',
           function (err: any, data: string) {
+            if (err || !data) {
+              res.status(500).send('index.html not found or could not be read')
+              return
+            }
             res.send(
               data.replace(
                 '</head>',
@@ -240,6 +244,10 @@ export function start(
           liascriptPath + '/index.html',
           'utf8',
           function (err: any, data: string) {
+            if (err || !data) {
+              res.status(500).send('index.html not found or could not be read')
+              return
+            }
             res.send(
               data.replace(
                 '</head>',
@@ -257,6 +265,10 @@ export function start(
           liascriptPath + '/index.html',
           'utf8',
           function (err: any, data: string) {
+            if (err || !data) {
+              res.status(500).send('index.html not found or could not be read')
+              return
+            }
             res.send(
               data.replace(
                 '</head>',
@@ -274,6 +286,10 @@ export function start(
           liascriptPath + '/index.html',
           'utf8',
           function (err: any, data: string) {
+            if (err || !data) {
+              res.status(500).send('index.html not found or could not be read')
+              return
+            }
             res.send(data.replace('</head>', `${gotoScript}</head>`))
           }
         )
