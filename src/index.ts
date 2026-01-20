@@ -13,8 +13,8 @@ function liascript() {
 }
 
 if (argv.v || argv.version) {
-  console.log('DevServer: 1.1.52')
-  console.log('LiaScript: 1.0.0')
+  console.log('DevServer: 1.1.53')
+  console.log('LiaScript: 1.0.1')
   process.exit()
 }
 
@@ -52,7 +52,7 @@ try {
     argv.r || argv.responsiveVoice || process.env.RESPONSIVE_VOICE_KEY,
     argv.l || argv.live,
     argv.o || argv.open,
-    argv.t || argv.test
+    argv.t || argv.test,
   )
 } catch (e) {
   console.error('Error: ', e.message)
