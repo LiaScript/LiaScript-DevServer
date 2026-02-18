@@ -41,7 +41,7 @@
     "dotenv": "^5.0.1",
     "express": "^4.22.1",
     "express-handlebars": "^5.3.5",
-    "ip": "^1.1.8",
+    "ip": "^2.0.1",
     "minimist": "^1.2.8",
     "open": "^8.4.2",
     "reloadsh.js": "^2.2.1"
