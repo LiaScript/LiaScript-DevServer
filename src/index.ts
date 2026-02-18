@@ -44,8 +44,8 @@ liascript()
 
 server.init(argv.node_modules)
 
-try {
-  server.start(
+server
+  .start(
     argv.p || argv.port,
     argv.n || argv.hostname,
     argv.i || argv.input,
@@ -54,9 +54,9 @@ try {
     argv.o || argv.open,
     argv.t || argv.test,
   )
-} catch (e: any) {
-  console.error('Error: ', e.message)
-  process.exit()
-}
+  .catch((e: any) => {
+    console.error('Error: ', e.message)
+    process.exit()
+  })
 
 console.log('✨ hit Ctrl-c to close the server')

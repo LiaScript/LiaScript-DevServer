@@ -8,14 +8,17 @@ const handlebars = require('express-handlebars')
 const ip = require('ip')
 const open = require('open')
 const bodyParser = require('body-parser')
+const reload = require('reload')
+const chokidar = require('chokidar')
 
 const app: express.Application = express()
 app.use(bodyParser.json())
 
 var dirname = ''
 var node_modules
-var reloadPath = ''
 var liascriptPath = ''
+var reloadInstance: any = null
+var watcher: any = null
 
 var clients: any[] = []
 
@@ -62,16 +65,12 @@ export function init(serverPath?: string, nodeModulesPath?: string) {
 
   node_modules = nodeModulesPath || path.join(dirname, 'node_modules')
 
-  reloadPath = path.resolve(
-    path.join(node_modules, 'reloadsh.js/reloader.browser.js'),
-  )
-
   liascriptPath = path.resolve(
     path.join(node_modules, '@liascript/editor/dist'),
   )
 }
 
-export function start(
+export async function start(
   port?: number,
   hostname?: string,
   input?: string,
@@ -118,6 +117,36 @@ export function start(
     }),
   )
   app.set('views', path.resolve(path.join(dirname, 'views')))
+
+  // Initialize reload BEFORE routes to ensure its routes are registered first
+  if (liveReload) {
+    const watchPath = path.join(project.path, project.readme || '')
+    console.log(`✨ watching for changes on: "${watchPath}"`)
+
+    try {
+      reloadInstance = await reload(app)
+
+      // Watch the file for changes using chokidar (more reliable than fs.watch)
+      watcher = chokidar.watch(watchPath, {
+        ignoreInitial: true,
+        awaitWriteFinish: {
+          stabilityThreshold: 100,
+          pollInterval: 50,
+        },
+      })
+
+      watcher.on('change', (filePath: string) => {
+        console.log('📝 file changed, reloading...')
+        reloadInstance.reload()
+      })
+
+      watcher.on('error', (error: any) => {
+        console.error('Watcher error:', error)
+      })
+    } catch (err) {
+      console.error('Reload could not start:', err)
+    }
+  }
 
   app.get('/', function (req: express.Request, res: express.Response) {
     res.redirect('/home')
@@ -228,7 +257,7 @@ export function start(
             res.send(
               data.replace(
                 '</head>',
-                `<script type='text/javascript' src='/reloader/reloader.js'></script>
+                `<script type='text/javascript' src='/reload/reload.js'></script>
              <script type='text/javascript' src='https://code.responsivevoice.org/responsivevoice.js?key=${responsiveVoice}'></script>
              ${gotoScript}
              </head>`,
@@ -250,7 +279,7 @@ export function start(
             res.send(
               data.replace(
                 '</head>',
-                `<script type='text/javascript' src='/reloader/reloader.js'></script>
+                `<script type='text/javascript' src='/reload/reload.js'></script>
                 ${gotoScript}
                 </head>`,
               ),
@@ -320,14 +349,6 @@ export function start(
     function (req: express.Request, res: express.Response) {},
   )
 
-  // pass the reloader, to be used for live updates
-  app.get(
-    '/reloader/reloader.js',
-    function (req: express.Request, res: express.Response) {
-      res.sendFile(reloadPath)
-    },
-  )
-
   // react to click-events
   app.post('/lineGoto', function (req: express.Request, res: express.Response) {
     if (gotoCallback) {
@@ -345,9 +366,24 @@ export function start(
   })
 
   // everything else comes from the current project folder
-  app.get('/*', cors(), function (req: express.Request, res: express.Response) {
-    res.sendFile(req.originalUrl, { root: project.path })
-  })
+  app.use(
+    '/*',
+    cors(),
+    function (
+      req: express.Request,
+      res: express.Response,
+      next: express.NextFunction,
+    ) {
+      // Skip reload and socket.io paths - let reload package handle them
+      if (
+        req.originalUrl.startsWith('/reload/') ||
+        req.originalUrl.startsWith('/socket.io')
+      ) {
+        return next()
+      }
+      res.sendFile(req.originalUrl, { root: project.path })
+    },
+  )
 
   let localURL = 'http://' + hostname + ':' + port
 
@@ -371,25 +407,11 @@ export function start(
       project.readme
   }
 
-  const server = require('reloadsh.js')(
-    app,
-    liveReload ? [path.join(project.path, project.readme || '')] : [],
-  )
-
-  if (liveReload) {
-    console.log(
-      `✨ watching for changes on: "${path.join(
-        project.path || '',
-        project.readme || '',
-      )}"`,
-    )
-  }
+  const server = app.listen(port)
 
   server.on('error', (e: any) => {
     throw e
   })
-
-  server.listen(port)
 
   if (openInBrowser) {
     open(localURL)
@@ -407,6 +429,13 @@ export function start(
 export function stop() {
   if (serverPointer) {
     serverPointer.close()
+  }
+  if (watcher) {
+    watcher.close()
+    watcher = null
+  }
+  if (reloadInstance) {
+    reloadInstance = null
   }
 }
 
@@ -447,7 +476,7 @@ function eventsHandler(
   clients.push(newClient)
 
   request.on('close', () => {
-    console.log(`${clientId} Connection closed`)
+    //console.log(`${clientId} Connection closed`)
     clients = clients.filter((client) => client.id !== clientId)
   })
 }
