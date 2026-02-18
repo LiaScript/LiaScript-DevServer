@@ -54,7 +54,7 @@ try {
     argv.o || argv.open,
     argv.t || argv.test,
   )
-} catch (e) {
+} catch (e: any) {
   console.error('Error: ', e.message)
   process.exit()
 }
