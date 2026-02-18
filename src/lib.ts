@@ -1,4 +1,3 @@
-require('dotenv').config()
 import * as express from 'express'
 
 import * as fs from 'fs'
@@ -64,11 +63,11 @@ export function init(serverPath?: string, nodeModulesPath?: string) {
   node_modules = nodeModulesPath || path.join(dirname, 'node_modules')
 
   reloadPath = path.resolve(
-    path.join(node_modules, 'reloadsh.js/reloader.browser.js')
+    path.join(node_modules, 'reloadsh.js/reloader.browser.js'),
   )
 
   liascriptPath = path.resolve(
-    path.join(node_modules, '@liascript/editor/dist')
+    path.join(node_modules, '@liascript/editor/dist'),
   )
 }
 
@@ -80,7 +79,7 @@ export function start(
   liveReload?: boolean,
   openInBrowser?: boolean,
   testOnline?: boolean,
-  gotoCallback?: (linenumber: number, filename: string) => void
+  gotoCallback?: (linenumber: number, filename: string) => void,
 ) {
   port = port || 3000
   hostname = hostname || 'localhost'
@@ -116,7 +115,7 @@ export function start(
       layoutsDir: path.resolve(path.join(dirname, 'views/layouts')),
       defaultLayout: 'main',
       extname: 'hbs',
-    })
+    }),
   )
   app.set('views', path.resolve(path.join(dirname, 'views')))
 
@@ -170,7 +169,7 @@ export function start(
                 name: string
                 href: string
                 isDirectory: boolean
-              }
+              },
             ) => {
               if (a.isDirectory && !b.isDirectory) {
                 return -1
@@ -184,18 +183,18 @@ export function start(
                 }
               }
               return 0
-            }
+            },
           ),
       })
     } else if (stats.isFile()) {
       if (req.params[0].toLocaleLowerCase().endsWith('.md')) {
         if (testOnline) {
           res.redirect(
-            `https://LiaScript.github.io/course/?http://${hostname}:${port}/${req.params[0]}`
+            `https://LiaScript.github.io/course/?http://${hostname}:${port}/${req.params[0]}`,
           )
         } else {
           res.redirect(
-            `/liascript/index.html?http://${hostname}:${port}/${req.params[0]}`
+            `/liascript/index.html?http://${hostname}:${port}/${req.params[0]}`,
           )
         }
       } else {
@@ -210,7 +209,7 @@ export function start(
     '/liascript/',
     function (req: express.Request, res: express.Response) {
       res.redirect('/liascript/index.html')
-    }
+    },
   )
 
   app.get(
@@ -232,10 +231,10 @@ export function start(
                 `<script type='text/javascript' src='/reloader/reloader.js'></script>
              <script type='text/javascript' src='https://code.responsivevoice.org/responsivevoice.js?key=${responsiveVoice}'></script>
              ${gotoScript}
-             </head>`
-              )
+             </head>`,
+              ),
             )
-          }
+          },
         )
       }
       // ------------------------------------
@@ -253,10 +252,10 @@ export function start(
                 '</head>',
                 `<script type='text/javascript' src='/reloader/reloader.js'></script>
                 ${gotoScript}
-                </head>`
-              )
+                </head>`,
+              ),
             )
-          }
+          },
         )
       }
       // ------------------------------------
@@ -274,10 +273,10 @@ export function start(
                 '</head>',
                 `<script type='text/javascript' src='https://code.responsivevoice.org/responsivevoice.js?key=${responsiveVoice}'></script>
                 ${gotoScript}
-                </head>`
-              )
+                </head>`,
+              ),
             )
-          }
+          },
         )
       }
       // ------------------------------------
@@ -291,10 +290,10 @@ export function start(
               return
             }
             res.send(data.replace('</head>', `${gotoScript}</head>`))
-          }
+          },
         )
       }
-    }
+    },
   )
 
   // load everything from the liascript folder
@@ -307,18 +306,18 @@ export function start(
           const projectPath = req.params[0]
           console.log(
             `File not found in liascriptPath, trying project.path: ${projectPath}`,
-            project.path
+            project.path,
           )
           res.sendFile(projectPath, { root: project.path })
         }
       })
-    }
+    },
   )
   // ignore this one
   app.get('/sw.js', function (req: express.Request, res: express.Response) {})
   app.get(
     '/favicon.ico',
-    function (req: express.Request, res: express.Response) {}
+    function (req: express.Request, res: express.Response) {},
   )
 
   // pass the reloader, to be used for live updates
@@ -326,7 +325,7 @@ export function start(
     '/reloader/reloader.js',
     function (req: express.Request, res: express.Response) {
       res.sendFile(reloadPath)
-    }
+    },
   )
 
   // react to click-events
@@ -338,7 +337,7 @@ export function start(
         gotoCallback(linenumber, filename)
       } catch (e) {
         console.warn(
-          "lineGoto event with wrong datatype, you have to provide {'linenumber': int, 'filename': string}"
+          "lineGoto event with wrong datatype, you have to provide {'linenumber': int, 'filename': string}",
         )
       }
     }
@@ -374,15 +373,15 @@ export function start(
 
   const server = require('reloadsh.js')(
     app,
-    liveReload ? [path.join(project.path, project.readme || '')] : []
+    liveReload ? [path.join(project.path, project.readme || '')] : [],
   )
 
   if (liveReload) {
     console.log(
       `✨ watching for changes on: "${path.join(
         project.path || '',
-        project.readme || ''
-      )}"`
+        project.readme || '',
+      )}"`,
     )
   }
 
@@ -399,7 +398,7 @@ export function start(
   console.log('📡 starting server')
   console.log(`   - local:           ${localURL}`)
   console.log(
-    `   - on your network: ${localURL.replace(hostname, ip.address())}`
+    `   - on your network: ${localURL.replace(hostname, ip.address())}`,
   )
 
   serverPointer = server
@@ -417,15 +416,15 @@ export function gotoLine(linenumber: number, filename: string) {
       `data: ${JSON.stringify({
         linenumber: linenumber,
         filename: filename,
-      })}\n\n`
-    )
+      })}\n\n`,
+    ),
   )
 }
 
 function eventsHandler(
   request: express.Request,
   response: express.Response,
-  next: any
+  next: any,
 ) {
   const headers = {
     'Content-Type': 'text/event-stream',
