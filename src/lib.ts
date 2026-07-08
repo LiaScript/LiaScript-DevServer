@@ -124,7 +124,7 @@ export async function start(
     console.log(`✨ watching for changes on: "${watchPath}"`)
 
     try {
-      reloadInstance = await reload(app)
+      reloadInstance = await reload(app, { port: reloadPort(port) })
 
       // Watch the file for changes using chokidar (more reliable than fs.watch)
       watcher = chokidar.watch(watchPath, {
@@ -435,8 +435,16 @@ export function stop() {
     watcher = null
   }
   if (reloadInstance) {
+    reloadInstance.closeServer().catch(() => {})
     reloadInstance = null
   }
+}
+
+// keeps the live-reload websocket port derived from (and as unique as) the
+// main devserver port, instead of reload's hardcoded 9856 default, so
+// multiple simultaneously running instances never collide
+function reloadPort(port: number): number {
+  return port < 55535 ? port + 10000 : port - 10000
 }
 
 export function gotoLine(linenumber: number, filename: string) {
