@@ -10,9 +10,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
       - name: Setup Node
-        uses: actions/setup-node@v2
+        uses: actions/setup-node@v4
         with:
           node-version: '18'
       - name: Building Package
@@ -23,41 +23,11 @@ jobs:
           npm run build
           npm run release
       - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref }}
-          release_name: Release ${{ github.ref }}
           body: |
             Download your OS specific binary from below
-          draft: false
-          prerelease: false
-      - name: Upload Linux Asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./release/linux/liascript-devserver
-          asset_name: liascript-devserver-linux
-          asset_content_type: application/x-executable
-      - name: Upload MacOS Asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./release/macos/liascript-devserver
-          asset_name: liascript-devserver-macos
-          asset_content_type: application/octet-stream
-      - name: Upload Windows Asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./release/windows/liascript-devserver.exe
-          asset_name: liascript-devserver-win.exe
-          asset_content_type: application/vnd.microsoft.portable-executable
+          files: |
+            ./release/linux/liascript-devserver
+            ./release/macos/liascript-devserver
+            ./release/windows/liascript-devserver.exe
