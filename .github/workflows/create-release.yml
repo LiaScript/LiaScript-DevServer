@@ -5,6 +5,9 @@ on:
 
 name: Create Release
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
