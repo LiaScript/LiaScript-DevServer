@@ -59,6 +59,8 @@ liascript-devserver --help
 -l  --live       do live reload on file change
 -o  --open       open in default browser
 -t  --test       test online on https://LiaScript.github.io
+    --mcp        serve as MCP server on stdio for AI agents,
+                 to be started from the MCP config of the agent
 
 -r  --responsiveVoice  add optional responsiveVoice support,
                        or pass your own responsiveVoice key.
@@ -221,3 +223,93 @@ own key from your own project/website like this:
 ```bash
 $ liascript-devserver --responsiveVoice YOURKEY -i ../LiaBooks
 ```
+
+### `--mcp`
+
+Connects the preview to an AI agent such as Claude Code, Codex or Gemini CLI.
+With this parameter the devServer is additionally an
+[MCP](https://modelcontextprotocol.io) server on stdio. You do not start it
+yourself, the agent does. For Claude Code put this `.mcp.json` next to your
+course:
+
+```json
+{
+  "mcpServers": {
+    "liascript": {
+      "command": "liadev",
+      "args": ["--mcp", "--live", "-i", "README.md"]
+    }
+  }
+}
+```
+
+For Codex add this to `~/.codex/config.toml`. Codex gives up on a tool call
+after 60 seconds by default, which is too short for a question the user has to
+answer:
+
+```toml
+[mcp_servers.liascript]
+command = "liadev"
+args = ["--mcp", "--live", "-i", "/path/to/README.md"]
+tool_timeout_sec = 3600
+```
+
+Pass another `--port` if a second agent session needs its own devServer.
+
+The agent gets these tools:
+
+| Tool             | What it does                                                                                                   |
+| ---------------- | -------------------------------------------------------------------------------------------------------------- |
+| `get_state`      | the open course, the slide (1-based, like `#3` in the URL), its title and the text you have selected           |
+| `goto`           | show a `slide`, the slide of a source `line`, or another course `file`; opens the browser if it is not open    |
+| `chat`           | write into the chat on top of the course, optionally with buttons, radio buttons and checkboxes for you to answer |
+| `wait_for_event` | fallback for agents that cannot be notified, see below                                                         |
+
+#### Links that talk to the agent
+
+A link with the scheme `agent:` sends a command to the agent when you click it.
+The message is the link itself, `agent:<agent>/<command>?<parameters>`:
+
+```markdown
+[Explain this simpler](agent:tutor/explain?level=easy)
+
+<button data-agent="agent:author/rewrite?tone=short">Shorten this section</button>
+
+[Give me an exercise](#)<!-- data-agent="agent:tutor/exercise?n=3" -->
+```
+
+The agent receives the agent name, the command and the parameters together
+with what you are looking at: file, slide, title and selected text. What
+`tutor` or `explain` mean is up to you. Define them as sub-agents, skills or
+simply in the instructions of your agent. The same links work in the chat, so
+the agent can offer them to you as well.
+
+Outside of the devServer such a link leads nowhere; the `data-agent` forms are
+inert there.
+
+Claude Code is told about a click at once, through its
+[channels](https://code.claude.com/docs/en/channels). They are a research
+preview, so the session has to be started like this:
+
+```bash
+claude --dangerously-load-development-channels server:liascript
+```
+
+Other agents cannot be notified by an MCP server. Ask them to call
+`wait_for_event` in a loop instead, it returns as soon as you click.
+
+#### The chat
+
+In this mode a course opens inside a page with a chat on top of it. The course
+lives in a frame of its own, so the chat stays when the course reloads. What
+you type goes to the agent, and its answers are rendered as Markdown, including
+` ```mermaid ` diagrams. Markdown and diagram rendering are loaded from
+jsDelivr; without a connection the chat falls back to plain text.
+
+#### Security
+
+What happens in the browser ends up as a prompt for your agent. Therefore, with
+`--mcp` the server listens on this machine only and refuses requests from other
+origins. Course content is still able to send commands, that is the point of
+the links, and scripts of a course can do the same. Open courses you do not
+trust without `--mcp`.
