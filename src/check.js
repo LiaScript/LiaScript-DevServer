@@ -275,6 +275,24 @@ async function main() {
   assert.strictEqual(notifications.pop().params.meta.type, 'answer')
   chatSse.destroy()
 
+  // --- a second client starts the same config: it must not die on the busy port
+  const twin = spawn(process.execPath, ['dist/index.js', '--mcp', '-p', PORT, '-i', 'README.md'], {
+    cwd: ROOT,
+    stdio: ['pipe', 'pipe', 'ignore'],
+  })
+  let twinOut = ''
+  twin.stdout.on('data', (chunk) => (twinOut += chunk))
+  let twinUrl = ''
+  for (let i = 1; i <= 50 && !twinUrl; i++) {
+    twin.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: i, method: 'tools/call', params: { name: 'get_state', arguments: {} } }) + '\n')
+    await sleep(100)
+    const last = twinOut.trim().split('\n').pop()
+    if (last) twinUrl = JSON.parse(JSON.parse(last).result.content[0].text).url
+  }
+  assert.ok(twinUrl.includes(':' + (PORT + 1) + '/'), 'the twin moved to the next port: ' + twinUrl)
+  assert.strictEqual((await request('GET', '/liascript/index.html', {})).status, 200, 'the first one still serves')
+  twin.stdin.end()
+
   // --- the agent quits, the server follows
   const exited = new Promise((resolve) => child.on('exit', resolve))
   child.stdin.end()

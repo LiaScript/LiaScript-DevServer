@@ -82,7 +82,10 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
     every field and attaches the cached state as `context`. `agentScript` (a second injected snippet next to
     `gotoScript`) reports slide/title/selection, handles `goto` messages and turns clicks on `agent:` links into
     `command` events. In agent mode the server binds to loopback, checks `Host` on every route and `Origin` on
-    `POST /agent`, and `.md` redirects go to the chat shell instead of the bare player.
+    `POST /agent`, and `.md` redirects go to the chat shell instead of the bare player. It also moves to the next
+    free port when the requested one (or its reload port) is busy: every MCP client spawns its own instance from
+    the same config, and VS Code autostarts a workspace `.mcp.json` for Copilot next to Claude Code's spawn, so a
+    fixed port meant `EADDRINUSE` and a bare "connection closed" in the client.
 - **`src/mcp.ts`** — the MCP adapter: a dependency-free newline-delimited JSON-RPC server on stdio (deliberately
   not the MCP SDK, see the header comment) with the tools `get_state`, `goto`, `chat` and `wait_for_event`. Every
   `'event'` on the bus is also pushed as `notifications/claude/channel`, which Claude Code turns into a
