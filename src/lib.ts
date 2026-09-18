@@ -1,6 +1,7 @@
 import * as express from 'express'
 
 import * as fs from 'fs'
+import * as net from 'net'
 import * as path from 'path'
 import { EventEmitter } from 'events'
 
@@ -230,6 +231,29 @@ export async function start(
   liveReload = liveReload || false
   testOnline = testOnline || false
   agent = agent || false
+
+  // the agent bridge is for this machine only
+  const bind = agent
+    ? hostname === 'localhost'
+      ? '127.0.0.1'
+      : hostname
+    : undefined
+
+  // In agent mode every MCP client starts its own instance from the same
+  // config (VS Code autostarts a workspace .mcp.json next to Claude Code), so
+  // a busy port is normal and must not kill the server: take the next free
+  // one. The agent learns the address from get_state.
+  if (agent) {
+    const wanted = port
+    while (
+      !(await isFree(port, bind)) ||
+      (liveReload && !(await isFree(reloadPort(port))))
+    ) {
+      if (++port > wanted + 20) {
+        throw new Error(`no free port from ${wanted} to ${wanted + 20}`)
+      }
+    }
+  }
 
   var project: {
     path: string
@@ -620,11 +644,7 @@ export async function start(
 
   home = localURL
 
-  // the agent bridge is for this machine only
-  const server = app.listen(
-    port,
-    agent ? (hostname === 'localhost' ? '127.0.0.1' : hostname) : undefined,
-  )
+  const server = app.listen(port, bind)
 
   server.on('error', (e: any) => {
     throw e
@@ -664,6 +684,14 @@ export function stop() {
 // multiple simultaneously running instances never collide
 function reloadPort(port: number): number {
   return port < 55535 ? port + 10000 : port - 10000
+}
+
+function isFree(port: number, host?: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const probe = net.createServer()
+    probe.once('error', () => resolve(false))
+    probe.listen(port, host, () => probe.close(() => resolve(true)))
+  })
 }
 
 function text(value: any, max: number): string {

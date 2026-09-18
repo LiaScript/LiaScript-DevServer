@@ -254,7 +254,12 @@ args = ["--mcp", "--live", "-i", "/path/to/README.md"]
 tool_timeout_sec = 3600
 ```
 
-Pass another `--port` if a second agent session needs its own devServer.
+Every agent starts a devServer of its own. If the port is taken, the next free
+one is used, so several of them can run from the same config, and the agent
+learns the address from `get_state`. This matters in VS Code, which starts the
+servers of a `.mcp.json` in the workspace for Copilot as well, next to the one
+Claude Code starts. Do not start `--mcp` yourself in a terminal: nothing can
+connect to that instance.
 
 The agent gets these tools:
 
