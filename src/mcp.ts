@@ -78,7 +78,7 @@ const TOOLS = [
   {
     name: 'wait_for_event',
     description:
-      'Only for agents that do not receive <channel> events: blocks until the user clicks a command link in the course, then returns that event, or {timeout: true}. Call it again to keep listening.',
+      'Only for agents that do not receive <channel> events: blocks until the user clicks a command link or writes in the chat, then returns that event, or {timeout: true}. Call it again to keep listening.',
     inputSchema: {
       type: 'object',
       properties: {
