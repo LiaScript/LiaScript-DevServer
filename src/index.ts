@@ -1,6 +1,11 @@
 const argv = require('minimist')(process.argv.slice(2))
 import packageJson from '../package.json'
+
+// with --mcp stdout carries the MCP protocol, everything else goes to stderr
+if (argv.mcp) console.log = console.error
+
 import * as server from './lib'
+import { mcp } from './mcp'
 
 function liascript() {
   console.log(' _     _       ____            _       _')
@@ -29,6 +34,8 @@ if (argv.h || argv.help) {
   console.log('-l  --live       do live reload on file change')
   console.log('-o  --open       open in default browser')
   console.log('-t  --test       test online on https://LiaScript.github.io')
+  console.log('    --mcp        serve as MCP server on stdio for AI agents,')
+  console.log('                 to be started from the MCP config of the agent')
   console.log()
   console.log('-r  --responsiveVoice  add optional responsiveVoice support,')
   console.log('                       or pass your own responsiveVoice key.')
@@ -44,6 +51,9 @@ liascript()
 
 server.init(argv.node_modules)
 
+// before start(), so the handshake does not wait for the reload setup
+if (argv.mcp) mcp()
+
 server
   .start(
     argv.p || argv.port,
@@ -53,6 +63,8 @@ server
     argv.l || argv.live,
     argv.o || argv.open,
     argv.t || argv.test,
+    undefined,
+    argv.mcp,
   )
   .catch((e: any) => {
     console.error('Error: ', e.message)
