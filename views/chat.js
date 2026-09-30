@@ -18,14 +18,199 @@ function post(msg) {
   })
 }
 
-function add(who, content) {
+function add(who, content, extra) {
   var msg = document.createElement('div')
   msg.className = 'msg ' + who
   msg.append(content)
+  if (extra) msg.append(extra)
+  msg.append(speaker(content))
   log.append(msg)
   log.scrollTop = log.scrollHeight
   return msg
 }
+
+// ------------------------------------------------------------- read aloud
+
+// Every message has a button that reads it aloud, with a voice of the browser
+// in the language of the course. A browser without voices shows no buttons;
+// with --responsiveVoice the service loaded by the player steps in.
+var reading // the button of the message that is read right now
+
+function voices() {
+  try {
+    return speechSynthesis.getVoices()
+  } catch (e) {
+    return []
+  }
+}
+
+function responsive() {
+  try {
+    return course.contentWindow.responsiveVoice
+  } catch (e) {}
+}
+
+// the player puts the language of the course on its document
+function language() {
+  try {
+    return course.contentDocument.documentElement.lang || navigator.language
+  } catch (e) {
+    return navigator.language
+  }
+}
+
+function canSpeak() {
+  log.classList.toggle('can-speak', voices().length > 0 || !!responsive())
+}
+
+// Chrome loads its voices on the first call and tells when they are there,
+// responsiveVoice arrives with the course
+canSpeak()
+try {
+  speechSynthesis.addEventListener('voiceschanged', canSpeak)
+} catch (e) {}
+course.addEventListener('load', function () {
+  canSpeak()
+  setTimeout(canSpeak, 3000)
+})
+
+function speaker(content) {
+  var button = document.createElement('button')
+  button.type = 'button'
+  button.className = 'speak'
+  idle(button)
+  button.addEventListener('click', function () {
+    var mine = reading == button
+    stop()
+    if (!mine) read(button, runs(content))
+  })
+  return button
+}
+
+function idle(button) {
+  button.textContent = '\u25B6'
+  button.title = 'Read aloud'
+  button.setAttribute('aria-label', 'Read this message aloud')
+}
+
+// What is read: the text without code, tables, diagrams and forms, in runs of
+// one language. A message says its language with lang, and so does a passage
+// in it (<span lang="fr">); everything else is in the language of the course.
+function runs(content) {
+  var course = language()
+  if (typeof content == 'string') return [{ lang: course, text: content }]
+
+  var out = []
+  var walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT)
+  var node
+  while ((node = walker.nextNode())) {
+    var el = node.parentElement
+    if (el.closest('pre, svg, form, table')) continue
+    // only what the message itself says, not the lang of this page
+    var marked = el.closest('[lang]')
+    var lang = (marked && log.contains(marked) && marked.lang) || course
+    var last = out[out.length - 1]
+    if (last && last.lang == lang) last.text += node.data
+    else out.push({ lang: lang, text: node.data })
+  }
+  return out
+    .map(function (run) {
+      return { lang: run.lang, text: run.text.replace(/\s+/g, ' ').trim() }
+    })
+    .filter(function (run) {
+      return run.text
+    })
+}
+
+// Sentence by sentence: Chrome drops an utterance of its online voices after
+// about 15 seconds, so a long message would stop in the middle.
+function sentences(text) {
+  // at sentence ends, and at a space where a sentence is too long itself
+  var parts = text.match(/[^.!?:;]{1,180}(?:[.!?:;]+\s*|\s+|$)|[^.!?:;]{1,180}/g) || [text]
+  var chunks = []
+  parts.forEach(function (part) {
+    var last = chunks.length - 1
+    if (last >= 0 && (chunks[last] + part).length <= 180) chunks[last] += part
+    else chunks.push(part)
+  })
+  return chunks
+}
+
+function stop() {
+  var button = reading
+  reading = undefined
+  if (button) idle(button)
+  try {
+    speechSynthesis.cancel()
+  } catch (e) {}
+  var service = responsive()
+  if (service) service.cancel()
+}
+
+// a voice for the language: the same region, else the same language
+function voiceFor(lang, all) {
+  lang = lang.toLowerCase()
+  return (
+    all.filter(function (v) {
+      return v.lang.toLowerCase() == lang
+    })[0] ||
+    all.filter(function (v) {
+      return v.lang.slice(0, 2).toLowerCase() == lang.slice(0, 2)
+    })[0]
+  )
+}
+
+function read(button, parts) {
+  if (!parts.length) return
+  var done = function () {
+    if (reading == button) stop()
+  }
+
+  reading = button
+  button.textContent = '\u25A0'
+  button.title = 'Stop'
+  button.setAttribute('aria-label', 'Stop reading')
+
+  var all = voices()
+  if (!all.length) {
+    var service = responsive()
+    if (!service) return done()
+    // one voice of the service for the whole message, else its default
+    var short = parts[0].lang.slice(0, 2).toLowerCase()
+    var named = (service.getVoices() || []).filter(function (v) {
+      return (v.lang || v.flag || '').slice(0, 2).toLowerCase() == short
+    })[0]
+    var text = parts
+      .map(function (run) {
+        return run.text
+      })
+      .join(' ')
+    return service.speak(text, named ? named.name : undefined, { onend: done, onerror: done })
+  }
+
+  var queue = []
+  parts.forEach(function (run) {
+    var voice = voiceFor(run.lang, all)
+    sentences(run.text).forEach(function (chunk) {
+      var utterance = new SpeechSynthesisUtterance(chunk)
+      utterance.lang = voice ? voice.lang : run.lang
+      if (voice) utterance.voice = voice
+      // cancel() ends an utterance with an error, which is no reason to reset
+      // the button of the message that was started instead
+      utterance.onerror = function (e) {
+        if (e.error != 'interrupted' && e.error != 'canceled') done()
+      }
+      queue.push(utterance)
+    })
+  })
+  queue[queue.length - 1].onend = done
+  queue.forEach(function (utterance) {
+    speechSynthesis.speak(utterance)
+  })
+}
+
+// a reload of the shell must not leave the browser talking
+addEventListener('pagehide', stop)
 
 // ---------------------------------------------------------------- user -> AI
 
@@ -58,7 +243,8 @@ log.addEventListener('click', function (e) {
 
   var uri
   try {
-    uri = new URL(a.getAttribute('href'))
+    // agent://tutor/explain is agent:tutor/explain, as in the course
+    uri = new URL('agent:' + a.getAttribute('href').slice(6).replace(/^[/]+/, ''))
   } catch (x) {
     return
   }
@@ -225,15 +411,28 @@ function form(ask, inputs) {
 // ponytail: no history. Messages that arrive while no shell is open are lost,
 // and so is the log on a reload of the shell itself. Replay the last n from
 // the server if that hurts.
+// what the AI is doing right now, until its next message without one
+function status(text) {
+  var line = document.getElementById('status')
+  line.textContent = text || ''
+  line.hidden = !text
+  if (text) document.getElementById('chat').open = true
+}
+
 new EventSource('/gotoLine?chat').onmessage = function (event) {
-  var chat
+  var data
   try {
-    chat = JSON.parse(event.data).chat
-  } catch (e) {}
+    data = JSON.parse(event.data)
+  } catch (e) {
+    return
+  }
+  if (typeof data.status == 'string') return status(data.status)
+
+  var chat = data.chat
   if (!chat) return
 
-  var msg = add('ai', markdown(chat.markdown))
-  if (chat.inputs && chat.inputs.length) msg.append(form(chat.id, chat.inputs))
-  log.scrollTop = log.scrollHeight
+  var msg = add('ai', markdown(chat.markdown), chat.inputs && chat.inputs.length ? form(chat.id, chat.inputs) : null)
+  if (typeof chat.lang == 'string') msg.lang = chat.lang
   document.getElementById('chat').open = true
+  status(chat.status)
 }
