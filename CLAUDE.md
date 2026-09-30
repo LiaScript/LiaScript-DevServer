@@ -76,10 +76,16 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
     `gotoLine` is one user of it; each browser script picks the messages it knows (`linenumber`, `goto`, `chat`).
   - Agent bridge primitives, active only when `start()` gets `agent = true` (the 9th positional parameter) and free
     of any MCP knowledge, so another adapter (e.g. an ACP host mode) can sit on the same three exports:
-    `getState()` (what the browser last reported: file, 1-based slide, title, selection, `connected`, `chat`),
-    `send()`, and `bus` (an `EventEmitter` with `'state'` and `'event'`). The browser reports through `POST /agent`
-    with one envelope `{type: state|command|chat|answer, agent, cmd, params, context}`; the route validates and caps
-    every field and attaches the cached state as `context`. `agentScript` (a second injected snippet next to
+    `getState()` (what the browser last reported: file, 1-based slide, title, selection, `connected`, `chat`, plus
+    `events` and `watched`, see below), `send()`, and `bus` (an `EventEmitter` with `'state'` and `'event'`). The
+    browser reports through `POST /agent` with one envelope `{type: state|command|chat|answer, agent, cmd, params,
+    context}`; the route validates and caps every field and attaches the cached state as `context`. A fifth type,
+    `connection` with `params: {connected, chat}`, comes from the server itself: the SSE handler emits `'state'` on
+    every open and close, and a change that lasts 2 s (`SETTLE_MS`, so F5 and live reloads do not count) becomes
+    this event, so an agent notices a closed tab without polling. Every event
+    also goes as one JSON line (`<` escaped) to the readers of `GET /agent/events/<token>` (`getState().events`,
+    `watched` = someone reads it): a stream for agents that watch a command, i.e. Claude Code's Monitor tool running
+    `curl -sN`. The random token keeps other local users and pages out, a request with an `Origin` is refused. `agentScript` (a second injected snippet next to
     `gotoScript`) reports slide/title/selection, handles `goto` messages and turns clicks on `agent:` links into
     `command` events. In agent mode the server binds to loopback, checks `Host` on every route and `Origin` on
     `POST /agent`, and `.md` redirects go to the chat shell instead of the bare player. It also moves to the next
@@ -91,14 +97,39 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   `'event'` on the bus is also pushed as `notifications/claude/channel`, which Claude Code turns into a
   `<channel>` tag in the running session (research preview, needs
   `claude --dangerously-load-development-channels server:<name>`). It must never negotiate protocol revision
-  `2026-07-28` and never declare `claude/channel/permission`.
+  `2026-07-28` and never declare `claude/channel/permission`. Channels only work in the terminal UI, not in the
+  chat panel of the VS Code extension (checked), so the instructions name three ways in order: channel, Monitor on
+  `get_state.events`, `wait_for_event`. While `watched`, a `chat` form returns at once with its `ask` id instead
+  of blocking, otherwise the answer would arrive twice (tool result and stream line). `chat` with only `status`
+  sets the progress line below the messages (the SSE message `{status}`, no browser is opened for it); a message
+  keeps it only if it carries a `status` itself. Screenshots, console and clicks are deliberately no tools of the
+  bridge: the instructions tell an agent with browser automation tools (Playwright, Chrome DevTools) to open
+  `get_state.url` there before the first `goto` or `chat`, unless a tab is connected already. Those tools drive a
+  browser of their own and cannot attach to the user's, and two connected tabs overwrite each other's state.
+  Claude Code cuts the instructions and every tool description at 2048 characters
+  (`CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH`; verified for the instructions in 2.1.285), `src/check.js` holds that
+  limit: rules go first, details into the tool descriptions and tool results. Text-to-speech is such a detail:
+  `agentScript` reports the number of `speechSynthesis` voices and `navigator.webdriver`, `getState()` returns
+  `voices` and, only when there are none and the player has no `responsiveVoice` loaded, a `tts` hint
+  (`ttsHint()` in `lib.ts`). `--responsiveVoice` without a key injects `key=true`, which the service rejects.
+  Automation tools start Chrome with `--disable-component-extensions-with-background-pages`, which removes its
+  online voices.
 - **`views/chat.html` + `views/chat.js`** — the chat shell served at `/liascript/chat.html`: the player in a
   same-origin iframe with the chat on top, so a live reload only reloads the iframe. The script is a separate file
-  because the page's CSP allows no inline scripts.
+  because the page's CSP allows no inline scripts. Every message has a read-aloud button (`speaker()` in `chat.js`):
+  `speechSynthesis` with a voice for the language the player puts on its `<html lang>`, split into pieces of at
+  most 180 characters because Chrome drops an utterance of its online voices after about 15 seconds; without
+  browser voices it uses the `responsiveVoice` object of the player if there is one, else the buttons stay hidden.
+  The `chat` tool takes an optional `lang`, which becomes the `lang` attribute of the message; `runs()` splits a
+  message into passages by the closest `lang` attribute inside the log (never the one of the page itself), so
+  `<span lang="fr">` in the Markdown gets a French voice.
 
 Things the player does that the bridge works around (verified against the minified bundle of `@liascript/editor`,
-re-check after upgrading it): unknown URL schemes such as `agent:` are rewritten to `<base>/agent:…` with
-`target="_blank"`, so the click handler searches for `agent:` inside the attribute; `window.LIA.goto(n)` (0-based)
+re-check after upgrading it): since 2.1.0 `agent` is in the scheme whitelist of the link parser, so the href
+arrives as written, but still with `target="_blank"`, and the capturing click handler has to stop it (before
+2.1.0 the href became `<base>/agent:…`); `agent://tutor/explain` is accepted as `agent:tutor/explain`, the handlers
+in `agentScript` and `views/chat.js` drop the slashes because `new URL()` would read `tutor` as the host;
+`window.LIA.goto(n)` (0-based)
 ignores a repeated request for the same slide even if the user moved away, so navigation sets `location.hash`
 (1-based) instead; slide changes use `history.pushState` and fire no event, so `agentScript` patches it; the
 player's `message` listener has an `eval` command without an origin check, so `agentScript` registers a gate first.

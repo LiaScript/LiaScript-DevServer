@@ -1,5 +1,6 @@
 import * as express from 'express'
 
+import * as crypto from 'crypto'
 import * as fs from 'fs'
 import * as net from 'net'
 import * as path from 'path'
@@ -34,12 +35,72 @@ var home = ''
 var player = '/liascript/index.html'
 const state = { root: '', file: '', slide: 1, title: '', selection: '' }
 
+// What the browser says about text-to-speech, kept out of state, which is the
+// context of every event. voices: number of speechSynthesis voices, -1 until a
+// browser reported. automated: navigator.webdriver, a browser driven by
+// Playwright or Puppeteer. fallback: responsiveVoice is loaded in the player,
+// which --responsiveVoice only achieves with a valid key.
+const speech = { voices: -1, automated: false, fallback: false }
+
+// Automation tools start Chrome with this flag, which takes away its online
+// voices (checked with Playwright MCP 0.0.83 and Chrome 154).
+const NO_VOICES_FLAG = '--disable-component-extensions-with-background-pages'
+
+function ttsHint() {
+  if (speech.voices !== 0 || speech.fallback) return undefined
+
+  const silent =
+    'The browser has no speech voices, so LiaScript cannot read the course aloud (narrator, play buttons, spoken comments). '
+  const fallback =
+    ' Alternatively start the devServer with --responsiveVoice <key> and a valid key of that service, it needs no browser voices.'
+
+  if (speech.automated) {
+    return (
+      silent +
+      'It is driven by an automation tool, and those start Chrome with ' +
+      NO_VOICES_FLAG +
+      ", which removes Chrome's online voices. Do not change this on your own: tell the user and ask. " +
+      'With Playwright MCP, write a config file ' +
+      JSON.stringify({
+        browser: { launchOptions: { ignoreDefaultArgs: [NO_VOICES_FLAG] } },
+      }) +
+      ', pass it with --config or the environment variable PLAYWRIGHT_MCP_CONFIG and restart that MCP server. ' +
+      'Other tools: start Chrome without that flag.' +
+      fallback
+    )
+  }
+  return (
+    silent +
+    'Tell the user. Firefox on Linux takes its voices from speech-dispatcher, which has to be installed with a voice; ' +
+    'Google Chrome brings online voices of its own.' +
+    fallback
+  )
+}
+
+// agents that watch the event stream, e.g. with the Monitor tool of Claude
+// Code. The token in the path keeps other local users and pages out.
+var watchers: express.Response[] = []
+const token = crypto.randomBytes(16).toString('hex')
+var events = ''
+
+// The browser comes and goes: F5 and a live reload of the bare player close
+// its stream and open a new one within a moment. So a change of connected or
+// chat is reported as a 'connection' event only once it lasted for a while.
+const SETTLE_MS = 2000
+const reported = { connected: false, chat: false }
+var settling: any = null
+
 export function getState() {
   return {
     url: state.file ? playerURL(state.file, state.slide) : home,
     ...state,
     connected: clients.length > 0,
     chat: clients.some((client) => client.chat),
+    events,
+    watched: watchers.length > 0,
+    voices: speech.voices,
+    // only present when the course cannot be read aloud
+    tts: ttsHint(),
   }
 }
 
@@ -103,8 +164,16 @@ const agentScript = `<script>
       file: file,
       slide: parseInt(location.hash.slice(1)) || 1,
       title: document.title,
-      selection: String(getSelection()).slice(0, 2000)
+      selection: String(getSelection()).slice(0, 2000),
+      voices: voices(),
+      automated: navigator.webdriver === true,
+      fallback: typeof responsiveVoice != 'undefined'
     }
+  }
+
+  // Chrome loads its voices on the first call and tells when they are there
+  function voices() {
+    try { return speechSynthesis.getVoices().length } catch (e) { return 0 }
   }
 
   function post(msg) {
@@ -144,27 +213,27 @@ const agentScript = `<script>
   addEventListener('popstate', report)
   addEventListener('load', report)
   document.addEventListener('selectionchange', report)
+  try { speechSynthesis.addEventListener('voiceschanged', report) } catch (e) {}
   // the title is set after the slide change
   var title = document.querySelector('title')
   if (title) new MutationObserver(report).observe(title, {childList: true})
 
   // Command links: [text](agent:tutor/explain?level=easy), or the same URI in
   // a data-agent attribute. One capturing listener, so it does not matter how
-  // the player wires its links. The player prefixes unknown schemes with the
-  // course base, so the URI is looked up inside the value.
+  // the player wires its links. agent://tutor/explain means the same, the
+  // slashes are dropped: new URL() would take tutor as the host otherwise.
   document.addEventListener('click', function (e) {
     var el = e.target.closest && e.target.closest('[data-agent],a[href]')
     if (!el) return
     var raw = el.getAttribute('data-agent') || el.getAttribute('href') || ''
-    var at = raw.indexOf('agent:')
-    if (at < 0 || (at > 0 && raw[at - 1] != '/')) return
+    if (raw.indexOf('agent:') != 0) return
 
-    // the player would open the link in a new tab
+    // the player would hand the link to the browser
     e.preventDefault()
     e.stopPropagation()
 
     var uri
-    try { uri = new URL(raw.slice(at)) } catch (x) { return }
+    try { uri = new URL('agent:' + raw.slice(6).replace(/^[/]+/, '')) } catch (x) { return }
     var slash = uri.pathname.indexOf('/')
     var params = {}
     uri.searchParams.forEach(function (value, key) { params[key] = value })
@@ -291,6 +360,7 @@ export async function start(
 
   if (agent) {
     player = '/liascript/chat.html'
+    events = origin + '/agent/events/' + token
 
     // Browser content becomes agent prompts here, so only answer requests
     // addressed to this machine: a rebound DNS name sends its own Host.
@@ -498,12 +568,6 @@ export async function start(
       })
     },
   )
-  // ignore this one
-  app.get('/sw.js', function (req: express.Request, res: express.Response) {})
-  app.get(
-    '/favicon.ico',
-    function (req: express.Request, res: express.Response) {},
-  )
 
   // react to click-events
   app.post('/lineGoto', function (req: express.Request, res: express.Response) {
@@ -541,6 +605,11 @@ export async function start(
         state.slide = c.slide | 0 || 1
         state.title = text(c.title, 200)
         state.selection = text(c.selection, 2000)
+        if (Number.isInteger(c.voices) && c.voices >= 0) {
+          speech.voices = Math.min(c.voices, 9999)
+        }
+        if (typeof c.automated === 'boolean') speech.automated = c.automated
+        if (typeof c.fallback === 'boolean') speech.fallback = c.fallback
       }
       bus.emit('state', getState())
 
@@ -585,9 +654,8 @@ export async function start(
         }
       }
 
-      const { url, root, connected, chat, ...context } = getState()
-
-      bus.emit('event', {
+      const { root, ...context } = state
+      emitEvent({
         type: body.type,
         agent: agentName,
         cmd: command ? body.cmd : '',
@@ -597,6 +665,26 @@ export async function start(
 
       return res.sendStatus(204)
     })
+
+    // agent <- browser for agents that watch a command's output: one JSON
+    // line per event. Not for browsers, they send an Origin.
+    app.get(
+      '/agent/events/:token',
+      function (req: express.Request, res: express.Response) {
+        if (req.params.token !== token || req.headers.origin !== undefined) {
+          return res.sendStatus(403)
+        }
+        res.writeHead(200, {
+          'Content-Type': 'application/x-ndjson',
+          'Cache-Control': 'no-cache',
+        })
+        res.flushHeaders()
+        watchers.push(res)
+        res.on('close', () => {
+          watchers = watchers.filter((watcher) => watcher !== res)
+        })
+      },
+    )
   }
 
   // everything else comes from the current project folder
@@ -666,6 +754,7 @@ export async function start(
 }
 
 export function stop() {
+  clearTimeout(settling)
   if (serverPointer) {
     serverPointer.close()
   }
@@ -703,6 +792,39 @@ function isName(value: any): boolean {
   return typeof value === 'string' && /^[\w-]{1,64}$/.test(value)
 }
 
+// to the bus, and as one JSON line to every watcher
+function emitEvent(event: object) {
+  bus.emit('event', event)
+  // escaped like the channel content, the line ends up inside a tag too
+  const line = JSON.stringify(event).replace(/</g, '\\u003c') + '\n'
+  watchers.forEach((watcher) => watcher.write(line))
+}
+
+// a browser stream opened or closed: the state changed at once, the event
+// waits until nothing changed for SETTLE_MS
+function connectionChanged() {
+  bus.emit('state', getState())
+  clearTimeout(settling)
+  settling = setTimeout(() => {
+    const now = getState()
+    if (now.connected === reported.connected && now.chat === reported.chat) {
+      return
+    }
+    reported.connected = now.connected
+    reported.chat = now.chat
+    const { root, ...context } = state
+    emitEvent({
+      type: 'connection',
+      agent: '',
+      cmd: '',
+      params: { connected: now.connected, chat: now.chat },
+      context,
+    })
+  }, SETTLE_MS)
+  // a pending report must not keep a stopped server alive
+  if (settling.unref) settling.unref()
+}
+
 // server -> every connected browser
 export function send(msg: object) {
   clients.forEach((client) =>
@@ -733,8 +855,10 @@ function eventsHandler(
   // the chat shell connects with ?chat, a bare player cannot show messages
   ;(response as any).chat = request.query.chat !== undefined
   clients.push(response)
+  connectionChanged()
 
   request.on('close', () => {
     clients = clients.filter((client) => client !== response)
+    connectionChanged()
   })
 }
