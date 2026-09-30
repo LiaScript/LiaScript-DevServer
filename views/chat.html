@@ -136,6 +136,49 @@
         background: Highlight;
         color: HighlightText;
       }
+      /* read aloud: only in a browser that has a voice */
+      .speak {
+        display: none;
+        margin: 0.35rem 0 0;
+        padding: 0 0.45rem;
+        border: 0;
+        background: none;
+        color: inherit;
+        font-size: 0.8rem;
+        line-height: 1.6;
+        opacity: 0.6;
+      }
+      .speak:hover,
+      .speak:focus-visible {
+        opacity: 1;
+      }
+      #log.can-speak .speak {
+        display: block;
+      }
+      .me .speak {
+        margin-left: auto;
+      }
+      #status {
+        padding: 0 0.75rem 0.5rem;
+        font-size: 0.9em;
+        color: GrayText;
+      }
+      #status::before {
+        content: '✻ ';
+        display: inline-block;
+        animation: working 1.2s ease-in-out infinite;
+      }
+      @keyframes working {
+        50% {
+          opacity: 0.3;
+          transform: rotate(45deg);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #status::before {
+          animation: none;
+        }
+      }
       #say {
         display: flex;
         gap: 0.5rem;
@@ -158,6 +201,7 @@
       <summary>Chat</summary>
       <div id="panel">
         <div id="log" role="log" aria-live="polite"></div>
+        <div id="status" role="status" hidden></div>
         <form id="say">
           <textarea
             name="text"

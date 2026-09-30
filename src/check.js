@@ -118,6 +118,11 @@ async function main() {
   let msg = await rpc('initialize', { protocolVersion: '2026-07-28', capabilities: {} })
   assert.notStrictEqual(msg.result.protocolVersion, '2026-07-28', 'never negotiate 2026-07-28')
   assert.ok(msg.result.instructions)
+  // Claude Code cuts server instructions and tool descriptions at 2048
+  // characters (CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH), whatever follows
+  // never reaches the agent
+  const LIMIT = 2048
+  assert.ok(msg.result.instructions.length <= LIMIT, 'instructions have ' + msg.result.instructions.length + ' characters')
 
   msg = await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {} })
   assert.strictEqual(msg.result.protocolVersion, '2025-06-18')
@@ -128,6 +133,9 @@ async function main() {
   msg = await rpc('tools/list')
   const names = msg.result.tools.map((t) => t.name)
   for (const name of ['get_state', 'goto', 'wait_for_event', 'chat']) assert.ok(names.includes(name), name)
+  for (const t of msg.result.tools) {
+    assert.ok(t.description.length <= LIMIT, 'the description of ' + t.name + ' has ' + t.description.length + ' characters')
+  }
 
   // --- protocol errors
   assert.strictEqual((await rpc('bogus/method')).error.code, -32601)
@@ -141,6 +149,14 @@ async function main() {
   const page = await listening()
   assert.ok(page.data.includes("fetch('/agent'"), 'agent script is injected')
   assert.strictEqual(page.headers['content-security-policy'], "frame-ancestors 'self'")
+
+  // every request gets an answer: a browser has six connections per host, two
+  // are the event streams, and a request left open keeps one for good. Chrome
+  // asks for the favicon again and again, until no POST /agent gets through.
+  for (const url of ['/favicon.ico', '/sw.js']) {
+    const answer = await Promise.race([request('GET', url, {}), sleep(1000).then(() => null)])
+    assert.ok(answer, url + ' is answered')
+  }
 
   let state = await tool('get_state', {})
   assert.strictEqual(state.connected, false)
@@ -158,6 +174,28 @@ async function main() {
   assert.strictEqual(state.file, 'README.md')
   assert.strictEqual(state.slide, 3)
   assert.strictEqual(state.selection.length, 2000, 'selection is capped')
+
+  // text-to-speech: the browser reports its speech voices, and without any
+  // the state says how to get them
+  assert.strictEqual(state.voices, -1, 'voices are unknown until a browser reports them')
+  assert.strictEqual(state.tts, undefined)
+  const speech = (voices, automated) => post({ type: 'state', context: { ...report.context, voices, automated } })
+  await speech(0, true)
+  state = await tool('get_state', {})
+  assert.strictEqual(state.voices, 0)
+  assert.ok(state.tts.includes('PLAYWRIGHT_MCP_CONFIG'), 'an automated browser gets the hint for its launch flags')
+  await speech(0, false)
+  state = await tool('get_state', {})
+  assert.ok(state.tts && !state.tts.includes('PLAYWRIGHT_MCP_CONFIG'), 'a normal browser gets the general hint')
+  await post({ type: 'state', context: { ...report.context, voices: 0, fallback: true } })
+  assert.strictEqual((await tool('get_state', {})).tts, undefined, 'no hint while responsiveVoice is loaded')
+  await post({ type: 'state', context: { ...report.context, voices: 0, fallback: false } })
+  await speech('many', true)
+  assert.strictEqual((await tool('get_state', {})).voices, 0, 'a bogus count is ignored')
+  await speech(19, true)
+  state = await tool('get_state', {})
+  assert.strictEqual(state.voices, 19)
+  assert.strictEqual(state.tts, undefined, 'no hint once there are voices')
 
   // --- goto
   assert.ok((await tool('goto', {})).isError)
@@ -224,8 +262,31 @@ async function main() {
   await sleep(200)
   assert.strictEqual((await tool('get_state', {})).chat, true)
 
+  // the fake browser above came and went within 2 s, like a reload: nobody
+  // heard of it. A connection that lasts is reported once it settled.
+  assert.deepStrictEqual(notifications, [], 'a short-lived stream is no event')
+  await sleep(2300)
+  msg = notifications.pop()
+  assert.deepStrictEqual(msg.params.meta, { type: 'connection' })
+  assert.deepStrictEqual(JSON.parse(msg.params.content).params, { connected: true, chat: true })
+  assert.deepStrictEqual((await tool('wait_for_event', {})).params, { connected: true, chat: true }, 'the fallback gets it too')
+
   assert.deepStrictEqual(await tool('chat', { markdown: '**hi**' }), { sent: true })
   assert.ok(stream.includes('"markdown":"**hi**"'), 'the message reaches the shell')
+
+  // progress line: alone it is no message, with one it stays after it
+  assert.deepStrictEqual(await tool('chat', { status: 'Reading CLAUDE.md' }), { sent: true })
+  assert.ok(stream.includes('{"status":"Reading CLAUDE.md"}'), 'the status reaches the shell: ' + stream)
+  await tool('chat', { markdown: 'first part', status: 'Building' })
+  assert.ok(stream.includes('"markdown":"first part","inputs":[],"status":"Building"'), 'a message can keep a status')
+  // the language of a message, so that reading it aloud takes the right voice
+  await tool('chat', { markdown: 'Bonjour', lang: 'fr-FR' })
+  assert.ok(stream.includes('"markdown":"Bonjour","inputs":[],"lang":"fr-FR"'), 'the language reaches the shell')
+  assert.ok((await tool('chat', { markdown: 'x', lang: 'french!' })).isError, 'lang is a language tag')
+  assert.ok((await tool('chat', {})).isError, 'markdown or status')
+  assert.ok((await tool('chat', { status: 5 })).isError, 'status is a string')
+  assert.ok((await tool('chat', { status: 'x'.repeat(201) })).isError, 'status is short')
+  assert.ok((await tool('chat', { status: 'x', inputs: [{ id: 'a', type: 'radio', options: ['a'] }] })).isError, 'a form needs markdown')
   assert.ok((await tool('chat', { markdown: 'x', inputs: [{ id: 'ask', type: 'radio', options: ['a'] }] })).isError)
   assert.ok((await tool('chat', { markdown: 'x', inputs: [{ id: 'a', type: 'select', options: ['a'] }] })).isError)
   assert.ok((await tool('chat', { markdown: 'x', inputs: [{ id: 'a', type: 'radio', options: [] }] })).isError)
@@ -273,7 +334,49 @@ async function main() {
   assert.strictEqual(answered, false, 'a cancelled request gets no answer')
   pending.delete(cancelledId)
   assert.strictEqual(notifications.pop().params.meta.type, 'answer')
+
+  // --- event stream for agents that watch a command (Claude Code's Monitor)
+  state = await tool('get_state', {})
+  assert.ok(/^http:\/\/localhost:3999\/agent\/events\/[0-9a-f]{32}$/.test(state.events), 'events: ' + state.events)
+  assert.strictEqual(state.watched, false)
+  const eventsPath = new URL(state.events).pathname
+  assert.strictEqual((await request('GET', '/agent/events/' + '0'.repeat(32), {})).status, 403, 'wrong token')
+  assert.strictEqual((await request('GET', eventsPath, { Origin: ORIGIN })).status, 403, 'not for browsers')
+
+  let lines = ''
+  const watch = http.get(ORIGIN + eventsPath, (res) => res.on('data', (chunk) => (lines += chunk)))
+  await sleep(200)
+  assert.strictEqual((await tool('get_state', {})).watched, true)
+
+  await post(command)
+  await sleep(100)
+  assert.ok(!lines.includes('<'), 'page text cannot close the notification tag')
+  assert.deepStrictEqual(lines.split('\n').filter(Boolean).map((line) => JSON.parse(line)), [command])
+  notifications.pop()
+
+  // watched, a form does not block: its answer is an event on the stream
+  lines = ''
+  const quick = await tool('chat', { markdown: 'pick', inputs })
+  assert.deepStrictEqual(quick, { sent: true, ask: askId() })
+  await post({ type: 'answer', params: { ask: quick.ask, level: 'easy' } })
+  await sleep(100)
+  assert.deepStrictEqual(JSON.parse(lines).params, { ask: quick.ask, level: 'easy' })
+  notifications.pop()
+
+  watch.destroy()
+  await sleep(100)
+  assert.strictEqual((await tool('get_state', {})).watched, false)
+
+  // the chat closes while a form waits: the call ends and the agent is told
+  asked = tool('chat', { markdown: 'still there?', inputs })
+  await sleep(200)
   chatSse.destroy()
+  await sleep(2300)
+  assert.deepStrictEqual(await asked, { ask: askId(), disconnected: true })
+  msg = notifications.pop()
+  assert.deepStrictEqual(msg.params.meta, { type: 'connection' })
+  assert.deepStrictEqual(JSON.parse(msg.params.content).params, { connected: false, chat: false })
+  assert.strictEqual((await tool('get_state', {})).connected, false)
 
   // --- a second client starts the same config: it must not die on the busy port
   const twin = spawn(process.execPath, ['dist/index.js', '--mcp', '-p', PORT, '-i', 'README.md'], {

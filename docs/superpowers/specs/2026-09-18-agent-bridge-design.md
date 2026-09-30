@@ -64,6 +64,9 @@ Quellen: [channels](https://code.claude.com/docs/en/channels) ·
 - `experimental['claude/channel/permission']` würde Tool-Freigaben über den Channel erlauben — **nie deklarieren**,
   sonst kann Browser-Inhalt Tool-Nutzung genehmigen.
 - Nicht dokumentiert: ob Channels in der VS-Code-Extension funktionieren. Alle Beispiele sind Terminal-CLI.
+  **Nachtrag (geprüft mit Extension 2.1.276):** in der Chat-Oberfläche der Extension nicht. Die mitgelieferte Binary
+  im stream-json-Modus der Extension plus Flag registriert keinen Channel (weder „registered" noch „gate says skip"
+  im Debug-Log), Channel-Code und Bestätigungsdialog gehören zur Terminal-Oberfläche.
 
 Vorbild: das offizielle Plugin
 [fakechat](https://github.com/anthropics/claude-plugins-official/tree/main/external_plugins/fakechat) —
@@ -119,6 +122,12 @@ ein Klick während der Agent arbeitet wird gequeued oder verlangt `session/cance
 Zuerst `--mcp`: Tools für alle Agenten, Push und Chat über Claude-Code-Channels, `wait_for_event` als Fallback für
 Agenten ohne Channels. Der ACP-Host-Modus folgt später (Abschnitt 8) und nutzt dasselbe Browser-Protokoll.
 
+**Nachtrag:** Weil Channels in der Chat-Oberfläche der VS-Code-Extension nicht ankommen, ist das Monitor-Tool der
+zweite Push-Weg für Claude Code. `GET /agent/events/<token>` liefert jedes Event als JSON-Zeile, der Agent startet
+`curl -sN <get_state.events>` im Monitor. Geprüft in der Extension: Events kommen mitten im Turn an und wecken eine
+ruhende Session. Solange jemand zuhört (`get_state.watched`), blockieren Formulare nicht, die Antwort kommt als
+`answer`-Event. Grenzen: ein Monitor läuft höchstens 30 min und muss dann neu gestartet werden; nur Claude Code.
+
 ## 3. Befunde aus Code und Player-Bundle
 
 - Der Transport existiert bereits: SSE-Fan-out (`clients[]`, `eventsHandler`, `gotoLine()`), `POST /lineGoto`,
@@ -129,6 +138,8 @@ Agenten ohne Channels. Der ACP-Host-Modus folgt später (Abschnitt 8) und nutzt 
   alles andere wird `base + url`. Aus `agent:tutor/explain` wird `http://localhost:3000/agent:tutor/explain`, mit
   `target="_blank"` und ggf. `<preview-link>`-Wrapper. `data-*`-Attribute aus Inline-HTML oder Attribut-Kommentaren
   kommen unverändert im DOM an. → Der Klick-Handler sucht `agent:` im Attributwert.
+  **Nachtrag 2026-09-30:** Seit LiaScript 2.1.0 steht `agent` in der Whitelist, der href bleibt wie geschrieben
+  (weiterhin mit `target="_blank"`). Der Handler prüft nur noch, ob der Wert mit `agent:` beginnt.
 - **`LIA.goto(n)` (0-basiert) hat einen veralteten Dedup-Guard**: `let p=-1; goto = e => { e!==p && (p=e, …) }`
   vergleicht mit dem zuletzt *angeforderten* Index, nicht mit der aktuellen Folie. `goto(3)`, Nutzer blättert weg,
   `goto(3)` = stiller No-op. → Navigation über `location.hash = '#'+n` (1-basiert wie die URL).
@@ -173,11 +184,15 @@ dem Protokoll; `console.log` wird auf stderr umgelenkt.
 
 - `state` aktualisiert nur den gecachten Zustand und wird nicht an den Agenten weitergereicht.
 - Der Server hängt den gecachten Zustand als `context` an jedes weitergereichte Event.
+- `connection` (`params: {connected, chat}`) erzeugt der Server selbst, wenn sich `connected` oder `chat` ändert
+  und die Änderung 2 s Bestand hat (F5 und Live-Reload zählen nicht). Ein wartendes `chat`-Formular endet dann mit
+  `{disconnected:true}`; der Agent soll darauf nicht mit `goto`/`chat` den Browser neu öffnen.
 - Erweitern heißt: neuer `type` oder neues `cmd`. Unbekannte Typen beantwortet der Server mit 400.
 
 ### 5.2 Kurs-Syntax
 
 `agent:<agent>/<cmd>?<params>` — geparst mit `new URL()`. Leerer `agent` = der Haupt-Agent.
+`agent://<agent>/<cmd>?<params>` wird genauso gelesen: die Handler streichen die Schrägstriche vor dem Parsen.
 
 ```markdown
 [Erkläre das einfacher](agent:tutor/explain?level=easy)
@@ -187,9 +202,21 @@ dem Protokoll; `console.log` wird auf stderr umgelenkt.
 [Übung](#)<!-- data-agent="agent:tutor/exercise?n=3" -->
 ```
 
-Außerhalb des DevServers ist der reine Link ein toter Link (404 in neuem Tab); die `data-agent`-Form bleibt
-wirkungslos. Würde LiaScript `agent` in seine Schema-Whitelist aufnehmen, blieben die hrefs unverändert — der
-Handler deckt beide Fälle ab.
+Außerhalb des DevServers ist der reine Link ein toter Link (der Browser kennt das Schema nicht); die
+`data-agent`-Form bleibt wirkungslos. LiaScript führt `agent` seit 2.1.0 in seiner Schema-Whitelist, die hrefs
+bleiben also unverändert.
+
+**Kein Standard, ein Namensvetter.** Für Links in einem Dokument, die einen lokalen Agenten anstoßen, gibt es
+keinen Standard (Stand September 2026). MCP Apps (`ui://`) und A2UI/AG-UI sprechen per JSON-RPC bzw.
+deklarativem JSON mit dem Host, kein Link-Schema, kein Markdown. Der IETF-Entwurf
+[draft-narvaneni-agent-uri](https://datatracker.ietf.org/doc/draft-narvaneni-agent-uri/) (individuell, ohne
+IETF-Status) benutzt denselben Schema-Namen mit `agent://<authority>/<agent>/<skill>?<params>` zur Adressierung
+entfernter Agenten; Authority ist ein DNS-Name oder eine DID. Unsere Form ohne `//` ist strukturell sein Vorbild
+(Pfad = Agent/Kommando, Query = Parameter), aber `agent://tutor/explain` hieße dort etwas anderes, und `new URL()`
+läse `tutor` als Host. Entscheidung: `agent:<agent>/<cmd>?<params>` bleibt die dokumentierte Form. Seit 2026-09-30
+nehmen die Handler auch `agent://tutor/explain` an und lesen `tutor` als Agentennamen, vorher ging der Name dabei
+still verloren. Sollte der Entwurf `agent` bei der IANA registrieren, ist der Ausweg ein eigenes Schema (etwa
+`lia:`).
 
 ### 5.3 Tools (Folien 1-basiert wie `#n` in der URL)
 
@@ -198,9 +225,27 @@ Handler deckt beide Fälle ab.
 | `get_state` | – | `{url, root, file, slide, title, selection, connected}` |
 | `goto` | `{file?, slide?, line?}` | Zustand nach der Navigation; öffnet den Browser, wenn keiner verbunden ist |
 | `wait_for_event` | `{timeout_s?}` (Standard 50) | nächstes Event oder `{timeout:true}` — nur für Agenten ohne Channels |
-| `chat` | `{markdown, inputs?}` | ohne `inputs` sofort `{sent:true}`; mit `inputs` blockiert bis zur Antwort: `{values}` oder `{dismissed:true, text}` |
+| `chat` | `{markdown, inputs?}` | ohne `inputs` sofort `{sent:true}`; mit `inputs` blockiert bis zur Antwort: `{values}`, `{dismissed:true, text}` oder `{disconnected:true}` |
 
 `inputs`: `[{id, type: 'buttons'|'radio'|'checkbox', label?, options: string[]}]`.
+
+**Nachtrag 2026-09-30, Screenshots und Konsole:** bewusst keine Tools der Bridge. Seiten-JavaScript hat keine
+saubere Screenshot-API, und Playwright-MCP wie Chrome-DevTools-MCP können das bereits. Beide steuern aber einen
+eigenen Browser und können sich nicht an den des Nutzers hängen. Deshalb legen die `instructions` fest, wo die
+Vorschau aufgeht: (1) ist ein Tab verbunden, wird er benutzt, nie ein zweiter geöffnet, zwei Tabs überschreiben
+sich den Zustand; (2) ist nichts verbunden und der Agent hat Browser-Werkzeuge mit sichtbarem Fenster, öffnet er
+`get_state.url` dort vor dem ersten `goto` oder `chat`; (3) sonst öffnet `goto` den Standardbrowser. Eine Option,
+die `goto` das Öffnen verbietet, wird erst gebaut, wenn Agenten den Hinweis ignorieren.
+
+**Nachtrag 2026-09-30, Längengrenze und Sprachausgabe:** Claude Code kürzt `instructions` auf 2048 Zeichen
+(`CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH`, im Client 2.1.285 nachgesehen) und misst jede Tool-Beschreibung gegen
+dieselbe Grenze. Der Text war auf 3193 Zeichen gewachsen, Sicherheitsabsatz und Ereigniswege kamen nicht mehr an.
+Jetzt: Regeln zuerst, Details in Tool-Beschreibungen und Tool-Ergebnisse, `src/check.js` prüft beide Längen.
+Sprachausgabe ist so ein Detail: Das injizierte Skript meldet die Zahl der `speechSynthesis`-Stimmen und
+`navigator.webdriver`; `get_state` liefert `voices` und nur bei null Stimmen ohne `--responsiveVoice` einen Eintrag
+`tts` mit Ursache und Abhilfe für den erkannten Browser. Ferngesteuertes Chrome ist stumm, weil Playwright und
+Puppeteer es mit `--disable-component-extensions-with-background-pages` starten. Der Agent ändert nichts ohne
+Zustimmung des Nutzers.
 
 ### 5.4 Channel-Abbildung
 
@@ -248,7 +293,7 @@ flachen JSON-Schema), die Tools gehen per `session/new.mcpServers[]` an den Agen
 
 ## 9. Hinweise für LiaScript selbst (nicht Teil dieser Arbeit)
 
-- `agent` in die Schema-Whitelist des Link-Parsers aufnehmen.
+- ~~`agent` in die Schema-Whitelist des Link-Parsers aufnehmen.~~ Erledigt in 2.1.0.
 - Dedup-Guard in `LIA.goto` gegen die aktuelle Folie statt gegen den letzten Aufruf prüfen.
 - `event.origin` im `message`-Handler prüfen; `case "compile"` fehlt ein `break`.
 - Link-Preview: `!!t.search(/wikipedia\.org/gi)` ist auch für `-1` wahr.

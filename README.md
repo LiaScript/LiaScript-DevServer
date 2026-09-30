@@ -4,7 +4,7 @@ This project is intended to support the development of interactive courses with
 [LiaScript](https://LiaScript.github.io). This projects implements a development
 server that can be used locally to preview courses within the browser.
 
-## Install
+## Installation
 
 You can directly download the latest version for your system from the assets:
 
@@ -261,19 +261,64 @@ servers of a `.mcp.json` in the workspace for Copilot as well, next to the one
 Claude Code starts. Do not start `--mcp` yourself in a terminal: nothing can
 connect to that instance.
 
+The preview opens in your default browser. If the agent has browser automation
+tools, such as the MCP servers of Playwright or Chrome DevTools, it is told to
+open the preview in that browser instead, as long as no tab is connected yet.
+You and the agent then look at the same tab, and the agent can take
+screenshots, read the console and click in the course. Open the preview
+yourself first if you prefer your own browser: the agent uses the tab that is
+there and never opens a second one.
+
 The agent gets these tools:
 
 | Tool             | What it does                                                                                                   |
 | ---------------- | -------------------------------------------------------------------------------------------------------------- |
-| `get_state`      | the open course, the slide (1-based, like `#3` in the URL), its title and the text you have selected           |
+| `get_state`      | the open course, the slide (1-based, like `#3` in the URL), its title, the text you have selected, and whether the browser can read aloud |
 | `goto`           | show a `slide`, the slide of a source `line`, or another course `file`; opens the browser if it is not open    |
 | `chat`           | write into the chat on top of the course, optionally with buttons, radio buttons and checkboxes for you to answer |
 | `wait_for_event` | fallback for agents that cannot be notified, see below                                                         |
 
+#### Reading aloud
+
+LiaScript reads a course aloud with the speech voices of the browser. The
+devServer reports to the agent how many voices the browser has, and when there
+are none, `get_state` carries a `tts` entry that says why and what helps. The
+agent is told to change nothing without asking you.
+
+The chat uses the same voices: every message has a small button that reads it
+aloud in the language of the course, without code blocks, tables and diagrams.
+A browser without voices shows no such button. The agent can say that a
+message is in another language, and mark single passages, so that each part is
+read with a matching voice.
+
+| Browser                                   | Why it is silent                                                                  | What helps                                                                 |
+| ----------------------------------------- | --------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| Chrome started by the Playwright MCP      | it starts Chrome with `--disable-component-extensions-with-background-pages`, which removes Chrome's online voices | a config file that drops the flag, see below (checked with Playwright MCP 0.0.83, Chrome 154) |
+| Chrome started by another automation tool | the same flag                                                                     | start Chrome without it                                                    |
+| Firefox on Linux                          | it takes its voices from `speech-dispatcher`                                      | install `speech-dispatcher` with a voice                                   |
+| any browser                               |                                                                                   | start the devServer with `--responsiveVoice <key>` and a valid key, that service needs no browser voices |
+
+For the Playwright MCP, write this into a file and pass it with `--config` or
+the environment variable `PLAYWRIGHT_MCP_CONFIG`, then restart that server:
+
+```json
+{
+  "browser": {
+    "launchOptions": {
+      "ignoreDefaultArgs": ["--disable-component-extensions-with-background-pages"]
+    }
+  }
+}
+```
+
+The voices of Chrome are online voices of Google: the text that is read goes
+to Google, and without a connection it stays silent.
+
 #### Links that talk to the agent
 
 A link with the scheme `agent:` sends a command to the agent when you click it.
-The message is the link itself, `agent:<agent>/<command>?<parameters>`:
+The message is the link itself, `agent:<agent>/<command>?<parameters>`. Written
+as `agent://<agent>/<command>?<parameters>` it means the same:
 
 ```markdown
 [Explain this simpler](agent:tutor/explain?level=easy)
@@ -292,29 +337,44 @@ the agent can offer them to you as well.
 Outside of the devServer such a link leads nowhere; the `data-agent` forms are
 inert there.
 
-Claude Code is told about a click at once, through its
-[channels](https://code.claude.com/docs/en/channels). They are a research
-preview, so the session has to be started like this:
+Claude Code is told about a click at once, in one of two ways:
 
-```bash
-claude --dangerously-load-development-channels server:liascript
-```
+- Its [channels](https://code.claude.com/docs/en/channels) are a research
+  preview and work only in the terminal, not in the chat panel of the VS Code
+  extension. The session has to be started like this:
+
+  ```bash
+  claude --dangerously-load-development-channels server:liascript
+  ```
+
+- Otherwise it listens with its Monitor tool, in the terminal and in VS Code
+  alike. `get_state` gives it the address of an event stream, the agent runs
+  `curl -sN` on it in the background, and every click wakes it up. The agent is
+  told to do so, there is nothing to set up. While it listens, forms in the
+  chat do not keep it waiting; your answer arrives like a click.
 
 Other agents cannot be notified by an MCP server. Ask them to call
 `wait_for_event` in a loop instead, it returns as soon as you click.
+
+Closing the preview is an event as well: two seconds after the last browser
+went away the agent is told that nobody is looking anymore, a form it was
+waiting for ends, and it is asked not to reopen the page on its own. A reload
+is too short to count.
 
 #### The chat
 
 In this mode a course opens inside a page with a chat on top of it. The course
 lives in a frame of its own, so the chat stays when the course reloads. What
 you type goes to the agent, and its answers are rendered as Markdown, including
-` ```mermaid ` diagrams. Markdown and diagram rendering are loaded from
+` ```mermaid ` diagrams. While the agent works on an answer, a line below the
+messages tells what it is doing. Markdown and diagram rendering are loaded from
 jsDelivr; without a connection the chat falls back to plain text.
 
 #### Security
 
 What happens in the browser ends up as a prompt for your agent. Therefore, with
 `--mcp` the server listens on this machine only and refuses requests from other
-origins. Course content is still able to send commands, that is the point of
-the links, and scripts of a course can do the same. Open courses you do not
-trust without `--mcp`.
+origins. The event stream answers only at a random address that the agent gets
+from `get_state`, and never to a browser. Course content is still able to send
+commands, that is the point of the links, and scripts of a course can do the
+same. Open courses you do not trust without `--mcp`.
