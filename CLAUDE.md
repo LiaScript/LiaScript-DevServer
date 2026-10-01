@@ -63,8 +63,11 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   - When a `.md` file is requested under `/home/*`, redirects to the LiaScript player with the file as a query
     param (`/liascript/index.html?http://host:port/path/to/file.md`), or to the online LiaScript.github.io player
     if `--test` is set.
-  - Optional live reload (`--live`): uses `chokidar` to watch the target file/folder and the `reload` npm package to
-    push browser refreshes over its injected `/reload/reload.js` client script. `reload` 3.x runs its own `ws`
+  - Optional live reload (`--live`): uses `chokidar` to watch the target folder (also the folder of a single input
+    file) and the `reload` npm package to push browser refreshes. chokidar 4 has no globs, so `ignored()` skips
+    hidden files and folders and `node_modules` below the root, and every file whose extension is missing from
+    the list of `--watch md,css` (default `WATCH`, the 10th parameter of `start()`, `*` for all, implies `--live`). Browser
+    refreshes go out over reload's injected `/reload/reload.js` client script. `reload` 3.x runs its own `ws`
     WebSocket server on `port + 10000` (see `reloadPort`), not socket.io — the `/socket.io` skip in the catch-all
     route is a leftover that never matches. The client does a full `window.location.reload()` of the player page.
   - Optional `--responsiveVoice` support: injects the responsiveVoice script tag with a given/default key (also

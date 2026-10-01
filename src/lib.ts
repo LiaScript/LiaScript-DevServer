@@ -25,6 +25,30 @@ var liascriptPath = ''
 var reloadInstance: any = null
 var watcher: any = null
 
+// file types that trigger a live reload, unless start() gets its own list
+export const WATCH = [
+  'md',
+  'html',
+  'htm',
+  'js',
+  'css',
+  'png',
+  'jpg',
+  'jpeg',
+  'gif',
+  'svg',
+  'webp',
+  'avif',
+  'bmp',
+  'ico',
+  'mp4',
+  'webm',
+  'ogv',
+  'ogg',
+  'mov',
+  'm4v',
+]
+
 var clients: any[] = []
 
 // agent bridge (--mcp): what the browser last reported, and the events it sends.
@@ -317,12 +341,13 @@ export async function start(
   testOnline?: boolean,
   gotoCallback?: (linenumber: number, filename: string) => void,
   agent?: boolean,
+  watch?: string[],
 ) {
   port = port || 3000
   hostname = hostname || 'localhost'
   openInBrowser = openInBrowser || false
   input = input || '.'
-  liveReload = liveReload || false
+  liveReload = liveReload || !!watch
   testOnline = testOnline || false
   agent = agent || false
 
@@ -408,14 +433,19 @@ export async function start(
 
   // Initialize reload BEFORE routes to ensure its routes are registered first
   if (liveReload) {
-    const watchPath = path.join(project.path, project.readme || '')
-    console.log(`✨ watching for changes on: "${watchPath}"`)
+    // the folder also for a single file, its images and styles belong to it
+    const watchPath = path.resolve(project.path)
+    watch = watch || WATCH
+    console.log(
+      `✨ watching for changes on: "${watchPath}" (${watch.join(', ')})`,
+    )
 
     try {
       reloadInstance = await reload(app, { port: reloadPort(port) })
 
       // Watch the file for changes using chokidar (more reliable than fs.watch)
       watcher = chokidar.watch(watchPath, {
+        ignored: ignored(watchPath, watch),
         ignoreInitial: true,
         awaitWriteFinish: {
           stabilityThreshold: 100,
@@ -809,6 +839,26 @@ export function stop() {
 // multiple simultaneously running instances never collide
 function reloadPort(port: number): number {
   return port < 55535 ? port + 10000 : port - 10000
+}
+
+// chokidar 4 knows no globs: skip hidden files and folders and node_modules
+// below root (a hidden folder above it does not count), and files of other
+// types. chokidar asks once without stats and again with them, folders must
+// pass the type check, so it waits for the stats.
+function ignored(root: string, types: string[]) {
+  const all = types.indexOf('*') >= 0
+
+  return function (file: string, stats?: fs.Stats): boolean {
+    const hidden = path
+      .relative(root, file)
+      .split(path.sep)
+      .some((part) => part.startsWith('.') || part === 'node_modules')
+
+    if (hidden) return true
+    if (all || !stats || !stats.isFile()) return false
+
+    return types.indexOf(path.extname(file).slice(1).toLowerCase()) < 0
+  }
 }
 
 function isFree(port: number, host?: string): Promise<boolean> {
