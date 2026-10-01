@@ -1,5 +1,6 @@
 .env
 .cache
+.claude
 .github
 .parcel-cache
 .vscode
@@ -7,3 +8,5 @@ node_modules
 pics
 src
 docs
+*.md
+.mcp.json
