@@ -43,17 +43,62 @@
         border-radius: 12px;
         box-shadow: 0 6px 24px rgb(0 0 0 / 0.3);
       }
+      /* the button moves the chat: dragged it does not toggle */
       #chat > summary {
         padding: 0.5rem 0.9rem;
         font-weight: 600;
         cursor: pointer;
+        touch-action: none;
+        user-select: none;
+      }
+      #chat[open] > summary {
+        cursor: move;
+      }
+      /* the free corner, the chat is anchored at the bottom right */
+      #grip {
+        display: none;
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 14px;
+        height: 14px;
+        cursor: nwse-resize;
+        touch-action: none;
+        border-top: 3px solid GrayText;
+        border-left: 3px solid GrayText;
+        border-top-left-radius: 12px;
+      }
+      #chat[open] > #grip {
+        display: block;
+      }
+      /* the course must not swallow the pointer while the chat moves */
+      body.dragging #course {
+        pointer-events: none;
+      }
+      body.dragging {
+        user-select: none;
       }
       #panel {
         display: flex;
         flex-direction: column;
         width: min(26rem, calc(100vw - 2rem - 2px));
         height: min(34rem, calc(100vh - 5rem));
+        min-width: 16rem;
+        min-height: 14rem;
+        /* a size from a bigger window must not push the chat off screen */
+        max-width: calc(100vw - 2px);
+        max-height: calc(100vh - 3rem);
         border-top: 1px solid GrayText;
+      }
+      #agents {
+        padding: 0.4rem 0.75rem;
+        border-bottom: 1px solid GrayText;
+      }
+      #agents select {
+        font: inherit;
+        width: 100%;
+        padding: 0.2rem 0.3rem;
+        border-radius: 6px;
       }
       #log {
         flex: 1;
@@ -136,10 +181,23 @@
         background: Highlight;
         color: HighlightText;
       }
+      /* under every message: read aloud, who wrote it and when */
+      .foot {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-top: 0.35rem;
+        font-size: 0.8rem;
+      }
+      .stamp {
+        margin-left: auto;
+        opacity: 0.6;
+        white-space: nowrap;
+      }
       /* read aloud: only in a browser that has a voice */
       .speak {
         display: none;
-        margin: 0.35rem 0 0;
+        margin: 0;
         padding: 0 0.45rem;
         border: 0;
         background: none;
@@ -153,10 +211,7 @@
         opacity: 1;
       }
       #log.can-speak .speak {
-        display: block;
-      }
-      .me .speak {
-        margin-left: auto;
+        display: inline-block;
       }
       #status {
         padding: 0 0.75rem 0.5rem;
@@ -198,8 +253,12 @@
     <iframe id="course" title="LiaScript course"></iframe>
 
     <details id="chat" open>
-      <summary>Chat</summary>
+      <summary id="who">Chat</summary>
+      <div id="grip" title="Resize" aria-hidden="true"></div>
       <div id="panel">
+        <div id="agents" hidden>
+          <select id="pick" aria-label="Agent"></select>
+        </div>
         <div id="log" role="log" aria-live="polite"></div>
         <div id="status" role="status" hidden></div>
         <form id="say">
