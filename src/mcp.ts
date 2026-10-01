@@ -61,11 +61,15 @@ const TOOLS = [
   {
     name: 'chat',
     description:
-      'Post a message into the chat that overlays the course. markdown renders as Markdown, a mermaid code fence as a diagram, and [label](agent:<agent>/<cmd>?<params>) as a link that sends a command event when clicked. Formulas are not typeset. Every message has a button that reads it aloud in the language of the course: pass lang if the message is in another language, and wrap a passage in yet another one in <span lang=\"es\">. With inputs the message carries a form and the call BLOCKS until the user answers: it returns {values: {<id>: <option> | [<options>]}}, or {dismissed: true, text} if the user typed a message instead. While a Monitor watches get_state.events it returns at once with {sent, ask} and the answer arrives as an "answer" event. If the chat closes while the call waits, it returns {disconnected: true}. Without inputs it returns at once. buttons submit the form on click, radio picks one option, checkbox any number.',
+      'Post a message into the chat that overlays the course. markdown renders as Markdown, a mermaid code fence as a diagram, and [label](agent:<agent>/<cmd>?<params>) as a link that sends a command event when clicked. Formulas are not typeset. Each message shows the emoji of the current agent (see set_agent), pass agent to sign it as another one. Every message has a button that reads it aloud in the language of the course: pass lang if the message is in another language, and wrap a passage in yet another one in <span lang=\"es\">. With inputs the message carries a form and the call BLOCKS until the user answers: it returns {values: {<id>: <option> | [<options>]}}, or {dismissed: true, text} if the user typed a message instead. While a Monitor watches get_state.events it returns at once with {sent, ask} and the answer arrives as an "answer" event. If the chat closes while the call waits, it returns {disconnected: true}. Without inputs it returns at once. buttons submit the form on click, radio picks one option, checkbox any number.',
     inputSchema: {
       type: 'object',
       properties: {
         markdown: { type: 'string' },
+        agent: {
+          type: 'string',
+          description: 'name of an agent declared with set_agent: it signs this message and becomes the current one',
+        },
         lang: {
           type: 'string',
           description: 'language tag of the message if it is not the language of the course, e.g. fr or pt-BR',
@@ -90,6 +94,28 @@ const TOOLS = [
           },
         },
       },
+    },
+  },
+  {
+    name: 'set_agent',
+    description:
+      'Shows the user who they talk to: the emoji and name of the current agent on the chat button, its emoji and the time under each of its messages. Call it before the first message and whenever the agent that talks to the user changes. agents declares all agents of a workflow and replaces the previous list; with two or more the chat offers a menu to pick one. A pick in that menu, or a click on a course link agent:<name>/switch, switches at once and arrives as a command event {agent: <name>, cmd: "switch"}: hand the conversation over to that agent. chat and answer events carry the current agent in their agent field, route them to it. name has to be in the list, unless emoji is given: then it is added or updated. Opens no browser. Returns {agent, agents}.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'the agent that talks to the user now, letters digits _ -' },
+        emoji: { type: 'string', description: 'its emoji, e.g. 🧑‍🏫' },
+        agents: {
+          type: 'array',
+          maxItems: 10,
+          items: {
+            type: 'object',
+            properties: { name: { type: 'string' }, emoji: { type: 'string' } },
+            required: ['name', 'emoji'],
+          },
+        },
+      },
+      required: ['name'],
     },
   },
   {
@@ -250,8 +276,65 @@ function waitForEvent(args: any, request: any) {
   })
 }
 
+const NAME = /^[\w-]{1,64}$/
+
+function isEmoji(value: any) {
+  return typeof value === 'string' && value.trim() !== '' && value.length <= 32
+}
+
+function setAgent(args: any) {
+  const { name, emoji } = args
+  if (typeof name !== 'string' || !NAME.test(name)) {
+    throw new Error('name must be letters, digits, _ or -')
+  }
+  if (emoji !== undefined && !isEmoji(emoji)) {
+    throw new Error('emoji must be a short string, e.g. 🧑‍🏫')
+  }
+
+  let list: server.Agent[] = server.getState().agents
+  if (args.agents !== undefined) {
+    if (!Array.isArray(args.agents) || args.agents.length > 10) {
+      throw new Error('agents must be an array of at most 10 entries')
+    }
+    list = []
+    for (const agent of args.agents) {
+      if (
+        !agent ||
+        typeof agent.name !== 'string' ||
+        !NAME.test(agent.name) ||
+        list.some((a) => a.name === agent.name)
+      ) {
+        throw new Error('agents[].name must be a unique name of letters, digits, _ or -')
+      }
+      if (!isEmoji(agent.emoji)) {
+        throw new Error('agents[].emoji must be a short string, e.g. 🧑‍🏫')
+      }
+      list.push({ name: agent.name, emoji: agent.emoji })
+    }
+  }
+
+  const known = list.some((a) => a.name === name)
+  if (emoji !== undefined) {
+    if (!known && list.length >= 10) throw new Error('at most 10 agents')
+    // in its place, the menu keeps its order
+    list = known
+      ? list.map((a) => (a.name === name ? { name, emoji } : a))
+      : list.concat({ name, emoji })
+  } else if (!known) {
+    throw new Error('unknown agent ' + name + ', pass its emoji or declare it in agents')
+  }
+
+  server.setAgent(name, list)
+  const { agent, agents } = server.getState()
+  return { agent, agents }
+}
+
 async function chat(args: any, request: any) {
   const inputs = args.inputs || []
+  const signer = args.agent
+  if (signer !== undefined && !server.getState().agents.some((a) => a.name === signer)) {
+    throw new Error('agent must be declared with set_agent first')
+  }
   const status = args.status
   if (status !== undefined && (typeof status !== 'string' || status.length > 200)) {
     throw new Error('status must be a string of at most 200 characters')
@@ -262,6 +345,7 @@ async function chat(args: any, request: any) {
   }
   // only the progress line: no reason to open a browser for it
   if (args.markdown === undefined && status !== undefined && !inputs.length) {
+    if (signer !== undefined) server.setAgent(signer)
     server.send({ status })
     return { sent: server.getState().chat }
   }
@@ -307,8 +391,10 @@ async function chat(args: any, request: any) {
     }
   }
 
+  if (signer !== undefined) server.setAgent(signer)
   const id = 'ask' + ++asks
-  server.send({ chat: { id, markdown: args.markdown, inputs, status, lang } })
+  const agent = server.currentAgent()
+  server.send({ chat: { id, markdown: args.markdown, inputs, status, lang, agent } })
   if (!inputs.length) return { sent: true }
   // the watcher gets the answer as an event, a blocked call would get it twice
   if (server.getState().watched) return { sent: true, ask: id }
@@ -369,6 +455,7 @@ async function handle(method: string, params: any, request: any) {
       else if (params.name === 'goto') call = () => goto(args)
       else if (params.name === 'wait_for_event') call = () => waitForEvent(args, request)
       else if (params.name === 'chat') call = () => chat(args, request)
+      else if (params.name === 'set_agent') call = () => setAgent(args)
       else throw fail(-32602, 'unknown tool: ' + params.name)
 
       // tool failures go into the result, so the model sees and corrects them

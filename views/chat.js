@@ -18,16 +18,179 @@ function post(msg) {
   })
 }
 
-function add(who, content, extra) {
+// agent: {name, emoji} of the agent that wrote it, if the AI declared one
+function add(who, content, extra, agent) {
   var msg = document.createElement('div')
   msg.className = 'msg ' + who
   msg.append(content)
   if (extra) msg.append(extra)
-  msg.append(speaker(content))
+
+  var stamp = document.createElement('span')
+  stamp.className = 'stamp'
+  stamp.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  if (agent) {
+    stamp.prepend(agent.emoji + ' ')
+    stamp.title = agent.name
+  }
+  var foot = document.createElement('div')
+  foot.className = 'foot'
+  foot.append(speaker(content), stamp)
+  msg.append(foot)
+
   log.append(msg)
   log.scrollTop = log.scrollHeight
   return msg
 }
+
+// ------------------------------------------------------------------ agents
+
+// who the user talks to, on the button and in the menu of a workflow
+var who = document.getElementById('who')
+var pick = document.getElementById('pick')
+var current = ''
+
+function showAgents(agents) {
+  var now = agents.current
+  current = now ? now.name : ''
+  who.textContent = now ? now.emoji + ' ' + now.name : 'Chat'
+
+  pick.textContent = ''
+  ;(agents.list || []).forEach(function (agent) {
+    var option = document.createElement('option')
+    option.value = agent.name
+    option.textContent = agent.emoji + ' ' + agent.name
+    pick.append(option)
+  })
+  pick.value = current
+  pick.classList.remove('failed')
+  document.getElementById('agents').hidden = pick.options.length < 2
+}
+
+// the same as a click on agent:<name>/switch, the server switches and the
+// broadcast that follows updates button and menu
+pick.addEventListener('change', function () {
+  post({ type: 'command', agent: pick.value, cmd: 'switch', params: {} }).catch(function () {
+    pick.value = current
+    pick.classList.add('failed')
+  })
+})
+
+// ------------------------------------------------------- move and resize
+
+// The chat stays anchored at the bottom right, so it opens upwards. The button
+// moves it, the grip in the top left corner resizes the panel.
+var box = document.getElementById('chat')
+var panel = document.getElementById('panel')
+var LAYOUT = 'liascript-chat-layout'
+
+function px(value) {
+  return Math.round(value) + 'px'
+}
+
+// keeps the whole chat, open or not, on the screen
+function clamp() {
+  var rect = box.getBoundingClientRect()
+  var right = parseFloat(getComputedStyle(box).right)
+  var bottom = parseFloat(getComputedStyle(box).bottom)
+  box.style.right = px(Math.max(0, Math.min(right, innerWidth - rect.width)))
+  box.style.bottom = px(Math.max(0, Math.min(bottom, innerHeight - rect.height)))
+}
+
+function save() {
+  try {
+    localStorage.setItem(
+      LAYOUT,
+      JSON.stringify({
+        right: box.style.right,
+        bottom: box.style.bottom,
+        width: panel.style.width,
+        height: panel.style.height,
+      }),
+    )
+  } catch (e) {}
+}
+
+try {
+  var layout = JSON.parse(localStorage.getItem(LAYOUT) || '{}')
+  if (layout.right) box.style.right = layout.right
+  if (layout.bottom) box.style.bottom = layout.bottom
+  if (layout.width) panel.style.width = layout.width
+  if (layout.height) panel.style.height = layout.height
+} catch (e) {}
+clamp()
+addEventListener('resize', clamp)
+box.addEventListener('toggle', clamp)
+
+function swallow(e) {
+  e.preventDefault()
+}
+
+// pointer capture keeps the moves coming while the pointer is over the iframe
+function drag(handle, move) {
+  handle.addEventListener('pointerdown', function (e) {
+    if (e.button != 0) return
+    var x = e.clientX
+    var y = e.clientY
+    var started = false
+    var start = move.start()
+    handle.setPointerCapture(e.pointerId)
+
+    function onMove(e) {
+      var dx = e.clientX - x
+      var dy = e.clientY - y
+      // a click on the button still opens and closes the chat
+      if (!started && Math.abs(dx) + Math.abs(dy) < 5) return
+      started = true
+      document.body.classList.add('dragging')
+      move.to(start, dx, dy)
+    }
+    function onUp() {
+      handle.removeEventListener('pointermove', onMove)
+      handle.removeEventListener('pointerup', onUp)
+      handle.removeEventListener('pointercancel', onUp)
+      document.body.classList.remove('dragging')
+      if (!started) return
+      clamp()
+      save()
+      // the click that follows the drag must not toggle the chat
+      handle.addEventListener('click', swallow, { once: true, capture: true })
+      // in case no click follows, the next real one must work
+      setTimeout(function () {
+        handle.removeEventListener('click', swallow, true)
+      }, 0)
+    }
+    handle.addEventListener('pointermove', onMove)
+    handle.addEventListener('pointerup', onUp)
+    handle.addEventListener('pointercancel', onUp)
+  })
+}
+
+drag(who, {
+  start: function () {
+    var style = getComputedStyle(box)
+    return { right: parseFloat(style.right), bottom: parseFloat(style.bottom) }
+  },
+  to: function (start, dx, dy) {
+    box.style.right = px(start.right - dx)
+    box.style.bottom = px(start.bottom - dy)
+    clamp()
+  },
+})
+
+drag(document.getElementById('grip'), {
+  start: function () {
+    return { width: panel.offsetWidth, height: panel.offsetHeight }
+  },
+  to: function (start, dx, dy) {
+    // not past the edges of the screen, the min size comes from the CSS
+    var rect = box.getBoundingClientRect()
+    var chrome = rect.height - panel.offsetHeight
+    var right = innerWidth - rect.right
+    var bottom = innerHeight - rect.bottom
+    panel.style.width = px(Math.min(start.width - dx, innerWidth - right - 2))
+    panel.style.height = px(Math.min(start.height - dy, innerHeight - bottom - chrome))
+  },
+})
 
 // ------------------------------------------------------------- read aloud
 
@@ -427,11 +590,17 @@ new EventSource('/gotoLine?chat').onmessage = function (event) {
     return
   }
   if (typeof data.status == 'string') return status(data.status)
+  if (data.agents) return showAgents(data.agents)
 
   var chat = data.chat
   if (!chat) return
 
-  var msg = add('ai', markdown(chat.markdown), chat.inputs && chat.inputs.length ? form(chat.id, chat.inputs) : null)
+  var msg = add(
+    'ai',
+    markdown(chat.markdown),
+    chat.inputs && chat.inputs.length ? form(chat.id, chat.inputs) : null,
+    chat.agent,
+  )
   if (typeof chat.lang == 'string') msg.lang = chat.lang
   document.getElementById('chat').open = true
   status(chat.status)

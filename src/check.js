@@ -132,7 +132,7 @@ async function main() {
 
   msg = await rpc('tools/list')
   const names = msg.result.tools.map((t) => t.name)
-  for (const name of ['get_state', 'goto', 'wait_for_event', 'chat']) assert.ok(names.includes(name), name)
+  for (const name of ['get_state', 'goto', 'wait_for_event', 'chat', 'set_agent']) assert.ok(names.includes(name), name)
   for (const t of msg.result.tools) {
     assert.ok(t.description.length <= LIMIT, 'the description of ' + t.name + ' has ' + t.description.length + ' characters')
   }
@@ -334,6 +334,61 @@ async function main() {
   assert.strictEqual(answered, false, 'a cancelled request gets no answer')
   pending.delete(cancelledId)
   assert.strictEqual(notifications.pop().params.meta.type, 'answer')
+
+  // --- agents: who the user talks to, on the chat button and under each message
+  assert.ok((await tool('set_agent', {})).isError, 'name is required')
+  assert.ok((await tool('set_agent', { name: 'no spaces', emoji: 'x' })).isError, 'name is a name')
+  assert.ok((await tool('set_agent', { name: 'tutor' })).isError, 'an unknown agent needs an emoji')
+  assert.ok((await tool('set_agent', { name: 'tutor', emoji: ' ' })).isError, 'emoji is not blank')
+  assert.ok((await tool('set_agent', { name: 'tutor', emoji: 'x'.repeat(33) })).isError, 'emoji is short')
+  const twice = [{ name: 'tutor', emoji: 'a' }, { name: 'tutor', emoji: 'b' }]
+  assert.ok((await tool('set_agent', { name: 'tutor', agents: twice })).isError, 'names are unique')
+  assert.ok((await tool('chat', { markdown: 'x', agent: 'tutor' })).isError, 'chat signs only as a declared agent')
+  assert.strictEqual((await tool('get_state', {})).agent, '')
+
+  const tutor = { name: 'tutor', emoji: '🧑‍🏫' }
+  const examiner = { name: 'examiner', emoji: '📝' }
+  stream = ''
+  assert.deepStrictEqual(await tool('set_agent', { name: 'tutor', agents: [tutor, examiner] }), {
+    agent: 'tutor',
+    agents: [tutor, examiner],
+  })
+  await sleep(100)
+  assert.ok(
+    stream.includes(JSON.stringify({ agents: { current: tutor, list: [tutor, examiner] } })),
+    'button and menu learn the agents: ' + stream,
+  )
+  await tool('chat', { markdown: 'from the tutor' })
+  assert.ok(stream.includes('"markdown":"from the tutor","inputs":[],"agent":' + JSON.stringify(tutor)), 'a message is signed')
+  await tool('chat', { markdown: 'from the examiner', agent: 'examiner' })
+  assert.ok(stream.includes('"markdown":"from the examiner","inputs":[],"agent":' + JSON.stringify(examiner)))
+  assert.strictEqual((await tool('get_state', {})).agent, 'examiner', 'signing switches')
+  const owl = await tool('set_agent', { name: 'tutor', emoji: '🦉' })
+  assert.deepStrictEqual(owl.agents.map((a) => a.emoji), ['🦉', '📝'], 'a new emoji keeps the order of the menu')
+
+  // a reloaded shell learns them at once
+  let replay = ''
+  const reloaded = http.get(ORIGIN + '/gotoLine?chat', (res) => res.on('data', (chunk) => (replay += chunk)))
+  await sleep(200)
+  assert.ok(replay.includes('{"agents":{"current":{"name":"tutor","emoji":"🦉"}'), 'replay: ' + replay)
+  reloaded.destroy()
+
+  // the menu of the chat, or a course link agent:examiner/switch
+  assert.strictEqual((await post({ type: 'command', agent: 'examiner', cmd: 'switch', params: {} })).status, 204)
+  await sleep(100)
+  assert.strictEqual((await tool('get_state', {})).agent, 'examiner', 'the switch takes effect at once')
+  assert.ok(stream.endsWith('data: {"agents":{"current":' + JSON.stringify(examiner) + ',"list":[{"name":"tutor","emoji":"🦉"},' + JSON.stringify(examiner) + ']}}\n\n'), 'and the shell hears of it')
+  assert.deepStrictEqual(notifications.pop().params.meta, { type: 'command', agent: 'examiner', cmd: 'switch' }, 'the agents hear of it')
+  await post({ type: 'command', agent: 'nobody', cmd: 'switch', params: {} })
+  await sleep(100)
+  assert.strictEqual((await tool('get_state', {})).agent, 'examiner', 'only to a declared agent')
+  notifications.pop()
+
+  // the chat goes to the current agent
+  await post({ type: 'chat', params: { text: 'question' } })
+  await sleep(100)
+  assert.deepStrictEqual(notifications.pop().params.meta, { type: 'chat', agent: 'examiner' })
+  for (let i = 0; i < 4; i++) await tool('wait_for_event', {}) // drain the fallback queue
 
   // --- event stream for agents that watch a command (Claude Code's Monitor)
   state = await tool('get_state', {})

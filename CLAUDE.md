@@ -92,8 +92,16 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
     free port when the requested one (or its reload port) is busy: every MCP client spawns its own instance from
     the same config, and VS Code autostarts a workspace `.mcp.json` for Copilot next to Claude Code's spawn, so a
     fixed port meant `EADDRINUSE` and a bare "connection closed" in the client.
+  - Who the user talks to: `setAgent()` / `currentAgent()` hold a roster of `{name, emoji}` and the current name
+    (`getState().agent` and `.agents`, kept out of `state` so the event context stays the same). Every change goes
+    out as `{agents: {current, list}}` and is replayed to each new `?chat` stream, so a reloaded shell knows it.
+    `chat` and `answer` events carry the current agent in `agent`. A `command` with `cmd: 'switch'` and a roster
+    name (the agent menu of the chat, or a course link `agent:<name>/switch`) switches at once, before the event
+    goes out; an unknown name stays a plain command.
 - **`src/mcp.ts`** — the MCP adapter: a dependency-free newline-delimited JSON-RPC server on stdio (deliberately
-  not the MCP SDK, see the header comment) with the tools `get_state`, `goto`, `chat` and `wait_for_event`. Every
+  not the MCP SDK, see the header comment) with the tools `get_state`, `goto`, `chat`, `set_agent` and `wait_for_event`
+  (`set_agent` declares the roster and the current agent and opens no browser; `chat.agent` signs one message as a
+  roster agent and makes it current; every `chat` payload carries `agent: {name, emoji}`). Every
   `'event'` on the bus is also pushed as `notifications/claude/channel`, which Claude Code turns into a
   `<channel>` tag in the running session (research preview, needs
   `claude --dangerously-load-development-channels server:<name>`). It must never negotiate protocol revision
@@ -116,7 +124,11 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   online voices.
 - **`views/chat.html` + `views/chat.js`** — the chat shell served at `/liascript/chat.html`: the player in a
   same-origin iframe with the chat on top, so a live reload only reloads the iframe. The script is a separate file
-  because the page's CSP allows no inline scripts. Every message has a read-aloud button (`speaker()` in `chat.js`):
+  because the page's CSP allows no inline scripts. The button shows emoji and name of the current agent, a menu
+  above the log appears with two or more agents, and every message ends in a footer with the read-aloud button and
+  `emoji HH:MM` (arrival time). The chat stays anchored bottom-right: the button moves it (pointer capture, a drag
+  swallows the click that follows), the grip in the top-left corner resizes `#panel`; `clamp()` keeps both on
+  screen and `localStorage` remembers them. Every message has a read-aloud button (`speaker()` in `chat.js`):
   `speechSynthesis` with a voice for the language the player puts on its `<html lang>`, split into pieces of at
   most 180 characters because Chrome drops an utterance of its online voices after about 15 seconds; without
   browser voices it uses the `responsiveVoice` object of the player if there is one, else the buttons stay hidden.
