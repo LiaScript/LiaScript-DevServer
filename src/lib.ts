@@ -42,6 +42,27 @@ const state = { root: '', file: '', slide: 1, title: '', selection: '' }
 // which --responsiveVoice only achieves with a valid key.
 const speech = { voices: -1, automated: false, fallback: false }
 
+// Who the user talks to: the agents of a workflow, each with an emoji that the
+// chat shows on its button and under every message. Kept out of state too.
+export type Agent = { name: string; emoji: string }
+const agents = { current: '', list: [] as Agent[] }
+
+export function currentAgent(): Agent | undefined {
+  // not find(): the lib build compiles against ES5
+  return agents.list.filter((a) => a.name === agents.current)[0]
+}
+
+// list replaces the roster, name has to be in it (the caller checks that)
+export function setAgent(name: string, list?: Agent[]) {
+  if (list) agents.list = list
+  agents.current = name
+  send(agentsMessage())
+}
+
+function agentsMessage() {
+  return { agents: { current: currentAgent() || null, list: agents.list } }
+}
+
 // Automation tools start Chrome with this flag, which takes away its online
 // voices (checked with Playwright MCP 0.0.83 and Chrome 154).
 const NO_VOICES_FLAG = '--disable-component-extensions-with-background-pages'
@@ -99,6 +120,8 @@ export function getState() {
     events,
     watched: watchers.length > 0,
     voices: speech.voices,
+    agent: agents.current,
+    agents: agents.list,
     // only present when the course cannot be read aloud
     tts: ttsHint(),
   }
@@ -654,10 +677,21 @@ export async function start(
         }
       }
 
+      // agent:<name>/switch, from a link or the agent menu of the chat, takes
+      // effect at once if the agents declared that name. The event tells them.
+      if (
+        command &&
+        body.cmd === 'switch' &&
+        agents.list.some((a) => a.name === agentName)
+      ) {
+        setAgent(agentName)
+      }
+
       const { root, ...context } = state
       emitEvent({
         type: body.type,
-        agent: agentName,
+        // chat and answer go to the agent the user talks to right now
+        agent: command ? agentName : agents.current,
         cmd: command ? body.cmd : '',
         params: checked,
         context,
@@ -854,6 +888,10 @@ function eventsHandler(
 
   // the chat shell connects with ?chat, a bare player cannot show messages
   ;(response as any).chat = request.query.chat !== undefined
+  // a reloaded shell has to know who it talks to
+  if ((response as any).chat && agents.list.length) {
+    response.write(`data: ${JSON.stringify(agentsMessage())}\n\n`)
+  }
   clients.push(response)
   connectionChanged()
 
