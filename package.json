@@ -66,5 +66,12 @@
       "node_modules/@liascript/editor/dist/**/*",
       "views/**/*"
     ]
+  },
+  "allowScripts": {
+    "msgpackr-extract@3.0.3": true,
+    "lmdb@2.8.5": true,
+    "es5-ext@0.10.64": true,
+    "@swc/core@1.15.11": true,
+    "@parcel/watcher@2.5.6": true
   }
 }
