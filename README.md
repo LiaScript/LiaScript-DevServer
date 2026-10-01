@@ -57,6 +57,10 @@ liascript-devserver --help
 -i  --input      input README.md file or folder (default: .)
 -p  --port       used port number (default: 3000)
 -l  --live       do live reload on file change
+-w  --watch      file types that trigger the live reload,
+                 comma separated, * for all, implies --live,
+                 hidden files and node_modules never count
+                 (default: md,html,htm,js,css,png,jpg,jpeg,gif,svg,webp,avif,bmp,ico,mp4,webm,ogv,ogg,mov,m4v)
 -o  --open       open in default browser
 -t  --test       test online on https://LiaScript.github.io
     --mcp        serve as MCP server on stdio for AI agents,
@@ -160,6 +164,23 @@ liascript-devserver --live -o -i ../LiaBooks/docs/README.md
 ```
 
 ![live-update](pics/live-update.gif)
+
+The server watches the folder of the course, also if you pass a single file, so
+a changed image or stylesheet reloads the course too. Hidden files and folders
+(such as `.git`) and `node_modules` never trigger a reload, and only files of
+these types count: Markdown, HTML, JavaScript, CSS, images and videos (`md`,
+`html`, `htm`, `js`, `css`, `png`, `jpg`, `jpeg`, `gif`, `svg`, `webp`,
+`avif`, `bmp`, `ico`, `mp4`, `webm`, `ogv`, `ogg`, `mov`, `m4v`).
+
+### `--watch`
+
+Sets the file types that trigger a live reload, as a comma separated list of
+extensions, and turns on `--live`. It replaces the default list, `*` watches
+every visible file.
+
+```bash
+liascript-devserver --watch md,css,png -i ../LiaBooks
+```
 
 ### `--port`
 

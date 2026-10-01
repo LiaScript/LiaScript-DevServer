@@ -31,6 +31,10 @@ if (argv.h || argv.help) {
   console.log('-n  --hostname   hostname of your server (default: localhost)')
   console.log('-p  --port       used port number (default: 3000)')
   console.log('-l  --live       do live reload on file change')
+  console.log('-w  --watch      file types that trigger the live reload,')
+  console.log('                 comma separated, * for all, implies --live,')
+  console.log('                 hidden files and node_modules never count')
+  console.log('                 (default: ' + server.WATCH.join(',') + ')')
   console.log('-o  --open       open in default browser')
   console.log('-t  --test       test online on https://LiaScript.github.io')
   console.log('    --mcp        serve as MCP server on stdio for AI agents,')
@@ -53,6 +57,18 @@ server.init(argv.node_modules)
 // before start(), so the handshake does not wait for the reload setup
 if (argv.mcp) mcp()
 
+// -w md,css or -w .md,*.css, a bare -w keeps the default types
+const types = argv.w ?? argv.watch
+const watch =
+  types === undefined
+    ? undefined
+    : types === true
+      ? server.WATCH
+      : String(types)
+          .split(',')
+          .map((type) => type.trim().toLowerCase().replace(/^\*?\./, ''))
+          .filter(Boolean)
+
 server
   .start(
     argv.p || argv.port,
@@ -64,6 +80,7 @@ server
     argv.t || argv.test,
     undefined,
     argv.mcp,
+    watch,
   )
   .catch((e: any) => {
     console.error('Error: ', e.message)
