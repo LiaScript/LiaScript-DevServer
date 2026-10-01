@@ -17,11 +17,7 @@ function liascript() {
 }
 
 if (argv.v || argv.version) {
-<<<<<<< HEAD
   console.log('DevServer: 1.2.16')
-=======
-  console.log('DevServer: 1.2.14')
->>>>>>> 75645d1 (Update LiaScript to 2.1.0)
   console.log('LiaScript: 2.1.0')
   process.exit()
 }
