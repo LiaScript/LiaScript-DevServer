@@ -5,6 +5,7 @@
 const assert = require('assert')
 const fs = require('fs')
 const http = require('http')
+const os = require('os')
 const path = require('path')
 const { spawn } = require('child_process')
 
@@ -12,21 +13,30 @@ const PORT = 3999
 const ROOT = path.join(__dirname, '..')
 const ORIGIN = 'http://127.0.0.1:' + PORT
 
-const child = spawn(
-  process.execPath,
-  ['dist/index.js', '--mcp', '-p', PORT, '-i', 'README.md'],
-  { cwd: ROOT, stdio: ['pipe', 'pipe', 'pipe'] },
-)
+// the project the MCP client opened: the chats land in its .chats/, not here
+const PROJECT = fs.mkdtempSync(path.join(os.tmpdir(), 'liascript-check-'))
+const CHATS = path.join(PROJECT, '.chats')
+const ARGS = [path.join(ROOT, 'dist/index.js'), '--mcp', '-p', PORT, '-i', path.join(ROOT, 'README.md')]
+
+function serve(stderr) {
+  return spawn(process.execPath, ARGS, { cwd: PROJECT, stdio: ['pipe', 'pipe', stderr] })
+}
+
+let child = serve('pipe')
 
 let stderr = ''
-child.stderr.on('data', (chunk) => (stderr += chunk))
-
 const pending = new Map()
 const notifications = []
 let buffer = ''
 let nextId = 1
 
-child.stdout.on('data', (chunk) => {
+function connect() {
+  child.stderr.on('data', (chunk) => (stderr += chunk))
+  child.stdout.on('data', receive)
+}
+connect()
+
+function receive(chunk) {
   buffer += chunk
   let end
   while ((end = buffer.indexOf('\n')) >= 0) {
@@ -48,7 +58,7 @@ child.stdout.on('data', (chunk) => {
       notifications.push(msg)
     }
   }
-})
+}
 
 function write(line) {
   child.stdin.write(line + '\n')
@@ -94,6 +104,14 @@ function post(body, headers) {
   return request('POST', '/agent', all, JSON.stringify(body))
 }
 
+// the newest notification of a type: a connection event may come in between
+function take(type) {
+  for (let i = notifications.length - 1; i >= 0; i--) {
+    if (notifications[i].params.meta.type === type) return notifications.splice(i, 1)[0]
+  }
+  throw new Error('no ' + type + ' notification')
+}
+
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 async function listening() {
@@ -111,6 +129,7 @@ function die(error) {
   console.error(error)
   console.error('--- stderr of the server ---\n' + stderr)
   child.kill()
+  fs.rmSync(PROJECT, { recursive: true, force: true })
   process.exit(1)
 }
 
@@ -133,7 +152,7 @@ async function main() {
 
   msg = await rpc('tools/list')
   const names = msg.result.tools.map((t) => t.name)
-  for (const name of ['get_state', 'goto', 'wait_for_event', 'chat', 'set_agent', 'outline', 'read_section', 'write_section']) assert.ok(names.includes(name), name)
+  for (const name of ['get_state', 'goto', 'wait_for_event', 'chat', 'set_agent', 'read_chat', 'outline', 'read_section', 'write_section']) assert.ok(names.includes(name), name)
   for (const t of msg.result.tools) {
     assert.ok(t.description.length <= LIMIT, 'the description of ' + t.name + ' has ' + t.description.length + ' characters')
   }
@@ -324,7 +343,9 @@ async function main() {
   // --- chat overlay
   const shell = await request('GET', '/liascript/chat.html', {})
   assert.ok(shell.data.includes('<iframe'), 'the shell frames the course')
-  assert.strictEqual((await request('GET', '/liascript/chat.js', {})).status, 200)
+  const script = await request('GET', '/liascript/chat.js', {})
+  assert.strictEqual(script.status, 200)
+  assert.strictEqual(script.headers['cache-control'], 'no-cache', 'no stale chat.js after an update')
 
   // a fake chat shell. Never call chat without one: it would open a browser.
   stream = ''
@@ -365,7 +386,7 @@ async function main() {
     { id: 'level', type: 'radio', label: 'Level', options: ['easy', 'hard'] },
     { id: 'topics', type: 'checkbox', options: ['a', 'b', 'c'] },
   ]
-  const askId = () => /"chat":\{"id":"(ask\d+)"/.exec(stream.slice(stream.lastIndexOf('"chat"')))[1]
+  const askId = () => /"chat":\{"id":"(ask-[0-9a-f]{8})"/.exec(stream.slice(stream.lastIndexOf('"chat"')))[1]
 
   // answered: the values are the result of the call, not an event
   let asked = tool('chat', { markdown: 'pick', inputs })
@@ -503,11 +524,99 @@ async function main() {
   assert.deepStrictEqual(JSON.parse(msg.params.content).params, { connected: false, chat: false })
   assert.strictEqual((await tool('get_state', {})).connected, false)
 
+  // --- sessions: every chat is saved in .chats/ of the project and comes back
+  const files = () => (fs.existsSync(CHATS) ? fs.readdirSync(CHATS) : [])
+  assert.strictEqual(files().length, 1, 'one session so far: ' + files())
+  const file = fs.readFileSync(path.join(CHATS, files()[0]), 'utf8')
+  const saved = JSON.parse(file)
+  assert.strictEqual(file.split('\n').length, saved.entries.length + 3, 'one entry per line')
+  assert.strictEqual(saved.file, 'README.md')
+  assert.deepStrictEqual(saved.entries[0], { t: saved.entries[0].t, type: 'ai', markdown: '**hi**' })
+  assert.ok(!file.includes('Reading CLAUDE.md') && !file.includes('"status"'), 'the progress line is not saved')
+  assert.ok(saved.entries.some((e) => e.type === 'user' && e.text === 'hello'))
+  const firstForm = saved.entries.filter((e) => e.inputs)[0]
+  assert.strictEqual(firstForm.inputs.length, 2)
+  assert.deepStrictEqual(
+    saved.entries.filter((e) => e.type === 'answer' && e.ask === firstForm.ask)[0].values,
+    { level: 'easy', topics: ['a', 'c'] },
+    'the answer to a form is saved with it',
+  )
+
+  state = await tool('get_state', {})
+  assert.strictEqual(state.session.id, saved.id)
+  assert.strictEqual(state.session.title, 'something else', 'the first question is the title')
+  assert.strictEqual(state.session.count, saved.entries.length)
+
+  let read = await tool('read_chat', {})
+  assert.strictEqual(read.entries.length, saved.entries.length)
+  assert.ok(read.entries.some((e) => e.agent === 'tutor'), 'agents by name')
+  read = await tool('read_chat', { last: 2 })
+  assert.strictEqual(read.entries.length, 2)
+  assert.strictEqual(read.skipped, saved.entries.length - 2)
+  assert.ok((await tool('read_chat', { session: '../x' })).isError)
+  assert.ok((await tool('read_chat', { last: 0 })).isError)
+
+  // a reloaded shell gets the menu and the chat before anything else
+  let shellStream = ''
+  const shell2 = http.get(ORIGIN + '/gotoLine?chat', (res) => res.on('data', (chunk) => (shellStream += chunk)))
+  await sleep(200)
+  const replayed = shellStream
+    .split('\n\n')
+    .filter((line) => line.startsWith('data: {'))
+    .map((line) => JSON.parse(line.slice(6)))
+  assert.deepStrictEqual(replayed.map((m) => Object.keys(m)[0]), ['sessions', 'session', 'agents'])
+  assert.deepStrictEqual(replayed[0].sessions.map((s) => s.id), [saved.id])
+  assert.strictEqual(replayed[1].session.entries.length, saved.entries.length)
+
+  assert.strictEqual((await post({ type: 'session', params: { id: '../etc' } })).status, 400)
+  assert.strictEqual((await post({ type: 'session', params: { id: 'nope' } })).status, 400, 'unknown id')
+
+  // a new chat: the shell clears, the agent is told, a file comes with the first message
+  shellStream = ''
+  assert.strictEqual((await post({ type: 'session', params: {} })).status, 204)
+  await sleep(100)
+  const fresh = JSON.parse(take('session').params.content).params
+  assert.strictEqual(fresh.resumed, false)
+  assert.notStrictEqual(fresh.id, saved.id)
+  assert.ok(shellStream.includes('{"session":{"id":"' + fresh.id + '","entries":[]}}'), 'the shell shows the new chat')
+  assert.deepStrictEqual((await tool('read_chat', {})).entries, [])
+  assert.strictEqual(files().length, 1, 'an empty chat has no file')
+  await post({ type: 'session', params: {} })
+  await sleep(100)
+  assert.strictEqual(JSON.parse(take('session').params.content).params.id, fresh.id, 'an empty chat is new enough')
+  await post({ type: 'chat', params: { text: 'second chat' } })
+  await sleep(100)
+  take('chat')
+  assert.strictEqual(files().length, 2)
+  assert.ok(shellStream.includes('"title":"second chat"'), 'the menu learns the new chat')
+
+  // back to the first one
+  await post({ type: 'session', params: { id: saved.id } })
+  await sleep(100)
+  const back = JSON.parse(take('session').params.content).params
+  assert.deepStrictEqual([back.id, back.resumed, back.title], [saved.id, true, 'something else'])
+  assert.strictEqual((await tool('read_chat', {})).count, saved.entries.length)
+  assert.strictEqual((await tool('read_chat', { session: fresh.id })).entries[0].text, 'second chat')
+
+  // a form waiting in a chat the user leaves
+  asked = tool('chat', { markdown: 'pick', inputs })
+  await sleep(200)
+  assert.ok(/"ask":"ask-[0-9a-f]{8}"/.test(fs.readFileSync(path.join(CHATS, saved.id + '.json'), 'utf8')))
+  await post({ type: 'session', params: { id: fresh.id } })
+  assert.strictEqual((await asked).switched, true)
+  take('session')
+  await post({ type: 'chat', params: { text: 'last words' } })
+  await sleep(100)
+  take('chat')
+
+  shell2.destroy()
+  await sleep(2300)
+  for (let i = notifications.length - 1; i >= 0; i--) {
+    if (notifications[i].params.meta.type === 'connection') notifications.splice(i, 1)
+  }
+
   // --- a second client starts the same config: it must not die on the busy port
-  const twin = spawn(process.execPath, ['dist/index.js', '--mcp', '-p', PORT, '-i', 'README.md'], {
-    cwd: ROOT,
-    stdio: ['pipe', 'pipe', 'ignore'],
-  })
+  const twin = serve('ignore')
   let twinOut = ''
   twin.stdout.on('data', (chunk) => (twinOut += chunk))
   let twinUrl = ''
@@ -527,6 +636,17 @@ async function main() {
   assert.strictEqual(await Promise.race([exited, sleep(3000).then(() => 'still running')]), 0)
 
   assert.deepStrictEqual(notifications, [], 'no unexpected messages on stdout')
+
+  // --- restarted, it continues the chat that changed last
+  child = serve('pipe')
+  connect()
+  await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {} })
+  assert.strictEqual((await tool('get_state', {})).session.id, fresh.id)
+  const ended = new Promise((resolve) => child.on('exit', resolve))
+  child.stdin.end()
+  await ended
+
+  fs.rmSync(PROJECT, { recursive: true, force: true })
   console.log('ok')
 }
 

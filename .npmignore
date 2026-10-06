@@ -10,3 +10,4 @@ src
 docs
 *.md
 .mcp.json
+.chats

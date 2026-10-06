@@ -18,8 +18,9 @@ function post(msg) {
   })
 }
 
-// agent: {name, emoji} of the agent that wrote it, if the AI declared one
-function add(who, content, extra, agent) {
+// agent: {name, emoji} of the agent that wrote it, if the AI declared one,
+// t: the time it was saved, for a message of the history
+function add(who, content, extra, agent, t) {
   var msg = document.createElement('div')
   msg.className = 'msg ' + who
   msg.append(content)
@@ -27,7 +28,10 @@ function add(who, content, extra, agent) {
 
   var stamp = document.createElement('span')
   stamp.className = 'stamp'
-  stamp.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  stamp.textContent = (t ? new Date(t) : new Date()).toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+  })
   if (agent) {
     stamp.prepend(agent.emoji + ' ')
     stamp.title = agent.name
@@ -63,7 +67,7 @@ function showAgents(agents) {
   })
   pick.value = current
   pick.classList.remove('failed')
-  document.getElementById('agents').hidden = pick.options.length < 2
+  pick.hidden = pick.options.length < 2
 }
 
 // the same as a click on agent:<name>/switch, the server switches and the
@@ -74,6 +78,148 @@ pick.addEventListener('change', function () {
     pick.classList.add('failed')
   })
 })
+
+// ---------------------------------------------------------------- sessions
+
+// The server saves every chat in .chats/ of the project and sends the one to
+// show on every (re)connect, so F5 and a restart of the server keep it. The
+// menu starts a new chat or reopens an old one, for every open shell.
+var sessions = document.getElementById('sessions')
+var chatId = '' // the session in the log
+var saved = [] // the ids of all sessions with a file
+
+function showSessions(list) {
+  saved = list.map(function (session) {
+    return session.id
+  })
+  sessions.textContent = ''
+  var fresh = document.createElement('option')
+  fresh.value = ''
+  fresh.textContent = '+ New chat'
+  sessions.append(fresh)
+  list.forEach(function (session) {
+    var option = document.createElement('option')
+    option.value = session.id
+    option.textContent =
+      session.title +
+      ' \u00B7 ' +
+      new Date(session.updated).toLocaleString([], {
+        day: '2-digit',
+        month: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    sessions.append(option)
+  })
+  selectSession()
+}
+
+// a chat without messages has no file yet and counts as the new one
+function selectSession() {
+  sessions.value = chatId
+  if (sessions.selectedIndex < 0) sessions.value = ''
+  sessions.classList.remove('failed')
+}
+
+sessions.addEventListener('change', function () {
+  var id = sessions.value
+  post({ type: 'session', params: id ? { id: id } : {} }).catch(function () {
+    selectSession()
+    sessions.classList.add('failed')
+  })
+})
+
+function showSession(session) {
+  chatId = session.id
+  selectSession()
+  stop()
+  log.textContent = ''
+
+  session.entries.forEach(function (entry) {
+    if (entry.type == 'ai') {
+      showAI(
+        {
+          id: entry.ask,
+          markdown: entry.markdown,
+          inputs: entry.inputs,
+          agent: entry.agent,
+          lang: entry.lang,
+        },
+        entry.t,
+      )
+    } else if (entry.type == 'user') {
+      add('me', entry.text, null, null, entry.t)
+    } else if (entry.type == 'answer') {
+      log.querySelectorAll('form[data-ask]').forEach(function (el) {
+        if (el.dataset.ask == entry.ask) answered(el, entry.values)
+      })
+    }
+  })
+
+  // What the server never got, until it is sent again. A new chat has no
+  // file before its first message, after a restart its messages go here.
+  var list = outbox()
+  list.forEach(function (unsent) {
+    if (unsent.session != chatId && saved.indexOf(unsent.session) >= 0) return
+    unsent.session = chatId
+    failed(add('me', unsent.text, null, null, unsent.t), unsent)
+  })
+  outbox(list)
+}
+
+// --------------------------------------------------------------- outbox
+
+// messages that did not reach the server, e.g. while it restarted. Per
+// browser and port, like the layout.
+var OUTBOX = 'liascript-chat-outbox'
+
+function outbox(list) {
+  try {
+    if (list) localStorage.setItem(OUTBOX, JSON.stringify(list))
+    else return JSON.parse(localStorage.getItem(OUTBOX) || '[]')
+  } catch (e) {}
+  return []
+}
+
+function deliver(msg, unsent) {
+  post({ type: 'chat', params: { text: unsent.text } })
+    .then(function () {
+      outbox(
+        outbox().filter(function (other) {
+          return other.t != unsent.t
+        }),
+      )
+      msg.classList.remove('failed')
+      msg.title = ''
+    })
+    .catch(function () {
+      failed(msg, unsent)
+    })
+}
+
+function failed(msg, unsent) {
+  var list = outbox()
+  if (
+    !list.some(function (other) {
+      return other.t == unsent.t
+    })
+  ) {
+    outbox(list.concat(unsent))
+  }
+
+  msg.classList.add('failed')
+  msg.title = 'not delivered'
+  if (msg.querySelector('.resend')) return
+  var again = document.createElement('button')
+  again.type = 'button'
+  again.className = 'resend'
+  again.textContent = 'Send again'
+  again.addEventListener('click', function () {
+    again.remove()
+    deliver(msg, unsent)
+  })
+  msg.querySelector('.foot').prepend(again)
+}
 
 // ------------------------------------------------------- move and resize
 
@@ -383,11 +529,8 @@ say.addEventListener('submit', function (e) {
   if (!text) return
   say.reset()
 
-  var msg = add('me', text)
-  post({ type: 'chat', params: { text: text } }).catch(function () {
-    msg.classList.add('failed')
-    msg.title = 'not delivered'
-  })
+  var unsent = { session: chatId, text: text, t: new Date().toISOString() }
+  deliver(add('me', text, null, null, unsent.t), unsent)
 })
 
 // Enter sends, Shift+Enter breaks the line
@@ -505,6 +648,7 @@ function diagram(code) {
 // Built with DOM calls only, no option text ever becomes HTML.
 function form(ask, inputs) {
   var el = document.createElement('form')
+  el.dataset.ask = ask
   var needsSubmit = false
 
   inputs.forEach(function (input) {
@@ -555,14 +699,12 @@ function form(ask, inputs) {
     })
     if (e.submitter && e.submitter.name) {
       params[e.submitter.name] = e.submitter.value
-      e.submitter.classList.add('chosen')
     }
 
     post({ type: 'answer', params: params })
       .then(function () {
-        el.querySelectorAll('fieldset, button').forEach(function (x) {
-          x.disabled = true
-        })
+        delete params.ask
+        answered(el, params)
       })
       .catch(function () {
         el.classList.add('failed')
@@ -571,9 +713,20 @@ function form(ask, inputs) {
   return el
 }
 
-// ponytail: no history. Messages that arrive while no shell is open are lost,
-// and so is the log on a reload of the shell itself. Replay the last n from
-// the server if that hurts.
+// shows what the user sent, also for a form of the history, and locks it
+function answered(el, values) {
+  el.classList.remove('failed')
+  el.querySelectorAll('input, button[name]').forEach(function (x) {
+    var value = values[x.name]
+    var chosen = Array.isArray(value) ? value.indexOf(x.value) >= 0 : value == x.value
+    if (x.tagName == 'BUTTON') x.classList.toggle('chosen', chosen)
+    else x.checked = chosen
+  })
+  el.querySelectorAll('fieldset, button').forEach(function (x) {
+    x.disabled = true
+  })
+}
+
 // what the AI is doing right now, until its next message without one
 function status(text) {
   var line = document.getElementById('status')
@@ -591,17 +744,24 @@ new EventSource('/gotoLine?chat').onmessage = function (event) {
   }
   if (typeof data.status == 'string') return status(data.status)
   if (data.agents) return showAgents(data.agents)
+  if (data.sessions) return showSessions(data.sessions)
+  if (data.session) return showSession(data.session)
 
   var chat = data.chat
   if (!chat) return
 
+  showAI(chat)
+  document.getElementById('chat').open = true
+  status(chat.status)
+}
+
+function showAI(chat, t) {
   var msg = add(
     'ai',
     markdown(chat.markdown),
     chat.inputs && chat.inputs.length ? form(chat.id, chat.inputs) : null,
     chat.agent,
+    t,
   )
   if (typeof chat.lang == 'string') msg.lang = chat.lang
-  document.getElementById('chat').open = true
-  status(chat.status)
 }
