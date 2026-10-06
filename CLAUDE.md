@@ -102,9 +102,15 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
     name (the agent menu of the chat, or a course link `agent:<name>/switch`) switches at once, before the event
     goes out; an unknown name stays a plain command.
 - **`src/mcp.ts`** — the MCP adapter: a dependency-free newline-delimited JSON-RPC server on stdio (deliberately
-  not the MCP SDK, see the header comment) with the tools `get_state`, `goto`, `chat`, `set_agent` and `wait_for_event`
-  (`set_agent` declares the roster and the current agent and opens no browser; `chat.agent` signs one message as a
-  roster agent and makes it current; every `chat` payload carries `agent: {name, emoji}`). Every
+  not the MCP SDK, see the header comment) with the tools `get_state`, `goto`, `chat`, `set_agent`, `wait_for_event`,
+  `outline`, `read_section` and `write_section`. The last three (logic in `src/sections.ts`, pure functions) let an
+  agent work on one section of a long `journal.md` instead of reading the whole file: every ATX heading outside code
+  fences and HTML comments is a section and a slide, addressed by heading path in the notation of the teaching-agent
+  specs (`## Agents → ### Teaching-Agent`, a part matches a heading that starts with it as a whole word), by slide,
+  by line (from grep), or by default the slide the user looks at. `write_section` replaces only with the `hash` that
+  `read_section` returned, so an edit the user made in between is never overwritten; `append` needs none. `courseFile()`
+  is the path check they share with `goto`. `set_agent` declares the roster and the current agent and opens no browser; `chat.agent` signs one message as a
+  roster agent and makes it current; every `chat` payload carries `agent: {name, emoji}`. Every
   `'event'` on the bus is also pushed as `notifications/claude/channel`, which Claude Code turns into a
   `<channel>` tag in the running session (research preview, needs
   `claude --dangerously-load-development-channels server:<name>`). It must never negotiate protocol revision
