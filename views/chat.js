@@ -155,6 +155,9 @@ function showSession(session) {
       })
     }
   })
+  log.querySelectorAll('form[data-ask]').forEach(function (el) {
+    if (el.dataset.ask != session.open) closed(el)
+  })
 
   // What the server never got, until it is sent again. A new chat has no
   // file before its first message, after a restart its messages go here.
@@ -706,8 +709,10 @@ function form(ask, inputs) {
         delete params.ask
         answered(el, params)
       })
-      .catch(function () {
-        el.classList.add('failed')
+      .catch(function (e) {
+        // the server closed it meanwhile
+        if (e.message == '409') closed(el)
+        else el.classList.add('failed')
       })
   })
   return el
@@ -716,6 +721,7 @@ function form(ask, inputs) {
 // shows what the user sent, also for a form of the history, and locks it
 function answered(el, values) {
   el.classList.remove('failed')
+  el.classList.add('answered')
   el.querySelectorAll('input, button[name]').forEach(function (x) {
     var value = values[x.name]
     var chosen = Array.isArray(value) ? value.indexOf(x.value) >= 0 : value == x.value
@@ -725,6 +731,20 @@ function answered(el, values) {
   el.querySelectorAll('fieldset, button').forEach(function (x) {
     x.disabled = true
   })
+}
+
+// replaced by a newer form, withdrawn by the AI or asked before a restart
+function closed(el) {
+  if (el.classList.contains('answered') || el.classList.contains('closed')) return
+  el.classList.remove('failed')
+  el.classList.add('closed')
+  el.querySelectorAll('fieldset, button').forEach(function (x) {
+    x.disabled = true
+  })
+  var note = document.createElement('p')
+  note.className = 'note'
+  note.textContent = 'No longer open'
+  el.append(note)
 }
 
 // what the AI is doing right now, until its next message without one
@@ -751,6 +771,11 @@ new EventSource('/gotoLine?chat').onmessage = function (event) {
   }
   if (typeof data.status == 'string') return status(data.status)
   if (typeof data.hint == 'string') return hint(data.hint)
+  if (data.closed) {
+    return log.querySelectorAll('form[data-ask]').forEach(function (el) {
+      if (el.dataset.ask == data.closed) closed(el)
+    })
+  }
   if (data.agents) return showAgents(data.agents)
   if (data.sessions) return showSessions(data.sessions)
   if (data.session) return showSession(data.session)

@@ -93,6 +93,23 @@ export function setAgent(name: string, list?: Agent[]) {
 var session: chats.Session | null = null
 var progress = ''
 
+// The one form the user can still answer: the newest one of this process.
+// A newer form replaces it, so an old "Save" cannot save an old draft, and a
+// form from before a restart was asked by an agent that is gone.
+var openAsk = ''
+
+function openIn(chat: chats.Session) {
+  return openAsk && chat.entries.some((e) => e.ask === openAsk) ? openAsk : undefined
+}
+
+// the agent withdraws the open form, returns its id or ''
+export function closeForm() {
+  const closed = openAsk
+  openAsk = ''
+  if (closed) send({ closed })
+  return closed
+}
+
 // Is anybody there? A plain "Thinking…" kept users waiting for minutes while
 // no agent listened, or while one waited for a permission in the terminal.
 // So the progress line says only what the server knows: the message waits,
@@ -116,6 +133,37 @@ export function activity() {
   pending = false
   if (progress === WAITING) send({ status: THINKING })
   else watchQuiet()
+}
+
+// One reload for a burst of changes, and while an agent works (a progress line
+// shows, and it reacted) at most every HOLD_MS: an agent that edits section by section made
+// the preview flicker and lose its scroll position with every step. The end of
+// the progress line, usually its answer, reloads at once.
+const BURST_MS = 300
+const HOLD_MS = 30000
+// when the first change since the last reload came, 0 for none
+var changedAt = 0
+var reloading: any = null
+
+function changed() {
+  if (!changedAt) changedAt = Date.now()
+  reloadLater(BURST_MS)
+}
+
+function reloadLater(ms: number) {
+  clearTimeout(reloading)
+  reloading = setTimeout(reloadNow, ms)
+  if (reloading.unref) reloading.unref()
+}
+
+function reloadNow() {
+  if (!changedAt || !reloadInstance) return
+  const held = Date.now() - changedAt
+  // not for a message that waits for an agent, nobody works on it yet
+  if (progress && !pending && held < HOLD_MS) return reloadLater(HOLD_MS - held)
+  changedAt = 0
+  console.log('🔄 reloading')
+  reloadInstance.reload()
 }
 
 // restarts the clock whenever something happens while a progress line shows
@@ -145,12 +193,14 @@ function record(entry: { type: string; [key: string]: any }) {
 }
 
 function sessionMessage() {
-  return { session: { id: session!.id, entries: session!.entries } }
+  return { session: { id: session!.id, entries: session!.entries, open: openIn(session!) } }
 }
 
 export function readChat(id?: string) {
   const chat = id === undefined || (session && id === session.id) ? session : chats.load(id)
-  return chat ? { ...chats.summary(chat), file: chat.file, entries: chat.entries } : undefined
+  return chat
+    ? { ...chats.summary(chat), file: chat.file, open: openIn(chat), entries: chat.entries }
+    : undefined
 }
 
 function agentsMessage() {
@@ -533,10 +583,8 @@ export async function start(
 
       watcher.on('change', (filePath: string) => {
         // which one: a reload nobody expected is easier to explain
-        console.log(
-          '📝 ' + path.relative(watchPath, filePath) + ' changed, reloading...',
-        )
-        reloadInstance.reload()
+        console.log('📝 ' + path.relative(watchPath, filePath) + ' changed')
+        changed()
       })
 
       watcher.on('error', (error: any) => {
@@ -794,6 +842,10 @@ export async function start(
           return res.sendStatus(400)
         }
       }
+      // replaced, withdrawn, answered or from before a restart
+      if (body.type === 'answer' && checked.ask !== openAsk) {
+        return res.sendStatus(409)
+      }
 
       // agent:<name>/switch, from a link or the agent menu of the chat, takes
       // effect at once if the agents declared that name. The event tells them.
@@ -828,6 +880,7 @@ export async function start(
         record({ type: 'user', text: checked.text })
       } else if (body.type === 'answer') {
         const { ask, ...values } = checked
+        openAsk = ''
         record({ type: 'answer', ask, values })
       }
 
@@ -950,6 +1003,9 @@ export async function start(
 
 export function stop() {
   clearTimeout(settling)
+  clearTimeout(quiet)
+  clearTimeout(reloading)
+  changedAt = 0
   if (serverPointer) {
     serverPointer.close()
   }
@@ -1053,6 +1109,10 @@ export function send(msg: any) {
   if (msg.chat) {
     const { id, inputs, status, ...rest } = msg.chat
     progress = status || ''
+    if (inputs && inputs.length) {
+      closeForm()
+      openAsk = id
+    }
     record(
       inputs && inputs.length ? { type: 'ai', ask: id, inputs, ...rest } : { type: 'ai', ...rest },
     )
@@ -1061,6 +1121,8 @@ export function send(msg: any) {
     client.write(`data: ${JSON.stringify(msg)}\n\n`),
   )
   if (progress !== before || msg.chat) watchQuiet()
+  // the agent is done: what it changed shows now, after a burst settled
+  if (before && !progress && changedAt) reloadLater(BURST_MS)
 }
 
 export function gotoLine(linenumber: number, filename: string) {

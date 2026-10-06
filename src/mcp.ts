@@ -68,13 +68,14 @@ const TOOLS = [
   {
     name: 'chat',
     description:
-      'Post a message into the chat that overlays the course. markdown renders as Markdown, a mermaid code fence as a diagram, and [label](agent:<agent>/<cmd>?<params>) as a link that sends a command event when clicked. Formulas are not typeset. Each message shows the emoji of the current agent (see set_agent), pass agent to sign it as another one. Every message has a button that reads it aloud in the language of the course: pass lang if the message is in another language, and wrap a passage in yet another one in <span lang=\"es\">. With inputs the message carries a form and the call BLOCKS until the user answers: it returns {values: {<id>: <option> | [<options>]}}, or {dismissed: true, text} if the user typed a message instead. While a Monitor watches get_state.events it returns at once with {sent, ask} and the answer arrives as an "answer" event. If the chat closes while the call waits, it returns {disconnected: true}. Without inputs it returns at once. buttons submit the form on click, radio picks one option, checkbox any number.',
+      'Post a message into the chat that overlays the course. markdown renders as Markdown, a mermaid code fence as a diagram, and [label](agent:<agent>/<cmd>?<params>) as a link that sends a command event when clicked. Formulas are not typeset. Each message shows the emoji of the current agent (see set_agent), pass agent to sign it as another one. Every message has a button that reads it aloud in the language of the course: pass lang if the message is in another language, and wrap a passage in yet another one in <span lang=\"es\">. With inputs the message carries a form and the call BLOCKS until the user answers: it returns {values: {<id>: <option> | [<options>]}}, or {dismissed: true, text} if the user typed a message instead. While a Monitor watches get_state.events it returns at once with {sent, ask} and the answer arrives as an "answer" event. If the chat closes while the call waits, it returns {disconnected: true}. Only the newest form stays open: a new one closes the previous one, and so does close: true, e.g. after the user answered by typing. The user can no longer answer a closed form. Without inputs it returns at once. buttons submit the form on click, radio picks one option, checkbox any number.',
     inputSchema: {
       type: 'object',
       properties: {
         markdown: { type: 'string' },
         session: { type: 'string', description: 'Optional id of the visible chat; rejects a delayed message after the user switches chats.' },
         wait: { type: 'boolean', description: 'false returns a form immediately with {sent, ask}; read its answer with wait_for_event. Default true unless an event stream is watched.' },
+        close: { type: 'boolean', description: 'true closes the open form, alone or with a message; returns its id as closed' },
         agent: {
           type: 'string',
           description: 'name of an agent declared with set_agent: it signs this message and becomes the current one',
@@ -130,7 +131,7 @@ const TOOLS = [
   {
     name: 'read_chat',
     description:
-      'The chat as the user sees it, saved in .chats/ of the project and continued after a reload or restart: {id, title, file, count, skipped, entries}. entries are in order, each with t (time) and type: ai {markdown, agent, ask, inputs} for your messages, ask and inputs only for a form; user {text} for what the user typed; answer {ask, values} for a submitted form. A form without an answer is still open, a click on it arrives as an answer event. Read it when get_state.session shows messages you do not remember, or after a session event. last limits it to the newest entries (default 50). session is the id of another saved chat, default the current one.',
+      'The chat as the user sees it, saved in .chats/ of the project and continued after a reload or restart: {id, title, file, count, open, skipped, entries}. entries are in order, each with t (time) and type: ai {markdown, agent, ask, inputs} for your messages, ask and inputs only for a form; user {text} for what the user typed; answer {ask, values} for a submitted form. open is the ask id of the one form the user can still answer, its answer arrives as an answer event; every other form is closed, also those asked before a restart: ask again if you need one. Read it when get_state.session shows messages you do not remember, or after a session event. last limits it to the newest entries (default 50). session is the id of another saved chat, default the current one.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -512,11 +513,20 @@ async function chat(args: any, request: any) {
   if (lang !== undefined && (typeof lang !== 'string' || !/^[a-z]{2,3}(-[a-z0-9]{2,8}){0,3}$/i.test(lang))) {
     throw new Error('lang must be a language tag such as fr or pt-BR')
   }
-  // only the progress line: no reason to open a browser for it
-  if (args.markdown === undefined && status !== undefined && !inputs.length) {
+  if (args.close !== undefined && typeof args.close !== 'boolean') throw new Error('close must be a boolean')
+  // withdraws the open form, also the one a call of this agent waits on
+  const close = () => {
+    const closed = args.close ? server.closeForm() : ''
+    if (closed && ask && ask.id === closed) ask.done({ closed: true })
+    return closed
+  }
+  // only the progress line or the close: no reason to open a browser for it
+  if (args.markdown === undefined && !inputs.length && (status !== undefined || args.close)) {
+    const closed = close()
     if (signer !== undefined) server.setAgent(signer)
-    server.send({ status })
-    return { sent: server.getState().chat }
+    if (status !== undefined) server.send({ status })
+    const sent = server.getState().chat
+    return args.close ? { sent, closed: closed || null } : { sent }
   }
   if (typeof args.markdown !== 'string' || args.markdown.length > 50000) {
     throw new Error('markdown must be a string of at most 50000 characters')
@@ -560,12 +570,13 @@ async function chat(args: any, request: any) {
     }
   }
 
+  const closed = close()
   if (signer !== undefined) server.setAgent(signer)
-  // unique beyond a restart: a saved chat can still hold an open form
+  // unique beyond a restart: a saved chat holds the forms of earlier runs
   const id = 'ask-' + crypto.randomBytes(4).toString('hex')
   const agent = server.currentAgent()
   server.send({ chat: { id, markdown: args.markdown, inputs, status, lang, agent } })
-  if (!inputs.length) return { sent: true }
+  if (!inputs.length) return closed ? { sent: true, closed } : { sent: true }
   // the watcher gets the answer as an event, a blocked call would get it twice
   if (args.wait === false || server.getState().watched) return { sent: true, ask: id }
 
