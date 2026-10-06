@@ -235,6 +235,12 @@
         display: inline-block;
         animation: working 1.2s ease-in-out infinite;
       }
+      #hint {
+        margin: 0 0.75rem 0.5rem;
+        padding-left: 0.5rem;
+        border-left: 3px solid GrayText;
+        font-size: 0.85em;
+      }
       @keyframes working {
         50% {
           opacity: 0.3;
@@ -274,6 +280,7 @@
         </div>
         <div id="log" role="log" aria-live="polite"></div>
         <div id="status" role="status" hidden></div>
+        <div id="hint" role="status" hidden></div>
         <form id="say">
           <textarea
             name="text"
