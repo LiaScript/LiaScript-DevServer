@@ -423,6 +423,25 @@ async function main() {
   assert.strictEqual(answerEvent.params.ask, immediate.ask)
   await sleep(100)
   notifications.pop()
+  assert.strictEqual((await post({ type: 'answer', params: { ask: immediate.ask, level: 'hard' } })).status, 409, 'an answered form is closed')
+
+  // only the newest form is open: an old "Save" must not save an old draft
+  const older = await tool('chat', { markdown: 'draft 1', inputs, wait: false })
+  const newer = await tool('chat', { markdown: 'draft 2', inputs, wait: false })
+  assert.ok(stream.includes('{"closed":"' + older.ask + '"}'), 'the shell closes the older form')
+  assert.strictEqual((await post({ type: 'answer', params: { ask: older.ask, level: 'easy' } })).status, 409, 'a replaced form takes no answer')
+  assert.ok((await tool('chat', { close: 'yes' })).isError, 'close is a boolean')
+  assert.deepStrictEqual(await tool('chat', { close: true }), { sent: true, closed: newer.ask })
+  assert.ok(stream.includes('{"closed":"' + newer.ask + '"}'), 'the shell closes the withdrawn form')
+  assert.strictEqual((await post({ type: 'answer', params: { ask: newer.ask, level: 'easy' } })).status, 409, 'a withdrawn form takes no answer')
+  assert.deepStrictEqual(await tool('chat', { close: true }), { sent: true, closed: null })
+  // a waiting call learns that its form was withdrawn
+  let withdrawn = tool('chat', { markdown: 'pick', inputs })
+  await sleep(200)
+  const withdrawnId = askId()
+  assert.deepStrictEqual(await tool('chat', { markdown: 'never mind', close: true }), { sent: true, closed: withdrawnId })
+  assert.deepStrictEqual(await withdrawn, { ask: withdrawnId, closed: true })
+  assert.deepStrictEqual(notifications, [], 'closing is no event')
 
   // answered: the values are the result of the call, not an event
   let asked = tool('chat', { markdown: 'pick', inputs })
@@ -657,6 +676,8 @@ async function main() {
   await post({ type: 'session', params: { id: fresh.id } })
   assert.strictEqual((await asked).switched, true)
   take('session')
+  const left = (await tool('read_chat', { session: saved.id })).entries.filter((e) => e.inputs).pop()
+  assert.strictEqual((await tool('read_chat', { session: saved.id })).open, left.ask, 'the form stays open in the chat the user left')
   await post({ type: 'chat', params: { text: 'last words' } })
   await sleep(100)
   take('chat')
@@ -694,6 +715,7 @@ async function main() {
   connect()
   await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {} })
   assert.strictEqual((await tool('get_state', {})).session.id, fresh.id)
+  assert.strictEqual((await tool('read_chat', { session: saved.id })).open, undefined, 'forms of an earlier run are closed')
   const ended = new Promise((resolve) => child.on('exit', resolve))
   child.stdin.end()
   await ended

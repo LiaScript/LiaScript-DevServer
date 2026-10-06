@@ -71,6 +71,8 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
     refreshes go out over reload's injected `/reload/reload.js` client script. `reload` 3.x runs its own `ws`
     WebSocket server on `port + 10000` (see `reloadPort`), not socket.io — the `/socket.io` skip in the catch-all
     route is a leftover that never matches. The client does a full `window.location.reload()` of the player page.
+    `changed()` bundles: one reload 300 ms after a burst (`BURST_MS`), and while an agent works (a progress line
+    shows and it reacted, not `pending`) at most every 30 s (`HOLD_MS`); the end of the progress line reloads at once.
   - Optional `--responsiveVoice` support: injects the responsiveVoice script tag with a given/default key (also
     readable from `RESPONSIVE_VOICE_KEY` env var).
   - "Goto line" feature: `/gotoLine` (SSE endpoint, `eventsHandler`) streams line-goto events to connected browser
@@ -125,8 +127,11 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   not the MCP SDK, see the header comment) with the tools `get_state`, `goto`, `chat`, `set_agent`, `read_chat`,
   `wait_for_event`, `outline`, `read_section` and `write_section`. `read_chat` returns the saved chat (default the
   last 50 entries, agents by name) so that a fresh agent can pick up a resumed session; ask ids are random
-  (`ask-<hex>`) because a resumed chat can still hold an open form of an earlier process, and a `session` event
-  ends a waiting `chat` form with `{switched: true}`. The last three (logic in `src/sections.ts`, pure functions) let an
+  (`ask-<hex>`) because a resumed chat holds the forms of earlier processes, and a `session` event
+  ends a waiting `chat` form with `{switched: true}`. Only one form is open (`openAsk` in `lib.ts`): the newest of
+  this process. A new form or `chat({close: true})` closes it (SSE `{closed: id}`, a waiting call returns
+  `{closed: true}`), an answer too; `POST /agent` answers a closed one with 409. `read_chat` and the session
+  message carry it as `open`. The last three (logic in `src/sections.ts`, pure functions) let an
   agent work on one section of a long `journal.md` instead of reading the whole file: every ATX heading outside code
   fences and HTML comments is a section and a slide, addressed by heading path in the notation of the teaching-agent
   specs (`## Agents → ### Teaching-Agent`, a part matches a heading that starts with it as a whole word), by slide,
@@ -169,7 +174,7 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   `<span lang="fr">` in the Markdown gets a French voice. The bar above the log holds the session menu
   (`+ New chat` and the saved chats; the current one counts as new until it has a file) and the agent menu.
   `showSession()` clears the log and replays the entries: `answered()` locks a form of the history and shows the
-  choice, a form without an answer stays usable. A message whose `POST` fails goes into a `localStorage` outbox and
+  choice, `closed()` locks every other form but `session.open` with a note. A message whose `POST` fails goes into a `localStorage` outbox and
   gets a `Send again` button; after a replay it shows up in its chat, or in the current one if its chat was never
   saved. Both files are served with `Cache-Control: no-cache`, a heuristically cached `chat.js` from an older
   version would not understand the messages of a newer server.
