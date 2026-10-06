@@ -33,11 +33,11 @@ Browser events are JSON {type, agent, cmd, params, context}; context is {file, s
 Events reach you in one way, take the first that works:
 1. <channel> tags in this session. Then do nothing else.
 2. A Monitor tool (Claude Code): run curl -sN <get_state.events> with the longest timeout and restart it when it expires, never two at once (get_state.watched).
-3. wait_for_event in a loop.
+3. Codex: persistent bridge setup in get_state; otherwise poll wait_for_event(timeout_s: 0), chat(wait: false). No idle wakeup.
 
 Opening the preview, the first that applies:
 1. get_state.connected is true: use that tab, never open a second one.
-2. You have browser automation tools (Playwright, Chrome DevTools) with a window the user sees: open get_state.url there before the first goto or chat. You then share the tab (screenshots, console).
+2. Visible browser automation: open get_state.url there before goto or chat to share the tab.
 3. Otherwise goto opens the user's default browser.
 
 If get_state has a tts entry, the browser cannot read the course aloud: tell the user, and follow the entry only with their consent.`
@@ -49,7 +49,7 @@ const TOOLS = [
   {
     name: 'get_state',
     description:
-      'What the user is looking at in the LiaScript preview: course file (relative to root), 1-based slide number, slide title, selected text, and whether a browser (connected) and its chat are open. url is the address of the preview, to open it with browser automation tools. events is the URL of the event stream for a Monitor tool (curl -sN, one JSON line per event), watched whether one reads it. voices is the number of speech voices of the browser, -1 if unknown. session {id, title, updated, count} is the chat the user sees, saved in the project: read_chat reads it. A tts entry appears only when the browser cannot read the course aloud and says how to change that.',
+      'What the user is looking at in the LiaScript preview: course file (relative to root), 1-based slide number, slide title, selected text, and whether a browser (connected) and its chat are open. url is the address of the preview, to open it with browser automation tools. events is the URL of the event stream for a Monitor tool (curl -sN, one JSON line per event), watched whether one reads it. voices is the number of speech voices of the browser, -1 if unknown. session {id, title, updated, count} is the saved chat: read_chat reads it. A tts entry appears only when the browser cannot read the course aloud.\n\nCodex persistent browser chat: codex_bridge gives available, command, args and cwd for the installed bridge. When the user requests persistent chat and available is true, run that command with those arguments and cwd in a background PTY, keep its stdin open, wait for "Bridge ready:", then open the printed URL with visible browser automation (or append --open if none is available). Use proper shell quoting for paths; args are an argv array. The devserver chooses the next free port if 3001 is busy. Requires Codex CLI signed in with codex login. Terminal text sent to that process and browser messages share its thread; /stop interrupts, /quit exits, /approve and /reply handle requests only in that terminal. This starts a separate Codex conversation, not this IDE session, and uses a separate preview. Run only one bridge per project. If your tools already have the lia_ prefix, you are inside the bridge: do not launch another. If unavailable, use an npm installation of @liascript/devserver or build the devserver repository first.',
     inputSchema: { type: 'object', properties: {} },
   },
   {
@@ -73,6 +73,8 @@ const TOOLS = [
       type: 'object',
       properties: {
         markdown: { type: 'string' },
+        session: { type: 'string', description: 'Optional id of the visible chat; rejects a delayed message after the user switches chats.' },
+        wait: { type: 'boolean', description: 'false returns a form immediately with {sent, ask}; read its answer with wait_for_event. Default true unless an event stream is watched.' },
         agent: {
           type: 'string',
           description: 'name of an agent declared with set_agent: it signs this message and becomes the current one',
@@ -140,13 +142,13 @@ const TOOLS = [
   {
     name: 'wait_for_event',
     description:
-      'Only for agents that receive events neither as <channel> tags nor through a Monitor: blocks until the user clicks a command link, writes in the chat or the browser connection changes, then returns that event, or {timeout: true}. Call it again to keep listening.',
+      'Returns the next queued browser event, or {timeout: true}. timeout_s: 0 polls immediately without blocking. Otherwise waits for a command, chat, answer, session or connection event. Polling does not wake an idle agent; call between work steps.',
     inputSchema: {
       type: 'object',
       properties: {
         timeout_s: {
           type: 'integer',
-          minimum: 1,
+          minimum: 0,
           maximum: 3600,
           description: 'default 50, stay below the tool timeout of your client',
         },
@@ -382,10 +384,11 @@ function onEvent(event: any) {
 
 function waitForEvent(args: any, request: any) {
   const seconds = args.timeout_s === undefined ? 50 : args.timeout_s
-  if (!Number.isInteger(seconds) || seconds < 1 || seconds > 3600) {
-    throw new Error('timeout_s must be an integer from 1 to 3600')
+  if (!Number.isInteger(seconds) || seconds < 0 || seconds > 3600) {
+    throw new Error('timeout_s must be an integer from 0 to 3600')
   }
   if (queue.length) return queue.shift()
+  if (seconds === 0) return { timeout: true }
 
   return new Promise((resolve) => {
     // a second call replaces the first
@@ -474,6 +477,8 @@ function readChat(args: any) {
 }
 
 async function chat(args: any, request: any) {
+  if (args.session !== undefined && args.session !== (server.getState().session || {}).id) throw new Error('chat session changed')
+  if (args.wait !== undefined && typeof args.wait !== 'boolean') throw new Error('wait must be a boolean')
   const inputs = args.inputs || []
   const signer = args.agent
   if (signer !== undefined && !server.getState().agents.some((a) => a.name === signer)) {
@@ -542,7 +547,7 @@ async function chat(args: any, request: any) {
   server.send({ chat: { id, markdown: args.markdown, inputs, status, lang, agent } })
   if (!inputs.length) return { sent: true }
   // the watcher gets the answer as an event, a blocked call would get it twice
-  if (server.getState().watched) return { sent: true, ask: id }
+  if (args.wait === false || server.getState().watched) return { sent: true, ask: id }
 
   return new Promise((resolve) => {
     // a newer form replaces the one the user has not answered
@@ -596,7 +601,25 @@ async function handle(method: string, params: any, request: any) {
       const args = params.arguments || {}
       let call: () => any
 
-      if (params.name === 'get_state') call = () => server.getState()
+      if (params.name === 'get_state') call = () => {
+        const state = server.getState()
+        // Parcel rewrites __dirname to src; resolve the actual CLI entry so
+        // this also works after npm installs it behind a bin symlink.
+        const bridge = path.join(path.dirname(fs.realpathSync(process.argv[1])), 'codex-bridge.js')
+        let input = state.root
+        // Browser scripts can forge state.file; never turn traversal into a
+        // launch argument pointing outside the configured course folder.
+        try { input = path.join(state.root, courseFile(state.file)) } catch (e) {}
+        return {
+          ...state,
+          codex_bridge: {
+            available: !(process as any).pkg && fs.existsSync(bridge),
+            command: process.execPath,
+            args: [bridge, '--', '--live', '-i', input, '-p', '3001'],
+            cwd: process.cwd(),
+          },
+        }
+      }
       else if (params.name === 'goto') call = () => goto(args)
       else if (params.name === 'wait_for_event') call = () => waitForEvent(args, request)
       else if (params.name === 'chat') call = () => chat(args, request)
