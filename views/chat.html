@@ -104,8 +104,20 @@
         padding: 0.2rem 0.3rem;
         border-radius: 6px;
       }
-      #bar select[hidden] {
+      #bar select[hidden],
+      #bar button[hidden] {
         display: none;
+      }
+      #mute {
+        padding: 0 0.4rem;
+        border: 0;
+        background: none;
+      }
+      #mute-info {
+        margin: 0;
+        padding: 0.4rem 0.75rem;
+        font-size: 0.85em;
+        border-bottom: 1px solid GrayText;
       }
       #log {
         flex: 1;
@@ -126,6 +138,13 @@
         white-space: pre-wrap;
         background: Highlight;
         color: HighlightText;
+      }
+      /* a click or a choice of the user, smaller than what they typed */
+      .me.act {
+        padding: 0.3rem 0.6rem;
+        font-size: 0.9em;
+        background: color-mix(in srgb, Highlight 25%, Canvas);
+        color: CanvasText;
       }
       .ai {
         align-self: flex-start;
@@ -234,6 +253,10 @@
       #log.can-speak .speak {
         display: inline-block;
       }
+      /* a click or a choice needs no reading aloud */
+      #log .act .speak {
+        display: none;
+      }
       #status {
         padding: 0 0.75rem 0.5rem;
         font-size: 0.9em;
@@ -277,16 +300,31 @@
     </style>
   </head>
   <body>
-    <iframe id="course" title="LiaScript course"></iframe>
+    <iframe id="course" title="LiaScript course" data-t-title="LiaScript course"></iframe>
 
     <details id="chat" open>
       <summary id="who">Chat</summary>
-      <div id="grip" title="Resize" aria-hidden="true"></div>
+      <div id="grip" title="Resize" data-t-title="Resize" aria-hidden="true"></div>
       <div id="panel">
         <div id="bar">
           <select id="sessions" aria-label="Chat"></select>
-          <select id="pick" aria-label="Agent" hidden></select>
+          <select id="pick" aria-label="Agent" data-t-aria-label="Agent" hidden></select>
+          <button
+            id="mute"
+            type="button"
+            title="Cannot read aloud"
+            data-t-title="Cannot read aloud"
+            data-t-aria-label="Cannot read aloud"
+            hidden
+          >
+            🔇
+          </button>
         </div>
+        <p
+          id="mute-info"
+          data-t="This browser cannot read aloud, it has no speech voices. Chrome and Edge bring their own, Firefox on Linux needs speech-dispatcher with a voice. The assistant can help to set it up."
+          hidden
+        ></p>
         <div id="log" role="log" aria-live="polite"></div>
         <div id="status" role="status" hidden></div>
         <div id="hint" role="status" hidden></div>
@@ -296,9 +334,11 @@
             rows="2"
             required
             aria-label="Message to the AI"
+            data-t-aria-label="Message to the AI"
             placeholder="Ask the AI about this course …"
+            data-t-placeholder="Ask the AI about this course …"
           ></textarea>
-          <button>Send</button>
+          <button data-t="Send">Send</button>
         </form>
       </div>
     </details>

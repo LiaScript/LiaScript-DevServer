@@ -40,7 +40,7 @@ Opening the preview, the first that applies:
 2. Visible browser automation: open get_state.url there before goto or chat to share the tab.
 3. Otherwise goto opens the user's default browser.
 
-If get_state has a tts entry, the browser cannot read the course aloud: tell the user, and follow the entry only with their consent.`
+A tts entry in get_state: the browser cannot read aloud, the chat shows that. Mention it only if asked, follow it only with consent.`
 
 const SECTION =
   'heading path as in the specs, e.g. "## Agents → ### Teaching-Agent" or "Sessions → 3": every part is a heading below the one before, a part also matches a heading that starts with it ("3" for "3. First words"), # and backticks are optional'
@@ -109,18 +109,19 @@ const TOOLS = [
   {
     name: 'set_agent',
     description:
-      'Shows the user who they talk to: the emoji and name of the current agent on the chat button, its emoji and the time under each of its messages. Call it before the first message and whenever the agent that talks to the user changes. agents declares all agents of a workflow and replaces the previous list; with two or more the chat offers a menu to pick one. A pick in that menu, or a click on a course link agent:<name>/switch, switches at once and arrives as a command event {agent: <name>, cmd: "switch"}: hand the conversation over to that agent. chat and answer events carry the current agent in their agent field, route them to it. name has to be in the list, unless emoji is given: then it is added or updated. Opens no browser. Returns {agent, agents}.',
+      'Shows the user who they talk to: the emoji and label (else the name) of the current agent on the chat button, its emoji and the time under each of its messages. Give every agent a label the user understands. Call it before the first message and whenever the agent that talks to the user changes. agents declares all agents of a workflow and replaces the previous list; with two or more the chat offers a menu to pick one. A pick in that menu, or a click on a course link agent:<name>/switch, switches at once and arrives as a command event {agent: <name>, cmd: "switch"}: hand the conversation over to that agent. chat and answer events carry the current agent in their agent field, route them to it. name has to be in the list, unless emoji is given: then it is added or updated. Opens no browser. Returns {agent, agents}.',
     inputSchema: {
       type: 'object',
       properties: {
         name: { type: 'string', description: 'the agent that talks to the user now, letters digits _ -' },
         emoji: { type: 'string', description: 'its emoji, e.g. 🧑‍🏫' },
+        label: { type: 'string', description: 'what the user reads instead of the name, in their language, e.g. "Unterrichtsplanung"' },
         agents: {
           type: 'array',
           maxItems: 10,
           items: {
             type: 'object',
-            properties: { name: { type: 'string' }, emoji: { type: 'string' } },
+            properties: { name: { type: 'string' }, emoji: { type: 'string' }, label: { type: 'string' } },
             required: ['name', 'emoji'],
           },
         },
@@ -131,7 +132,7 @@ const TOOLS = [
   {
     name: 'read_chat',
     description:
-      'The chat as the user sees it, saved in .chats/ of the project and continued after a reload or restart: {id, title, file, count, open, skipped, entries}. entries are in order, each with t (time) and type: ai {markdown, agent, ask, inputs} for your messages, ask and inputs only for a form; user {text} for what the user typed; answer {ask, values} for a submitted form. open is the ask id of the one form the user can still answer, its answer arrives as an answer event; every other form is closed, also those asked before a restart: ask again if you need one. Read it when get_state.session shows messages you do not remember, or after a session event. last limits it to the newest entries (default 50). session is the id of another saved chat, default the current one.',
+      'The chat as the user sees it, saved in .chats/ of the project and continued after a reload or restart: {id, title, file, count, open, skipped, entries}. entries are in order, each with t (time) and type: ai {markdown, agent, ask, inputs} for your messages, ask and inputs only for a form; user {text} for what the user typed; answer {ask, values} for a submitted form; command {agent, cmd, label} for a clicked agent: link. open is the ask id of the one form the user can still answer, its answer arrives as an answer event; every other form is closed, also those asked before a restart: ask again if you need one. Read it when get_state.session shows messages you do not remember, or after a session event. last limits it to the newest entries (default 50). session is the id of another saved chat, default the current one.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -434,13 +435,20 @@ function isEmoji(value: any) {
   return typeof value === 'string' && value.trim() !== '' && value.length <= 32
 }
 
+function isLabel(value: any) {
+  return typeof value === 'string' && value.trim() !== '' && value.length <= 40
+}
+
 function setAgent(args: any) {
-  const { name, emoji } = args
+  const { name, emoji, label } = args
   if (typeof name !== 'string' || !NAME.test(name)) {
     throw new Error('name must be letters, digits, _ or -')
   }
   if (emoji !== undefined && !isEmoji(emoji)) {
     throw new Error('emoji must be a short string, e.g. 🧑‍🏫')
+  }
+  if (label !== undefined && !isLabel(label)) {
+    throw new Error('label must be a string of at most 40 characters')
   }
 
   let list: server.Agent[] = server.getState().agents
@@ -461,17 +469,23 @@ function setAgent(args: any) {
       if (!isEmoji(agent.emoji)) {
         throw new Error('agents[].emoji must be a short string, e.g. 🧑‍🏫')
       }
-      list.push({ name: agent.name, emoji: agent.emoji })
+      if (agent.label !== undefined && !isLabel(agent.label)) {
+        throw new Error('agents[].label must be a string of at most 40 characters')
+      }
+      const declared: server.Agent = { name: agent.name, emoji: agent.emoji }
+      if (agent.label !== undefined) declared.label = agent.label
+      list.push(declared)
     }
   }
 
-  const known = list.some((a) => a.name === name)
-  if (emoji !== undefined) {
+  const known = list.filter((a) => a.name === name)[0]
+  if (emoji !== undefined || label !== undefined) {
+    if (!known && emoji === undefined) throw new Error('unknown agent ' + name + ', pass its emoji or declare it in agents')
     if (!known && list.length >= 10) throw new Error('at most 10 agents')
+    const agent: server.Agent = { ...known, name, emoji: emoji === undefined ? known.emoji : emoji }
+    if (label !== undefined) agent.label = label
     // in its place, the menu keeps its order
-    list = known
-      ? list.map((a) => (a.name === name ? { name, emoji } : a))
-      : list.concat({ name, emoji })
+    list = known ? list.map((a) => (a.name === name ? agent : a)) : list.concat(agent)
   } else if (!known) {
     throw new Error('unknown agent ' + name + ', pass its emoji or declare it in agents')
   }
