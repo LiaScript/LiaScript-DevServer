@@ -101,7 +101,9 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
     out as `{agents: {current, list}}` and is replayed to each new `?chat` stream, so a reloaded shell knows it.
     `chat` and `answer` events carry the current agent in `agent`. A `command` with `cmd: 'switch'` and a roster
     name (the agent menu of the chat, or a course link `agent:<name>/switch`) switches at once, before the event
-    goes out; an unknown name stays a plain command.
+    goes out; an unknown name stays a plain command. Every `chat`, `answer` and `command` (except a switch the
+    server handled) sets the progress line to `Thinking…` before the event goes out, so the user sees at once that
+    it arrived; the agent's next status or message replaces it.
   - Chat sessions (`src/chats.ts`, a file store without Express): every chat is one `.chats/<id>.json` in
     `process.cwd()`, the project the MCP client opened, so it can be committed and continued by someone else. The id
     is UTC time plus random hex (no merge conflicts, no clash between twin instances), the file is valid JSON with
