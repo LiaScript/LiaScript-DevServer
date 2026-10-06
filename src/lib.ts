@@ -783,6 +783,16 @@ export async function start(
         record({ type: 'answer', ask, values })
       }
 
+      // the user sees at once that it arrived, until the agent sends its own
+      // status or answers. A switch the server handled needs no answer.
+      if (
+        body.type === 'chat' ||
+        body.type === 'answer' ||
+        (command && !(body.cmd === 'switch' && agentName === agents.current))
+      ) {
+        send({ status: 'Thinking…' })
+      }
+
       const { root, ...context } = state
       emitEvent({
         type: body.type,
