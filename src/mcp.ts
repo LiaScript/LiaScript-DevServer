@@ -4,10 +4,12 @@
 // stops delivering channel messages. The subset used here is stable since
 // 2024-11-05.
 
+import * as fs from 'fs'
 import * as path from 'path'
 import * as readline from 'readline'
 
 import * as server from './lib'
+import * as sections from './sections'
 
 const open = require('open')
 
@@ -37,6 +39,9 @@ Opening the preview, the first that applies:
 3. Otherwise goto opens the user's default browser.
 
 If get_state has a tts entry, the browser cannot read the course aloud: tell the user, and follow the entry only with their consent.`
+
+const SECTION =
+  'heading path as in the specs, e.g. "## Agents → ### Teaching-Agent" or "Sessions → 3": every part is a heading below the one before, a part also matches a heading that starts with it ("3" for "3. First words"), # and backticks are optional'
 
 const TOOLS = [
   {
@@ -134,6 +139,53 @@ const TOOLS = [
       },
     },
   },
+  {
+    name: 'outline',
+    description:
+      'Use instead of reading a whole large Markdown file such as journal.md: its table of contents, one heading per line with slide number, start line and size in lines including subsections. A slide of LiaScript is every heading, H1 to H6, outside code blocks and HTML comments. Pass section to list only the headings below it, depth for the number of levels (default 3). file is relative to root, default the course open in the preview.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file: { type: 'string', description: 'e.g. journal.md' },
+        section: { type: 'string', description: SECTION },
+        depth: { type: 'integer', minimum: 1 },
+      },
+    },
+  },
+  {
+    name: 'read_section',
+    description:
+      'Use instead of reading a whole large Markdown file: returns one section {file, slide, line, path, hash, text}. Address it with one of section (heading path), slide (1-based) or line (1-based, e.g. from grep, means the section containing it); with none of them it is the slide the user looks at in the preview. text runs from its heading to the next heading, deep: true includes all subsections. Pass hash to write_section to change it.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file: { type: 'string', description: 'relative to root, default the course open in the preview' },
+        section: { type: 'string', description: SECTION },
+        slide: { type: 'integer', minimum: 1 },
+        line: { type: 'integer', minimum: 1 },
+        deep: { type: 'boolean' },
+      },
+    },
+  },
+  {
+    name: 'write_section',
+    description:
+      'Change one section of a Markdown file without rewriting the file, addressed like read_section. Replace: text replaces exactly what read_section returned with the same deep, including the heading line (keep it, change it, or drop it to merge the section into the one before). hash from read_section is required and the write fails if the section changed since, e.g. edited by the user: read it again. append: true adds text at the end of the section and all its subsections, needs no hash, e.g. for a log entry or a new subsection. text "" deletes the section. Returns {file, slide, line, path, hash} of the section afterwards, its hash works for the next write. The preview reloads with --live.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file: { type: 'string', description: 'relative to root, default the course open in the preview' },
+        section: { type: 'string', description: SECTION },
+        slide: { type: 'integer', minimum: 1 },
+        line: { type: 'integer', minimum: 1 },
+        deep: { type: 'boolean' },
+        text: { type: 'string' },
+        hash: { type: 'string' },
+        append: { type: 'boolean' },
+      },
+      required: ['text'],
+    },
+  },
 ]
 
 function out(msg: object) {
@@ -164,22 +216,24 @@ function nextState(ms: number) {
   })
 }
 
+// a Markdown file below root, as a normalized relative path
+function courseFile(file: any): string {
+  if (
+    typeof file !== 'string' ||
+    file.length > 500 ||
+    !/\.md$/i.test(file) ||
+    path.isAbsolute(file) ||
+    file.split(/[\\/]/).indexOf('..') >= 0
+  ) {
+    throw new Error('file must be a relative path to a .md file below root')
+  }
+  return path.posix.normalize(file.replace(/\\/g, '/'))
+}
+
 async function goto(args: any) {
   const go: any = {}
 
-  if (args.file !== undefined) {
-    const file = args.file
-    if (
-      typeof file !== 'string' ||
-      file.length > 500 ||
-      !/\.md$/i.test(file) ||
-      path.isAbsolute(file) ||
-      file.split(/[\\/]/).indexOf('..') >= 0
-    ) {
-      throw new Error('file must be a relative path to a .md file below root')
-    }
-    go.file = path.posix.normalize(file.replace(/\\/g, '/'))
-  }
+  if (args.file !== undefined) go.file = courseFile(args.file)
   for (const key of ['slide', 'line']) {
     if (args[key] !== undefined) {
       if (!Number.isInteger(args[key]) || args[key] < 1) {
@@ -208,6 +262,65 @@ async function goto(args: any) {
 
   server.send({ goto: go })
   return nextState(3000)
+}
+
+// outline, read_section, write_section: file defaults to the open course
+function section(args: any) {
+  const state = server.getState()
+  if (args.file === undefined && !state.file) throw new Error('no course is open in the preview, pass file')
+  const file = courseFile(args.file === undefined ? state.file : args.file)
+
+  const at: sections.Address = {}
+  for (const key of ['slide', 'line'] as const) {
+    if (args[key] !== undefined) {
+      if (!Number.isInteger(args[key]) || args[key] < 1) throw new Error(key + ' must be an integer >= 1')
+      at[key] = args[key]
+    }
+  }
+  if (args.section !== undefined) {
+    if (typeof args.section !== 'string') throw new Error('section must be a string')
+    at.section = args.section
+  }
+  if (Object.keys(at).length > 1) throw new Error('pass only one of section, slide, line')
+
+  const full = path.join(state.root, file)
+  return { file, full, at, content: fs.readFileSync(full, 'utf8') }
+}
+
+// without an address, the slide the user looks at
+function here(file: string, at: sections.Address) {
+  if (Object.keys(at).length) return at
+  const state = server.getState()
+  if (file !== state.file) throw new Error('pass section, slide or line')
+  return { slide: state.slide }
+}
+
+function outline(args: any) {
+  const { file, at, content } = section(args)
+  const depth = args.depth === undefined ? 3 : args.depth
+  if (!Number.isInteger(depth) || depth < 1) throw new Error('depth must be an integer >= 1')
+  const doc = sections.parse(content)
+  const k = Object.keys(at).length ? sections.find(doc, at) : undefined
+  return file + ': ' + sections.outline(doc, k, depth)
+}
+
+function readSection(args: any) {
+  const { file, at, content } = section(args)
+  const doc = sections.parse(content)
+  return { file, ...sections.read(doc, sections.find(doc, here(file, at)), !!args.deep) }
+}
+
+function writeSection(args: any) {
+  const { file, full, at, content } = section(args)
+  if (typeof args.text !== 'string') throw new Error('text must be a string')
+  const done = sections.write(content, here(file, at), {
+    text: args.text,
+    hash: args.hash,
+    deep: !!args.deep,
+    append: !!args.append,
+  })
+  fs.writeFileSync(full, done.content)
+  return { file, ...done.section }
 }
 
 // events for agents without channels: kept until wait_for_event asks
@@ -456,12 +569,16 @@ async function handle(method: string, params: any, request: any) {
       else if (params.name === 'wait_for_event') call = () => waitForEvent(args, request)
       else if (params.name === 'chat') call = () => chat(args, request)
       else if (params.name === 'set_agent') call = () => setAgent(args)
+      else if (params.name === 'outline') call = () => outline(args)
+      else if (params.name === 'read_section') call = () => readSection(args)
+      else if (params.name === 'write_section') call = () => writeSection(args)
       else throw fail(-32602, 'unknown tool: ' + params.name)
 
       // tool failures go into the result, so the model sees and corrects them
       try {
         const value = await call()
-        return { content: [{ type: 'text', text: JSON.stringify(value) }] }
+        const text = typeof value === 'string' ? value : JSON.stringify(value)
+        return { content: [{ type: 'text', text }] }
       } catch (e: any) {
         return { content: [{ type: 'text', text: e.message }], isError: true }
       }

@@ -3,6 +3,7 @@
 // catches a stray console.log.
 
 const assert = require('assert')
+const fs = require('fs')
 const http = require('http')
 const path = require('path')
 const { spawn } = require('child_process')
@@ -132,9 +133,78 @@ async function main() {
 
   msg = await rpc('tools/list')
   const names = msg.result.tools.map((t) => t.name)
-  for (const name of ['get_state', 'goto', 'wait_for_event', 'chat', 'set_agent']) assert.ok(names.includes(name), name)
+  for (const name of ['get_state', 'goto', 'wait_for_event', 'chat', 'set_agent', 'outline', 'read_section', 'write_section']) assert.ok(names.includes(name), name)
   for (const t of msg.result.tools) {
     assert.ok(t.description.length <= LIMIT, 'the description of ' + t.name + ' has ' + t.description.length + ' characters')
+  }
+
+  // --- sections of a Markdown file
+  const MD = path.join(ROOT, 'check-sections.md')
+  fs.writeFileSync(
+    MD,
+    [
+      '<!--',
+      '# not a heading, the macro header',
+      '-->',
+      '# Journal',
+      '',
+      '## Agents',
+      '',
+      '### Teaching-Agent',
+      '',
+      'old rules',
+      '',
+      '```md',
+      '# not a heading, code',
+      '```',
+      '',
+      '### Artist',
+      '',
+      '## Sessions',
+      '',
+      '### 3. First words',
+      'text',
+      '',
+    ].join('\n'),
+  )
+  try {
+    const file = 'check-sections.md'
+    const toc = await rpc('tools/call', { name: 'outline', arguments: { file } })
+    const rows = toc.result.content[0].text.split('\n').slice(1)
+    assert.deepStrictEqual(
+      rows.map((row) => row.split('\t').slice(0, 2).join(' ')),
+      ['1 L4', '2 L6', '3 L8', '4 L16', '5 L18', '6 L20'],
+      'outline skips comments and code: ' + rows,
+    )
+
+    let sec = await tool('read_section', { file, section: '## Agents → ### Teaching-Agent' })
+    assert.strictEqual(sec.slide, 3)
+    assert.strictEqual(sec.path, 'Journal → Agents → Teaching-Agent')
+    assert.ok(sec.text.startsWith('### Teaching-Agent') && sec.text.includes('# not a heading, code'))
+    assert.ok(!sec.text.includes('### Artist'))
+    assert.deepStrictEqual(await tool('read_section', { file, slide: 3 }), sec)
+    assert.deepStrictEqual(await tool('read_section', { file, line: 13 }), sec)
+    assert.strictEqual((await tool('read_section', { file, section: 'Sessions → 3' })).slide, 6)
+    assert.ok((await tool('read_section', { file, section: 'Teach' })).isError, 'only whole words match')
+    assert.ok((await tool('read_section', { file: '../x.md', slide: 1 })).isError)
+    const agents = await tool('read_section', { file, section: 'Agents', deep: true })
+    assert.ok(agents.text.includes('### Artist') && !agents.text.includes('## Sessions'))
+
+    const before = fs.readFileSync(MD, 'utf8')
+    assert.ok((await tool('write_section', { file, section: 'Teaching-Agent', text: 'x', hash: 'bogus' })).isError)
+    assert.strictEqual(fs.readFileSync(MD, 'utf8'), before, 'a wrong hash writes nothing')
+
+    const done = await tool('write_section', { file, slide: 3, text: '### Teaching-Agent\n\nnew rules', hash: sec.hash })
+    assert.strictEqual(done.slide, 3)
+    sec = await tool('read_section', { file, slide: 3 })
+    assert.strictEqual(sec.text, '### Teaching-Agent\n\nnew rules\n')
+    assert.strictEqual(done.hash, sec.hash, 'the returned hash fits the next write')
+    assert.ok(fs.readFileSync(MD, 'utf8').includes('new rules\n\n### Artist'))
+
+    await tool('write_section', { file, section: 'Agents', append: true, text: '### Learner\n\nFinn' })
+    assert.ok(fs.readFileSync(MD, 'utf8').includes('### Artist\n\n### Learner\n\nFinn\n\n## Sessions'))
+  } finally {
+    fs.unlinkSync(MD)
   }
 
   // --- protocol errors
