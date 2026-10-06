@@ -91,6 +91,44 @@ export function setAgent(name: string, list?: Agent[]) {
 var session: chats.Session | null = null
 var progress = ''
 
+// Is anybody there? A plain "Thinking…" kept users waiting for minutes while
+// no agent listened, or while one waited for a permission in the terminal.
+// So the progress line says only what the server knows: the message waits,
+// an agent took it (adapters call activity() on every tool call and when they
+// hand an event over, a watcher of the event stream counts too), and after a
+// while without any sign of the agent a hint below it says so.
+const WAITING = 'Waiting for the assistant…'
+const THINKING = 'Thinking…'
+const NO_REACTION_MS = 30000
+const NO_REACTION =
+  'The assistant has not reacted yet. Your message is saved and waits for it.'
+const QUIET_MS = 60000
+const QUIET =
+  'No sign of the assistant for a minute. It may still be working, or wait for a permission on the computer.'
+// an event waits for the first sign of an agent
+var pending = false
+var hint = ''
+var quiet: any = null
+
+export function activity() {
+  pending = false
+  if (progress === WAITING) send({ status: THINKING })
+  else watchQuiet()
+}
+
+// restarts the clock whenever something happens while a progress line shows
+function watchQuiet() {
+  clearTimeout(quiet)
+  if (hint) send({ hint: (hint = '') })
+  if (!progress) return
+  quiet = setTimeout(
+    () => send({ hint: (hint = pending ? NO_REACTION : QUIET) }),
+    pending ? NO_REACTION_MS : QUIET_MS,
+  )
+  // a pending hint must not keep a stopped server alive
+  if (quiet.unref) quiet.unref()
+}
+
 function record(entry: { type: string; [key: string]: any }) {
   if (!session) return
   const before = session.entries.length ? chats.title(session) : ''
@@ -157,6 +195,10 @@ function ttsHint() {
 var watchers: express.Response[] = []
 const token = crypto.randomBytes(16).toString('hex')
 var events = ''
+// events while nobody watched, for the next watcher. Not for long: an agent
+// that starts tomorrow must not answer the questions of today.
+const MISSED_MS = 10 * 60 * 1000
+var missed: { t: number; line: string }[] = []
 
 // The browser comes and goes: F5 and a live reload of the bare player close
 // its stream and open a new one within a moment. So a change of connected or
@@ -216,6 +258,8 @@ window.LIA.lineGoto = function(linenumber) {
 
 const events = new EventSource('/gotoLine');
 events.onmessage = (event) => {
+  // the server opens every stream with an empty message
+  if (!event.data) return
   try {
     const data = JSON.parse(event.data);
     if (data.filename == filename__) {
@@ -223,7 +267,7 @@ events.onmessage = (event) => {
       window.LIA.gotoLine(data.linenumber)
     }
   } catch (e) {
-    console.warn("gotoLine failed")
+    console.warn("gotoLine failed", e)
   }
 };
 </script>`
@@ -486,7 +530,10 @@ export async function start(
       })
 
       watcher.on('change', (filePath: string) => {
-        console.log('📝 file changed, reloading...')
+        // which one: a reload nobody expected is easier to explain
+        console.log(
+          '📝 ' + path.relative(watchPath, filePath) + ' changed, reloading...',
+        )
         reloadInstance.reload()
       })
 
@@ -768,7 +815,6 @@ export async function start(
             : session
         if (!next) return res.sendStatus(400)
         session = next
-        progress = ''
         send({ sessions: chats.list() })
         send(sessionMessage())
         send({ status: '' })
@@ -790,7 +836,8 @@ export async function start(
         body.type === 'answer' ||
         (command && !(body.cmd === 'switch' && agentName === agents.current))
       ) {
-        send({ status: 'Thinking…' })
+        pending = true
+        send({ status: WAITING })
       }
 
       const { root, ...context } = state
@@ -819,6 +866,12 @@ export async function start(
           'Cache-Control': 'no-cache',
         })
         res.flushHeaders()
+        // what happened while nobody watched, e.g. before a Monitor that
+        // expired was started again
+        const fresh = Date.now() - MISSED_MS
+        missed.forEach((m) => m.t > fresh && res.write(m.line))
+        if (missed.length) activity()
+        missed = []
         watchers.push(res)
         res.on('close', () => {
           watchers = watchers.filter((watcher) => watcher !== res)
@@ -957,7 +1010,12 @@ function emitEvent(event: object) {
   bus.emit('event', event)
   // escaped like the channel content, the line ends up inside a tag too
   const line = JSON.stringify(event).replace(/</g, '\\u003c') + '\n'
-  watchers.forEach((watcher) => watcher.write(line))
+  if (watchers.length) {
+    watchers.forEach((watcher) => watcher.write(line))
+    activity()
+  } else if (missed.push({ t: Date.now(), line }) > 20) {
+    missed.shift()
+  }
 }
 
 // a browser stream opened or closed: the state changed at once, the event
@@ -988,6 +1046,7 @@ function connectionChanged() {
 // server -> every connected browser. A chat message is saved in the session
 // on the way, the progress line kept for a shell that connects later.
 export function send(msg: any) {
+  const before = progress
   if (typeof msg.status === 'string') progress = msg.status
   if (msg.chat) {
     const { id, inputs, status, ...rest } = msg.chat
@@ -999,6 +1058,7 @@ export function send(msg: any) {
   clients.forEach((client) =>
     client.write(`data: ${JSON.stringify(msg)}\n\n`),
   )
+  if (progress !== before || msg.chat) watchQuiet()
 }
 
 export function gotoLine(linenumber: number, filename: string) {
@@ -1029,6 +1089,7 @@ function eventsHandler(
     if (session) replay.push({ sessions: chats.list() }, sessionMessage())
     if (agents.list.length) replay.push(agentsMessage())
     if (progress) replay.push({ status: progress })
+    if (hint) replay.push({ hint })
     replay.forEach((msg) => response.write(`data: ${JSON.stringify(msg)}\n\n`))
   }
   clients.push(response)

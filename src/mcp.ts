@@ -49,13 +49,13 @@ const TOOLS = [
   {
     name: 'get_state',
     description:
-      'What the user is looking at in the LiaScript preview: course file (relative to root), 1-based slide number, slide title, selected text, and whether a browser (connected) and its chat are open. url is the address of the preview, to open it with browser automation tools. events is the URL of the event stream for a Monitor tool (curl -sN, one JSON line per event), watched whether one reads it. voices is the number of speech voices of the browser, -1 if unknown. session {id, title, updated, count} is the saved chat: read_chat reads it. A tts entry appears only when the browser cannot read the course aloud.\n\nCodex persistent browser chat: codex_bridge gives available, command, args and cwd for the installed bridge. When the user requests persistent chat and available is true, run that command with those arguments and cwd in a background PTY, keep its stdin open, wait for "Bridge ready:", then open the printed URL with visible browser automation (or append --open if none is available). Use proper shell quoting for paths; args are an argv array. The devserver chooses the next free port if 3001 is busy. Requires Codex CLI signed in with codex login. Terminal text sent to that process and browser messages share its thread; /stop interrupts, /quit exits, /approve and /reply handle requests only in that terminal. This starts a separate Codex conversation, not this IDE session, and uses a separate preview. Run only one bridge per project. If your tools already have the lia_ prefix, you are inside the bridge: do not launch another. If unavailable, use an npm installation of @liascript/devserver or build the devserver repository first.',
+      'What the user is looking at in the LiaScript preview: course file (relative to root), 1-based slide number, slide title, selected text, and whether a browser (connected) and its chat are open. url is the address of the preview, to open it with browser automation tools. events is the URL of the event stream for a Monitor tool (curl -sN, one JSON line per event), watched whether one reads it. Events that came while nobody read it are replayed to the next reader, up to 10 minutes back. voices is the number of speech voices of the browser, -1 if unknown. session {id, title, updated, count} is the saved chat: read_chat reads it. A tts entry appears only when the browser cannot read the course aloud.\n\nCodex persistent browser chat: codex_bridge gives available, command, args and cwd for the installed bridge. When the user requests persistent chat and available is true, run that command with those arguments and cwd in a background PTY, keep its stdin open, wait for "Bridge ready:", then open the printed URL with visible browser automation (or append --open if none is available). Use proper shell quoting for paths; args are an argv array. The devserver chooses the next free port if 3001 is busy. Requires Codex CLI signed in with codex login. Terminal text sent to that process and browser messages share its thread; /stop interrupts, /quit exits, /approve and /reply handle requests only in that terminal. This starts a separate Codex conversation, not this IDE session, and uses a separate preview. Run only one bridge per project. If your tools already have the lia_ prefix, you are inside the bridge: do not launch another. If unavailable, use an npm installation of @liascript/devserver or build the devserver repository first.',
     inputSchema: { type: 'object', properties: {} },
   },
   {
     name: 'goto',
     description:
-      'Navigate the LiaScript preview. Pass at least one of: file (another Markdown course, relative to root), slide (1-based, as in #n of the URL), line (1-based source line, shows the slide containing it). file combines with slide, not with line. If no browser is connected it opens the default browser of the user: with browser automation tools open get_state.url there first instead. Returns the state afterwards.',
+      'Navigate the LiaScript preview. Pass at least one of: file (another Markdown course, relative to root), slide (1-based, as in #n of the URL), line (1-based source line, shows the slide containing it). file combines with slide, not with line. If no browser is connected it opens the default browser of the user: with browser automation tools open get_state.url there first instead. Returns the state afterwards, with a warning if another file has not finished loading.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -213,8 +213,10 @@ function fail(code: number, message: string) {
 }
 
 // Resolves once the reports of the browser settle, at the latest after ms.
-// A navigation reports in bursts: first the new slide, then its title.
-function nextState(ms: number) {
+// A navigation reports in bursts: first the new slide, then its title. Only
+// reports that pass arrived count, the closing stream of a page that goes
+// away reports too.
+function nextState(ms: number, arrived = (state: any) => true): Promise<any> {
   return new Promise((resolve) => {
     let quiet: any
     const done = () => {
@@ -224,6 +226,7 @@ function nextState(ms: number) {
       resolve(server.getState())
     }
     const settle = () => {
+      if (!arrived(server.getState())) return
       clearTimeout(quiet)
       quiet = setTimeout(done, 500)
     }
@@ -276,8 +279,21 @@ async function goto(args: any) {
     go.file = go.slide = undefined
   }
 
+  // another file is a new page, which takes a while: the reports of the old
+  // one would tell the agent that the preview is still where it was
+  const before = server.getState().file
   server.send({ goto: go })
-  return nextState(3000)
+  if (!go.file || go.file === before) return nextState(3000)
+
+  const state = await nextState(
+    10000,
+    (s) => s.connected && s.file === go.file && (!go.slide || s.slide === go.slide),
+  )
+  if (state.file !== go.file || (go.slide && state.slide !== go.slide)) {
+    state.warning =
+      'the preview has not arrived at ' + go.file + (go.slide ? ' #' + go.slide : '') + ' yet, check get_state before telling the user'
+  }
+  return state
 }
 
 // outline, read_section, write_section: file defaults to the open course
@@ -350,10 +366,12 @@ function onEvent(event: any) {
   // the answer to a waiting chat call is its result, not an event
   if (ask && event.type === 'answer' && event.params.ask === ask.id) {
     const { ask: _, ...values } = event.params
+    server.activity()
     return ask.done({ values })
   }
   // the user typed instead of filling in the form
   if (ask && event.type === 'chat') {
+    server.activity()
     return ask.done({ dismissed: true, text: event.params.text })
   }
   // the chat went away with the form; the event goes on as usual
@@ -363,8 +381,10 @@ function onEvent(event: any) {
   // the user opened another chat, the form stays in the old one
   if (ask && event.type === 'session') ask.done({ switched: true })
 
-  if (waiter) waiter.done(event)
-  else if (queue.push(event) > 20) queue.shift()
+  if (waiter) {
+    server.activity()
+    waiter.done(event)
+  } else if (queue.push(event) > 20) queue.shift()
 
   // Claude Code turns this into a <channel> tag in the running session.
   // Without a registered channel it is dropped silently.
@@ -600,6 +620,8 @@ async function handle(method: string, params: any, request: any) {
     case 'tools/call': {
       const args = params.arguments || {}
       let call: () => any
+      // the agent is there: the chat stops waiting for it
+      server.activity()
 
       if (params.name === 'get_state') call = () => {
         const state = server.getState()

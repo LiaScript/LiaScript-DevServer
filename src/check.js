@@ -312,7 +312,22 @@ async function main() {
   assert.ok(stream.includes('{"goto":{"slide":5}}'), 'goto reaches the browser: ' + stream)
   await post({ type: 'state', context: { file: 'README.md', slide: 5, title: 'T5', selection: '' } })
   assert.strictEqual((await moved).slide, 5, 'goto answers with the reported state')
+
+  // another file is a new page: the old one still reports while it goes
+  // away, goto waits for the new one
+  const opened = tool('goto', { file: 'other.md', slide: 2 })
+  await sleep(200)
+  assert.ok(stream.includes('{"goto":{"file":"other.md","slide":2}}'), 'goto with a file: ' + stream)
   sse.destroy()
+  await post(report)
+  await sleep(800)
+  const sse2 = http.get(ORIGIN + '/gotoLine', () => {})
+  await sleep(100)
+  await post({ type: 'state', context: { file: 'other.md', slide: 2, title: 'O2', selection: '' } })
+  const there = await opened
+  assert.deepStrictEqual([there.file, there.slide, there.warning], ['other.md', 2, undefined], 'not the state of the old page')
+  sse2.destroy()
+  await post(report)
 
   // --- command links
   const command = {
@@ -425,12 +440,16 @@ async function main() {
   assert.deepStrictEqual(notifications, [], 'answers to a waiting call are not pushed as well')
 
   // no form waiting: chat text is an event
+  stream = ''
   await post({ type: 'chat', params: { text: 'hello' } })
   await sleep(100)
   msg = notifications.pop()
   assert.deepStrictEqual(msg.params.meta, { type: 'chat' })
   assert.strictEqual(JSON.parse(msg.params.content).params.text, 'hello')
+  // nobody took it yet: the chat does not claim that anybody thinks
+  assert.ok(stream.endsWith('data: {"status":"Waiting for the assistant…"}\n\n'), 'waiting: ' + stream)
   await tool('wait_for_event', {}) // drain the fallback queue
+  assert.ok(stream.endsWith('data: {"status":"Thinking…"}\n\n'), 'a tool call is a sign of the agent: ' + stream)
 
   // cancelled: no answer to the call, a later click arrives as an event
   const cancelledId = 9000
@@ -514,6 +533,16 @@ async function main() {
   const watch = http.get(ORIGIN + eventsPath, (res) => res.on('data', (chunk) => (lines += chunk)))
   await sleep(200)
   assert.strictEqual((await tool('get_state', {})).watched, true)
+  // what came while nobody watched comes first, e.g. after a Monitor expired
+  const missed = lines.split('\n').filter(Boolean).map((line) => JSON.parse(line))
+  assert.ok(missed.some((e) => e.type === 'chat' && e.params.text === 'question'), 'missed events: ' + lines)
+  assert.ok(missed.length <= 20, 'only the last 20')
+  lines = ''
+  let again = ''
+  const second = http.get(ORIGIN + eventsPath, (res) => res.on('data', (chunk) => (again += chunk)))
+  await sleep(200)
+  second.destroy()
+  assert.strictEqual(again, '', 'replayed only once')
 
   await post(command)
   await sleep(100)
