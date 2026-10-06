@@ -70,7 +70,8 @@ const speech = { voices: -1, automated: false, fallback: false }
 
 // Who the user talks to: the agents of a workflow, each with an emoji that the
 // chat shows on its button and under every message. Kept out of state too.
-export type Agent = { name: string; emoji: string }
+// label: what the user reads instead of the name, e.g. "Unterrichtsplanung"
+export type Agent = { name: string; emoji: string; label?: string }
 const agents = { current: '', list: [] as Agent[] }
 
 export function currentAgent(): Agent | undefined {
@@ -177,6 +178,7 @@ function watchQuiet() {
   if (quiet.unref) quiet.unref()
 }
 
+// returns the entry as saved, with its time
 function record(entry: { type: string; [key: string]: any }) {
   if (!session) return
   const before = session.entries.length ? chats.title(session) : ''
@@ -188,6 +190,7 @@ function record(entry: { type: string; [key: string]: any }) {
   }
   // a new session or a new title for the menu
   if (chats.title(session) !== before) send({ sessions: chats.list() })
+  return session.entries[session.entries.length - 1]
 }
 
 function sessionMessage() {
@@ -234,7 +237,7 @@ function ttsHint() {
   }
   return (
     silent +
-    'Tell the user. Firefox on Linux takes its voices from speech-dispatcher, which has to be installed with a voice; ' +
+    'Firefox on Linux takes its voices from speech-dispatcher, which has to be installed with a voice; ' +
     'Google Chrome brings online voices of its own.' +
     fallback
   )
@@ -415,6 +418,8 @@ const agentScript = `<script>
       agent: slash < 0 ? '' : uri.pathname.slice(0, slash),
       cmd: uri.pathname.slice(slash + 1),
       params: params,
+      // the chat shows it as what the user said
+      label: el.textContent.trim(),
       context: ctx()
     })
   }, true)
@@ -879,7 +884,15 @@ export async function start(
       } else if (body.type === 'answer') {
         const { ask, ...values } = checked
         openAsk = ''
-        record({ type: 'answer', ask, values })
+        // every shell shows the choice as what the user said
+        const entry = record({ type: 'answer', ask, values })
+        if (entry) send({ entry })
+      } else if (command) {
+        // a click on a link too, as its text: the user sees that it arrived,
+        // and the history says what happened
+        const label = text(body.label, 200).replace(/\s+/g, ' ').trim()
+        const entry = label && record({ type: 'command', agent: agentName, cmd: body.cmd, label })
+        if (entry) send({ entry })
       }
 
       // the user sees at once that it arrived, until the agent sends its own
