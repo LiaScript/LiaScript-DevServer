@@ -735,6 +735,13 @@ function status(text) {
   if (text) document.getElementById('chat').open = true
 }
 
+// below the progress line when the server has no sign of the AI for a while
+function hint(text) {
+  var line = document.getElementById('hint')
+  line.textContent = text
+  line.hidden = !text
+}
+
 new EventSource('/gotoLine?chat').onmessage = function (event) {
   var data
   try {
@@ -743,6 +750,7 @@ new EventSource('/gotoLine?chat').onmessage = function (event) {
     return
   }
   if (typeof data.status == 'string') return status(data.status)
+  if (typeof data.hint == 'string') return hint(data.hint)
   if (data.agents) return showAgents(data.agents)
   if (data.sessions) return showSessions(data.sessions)
   if (data.session) return showSession(data.session)

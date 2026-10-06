@@ -89,7 +89,8 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
     this event, so an agent notices a closed tab without polling. Every event
     also goes as one JSON line (`<` escaped) to the readers of `GET /agent/events/<token>` (`getState().events`,
     `watched` = someone reads it): a stream for agents that watch a command, i.e. Claude Code's Monitor tool running
-    `curl -sN`. The random token keeps other local users and pages out, a request with an `Origin` is refused. `agentScript` (a second injected snippet next to
+    `curl -sN`. Events while nobody reads it (at most 20, 10 minutes back, `missed`) go to the next reader first, so
+    restarting an expired Monitor loses nothing. The random token keeps other local users and pages out, a request with an `Origin` is refused. `agentScript` (a second injected snippet next to
     `gotoScript`) reports slide/title/selection, handles `goto` messages and turns clicks on `agent:` links into
     `command` events. In agent mode the server binds to loopback, checks `Host` on every route and `Origin` on
     `POST /agent`, and `.md` redirects go to the chat shell instead of the bare player. It also moves to the next
@@ -102,8 +103,12 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
     `chat` and `answer` events carry the current agent in `agent`. A `command` with `cmd: 'switch'` and a roster
     name (the agent menu of the chat, or a course link `agent:<name>/switch`) switches at once, before the event
     goes out; an unknown name stays a plain command. Every `chat`, `answer` and `command` (except a switch the
-    server handled) sets the progress line to `Thinking…` before the event goes out, so the user sees at once that
-    it arrived; the agent's next status or message replaces it.
+    server handled) sets the progress line to `Waiting for the assistant…` before the event goes out, so the user
+    sees at once that it arrived. It turns into `Thinking…` with the first sign of an agent: `activity()`, which
+    `mcp.ts` calls on every tool call and when it hands an event to a waiting call, and which a watcher of the event
+    stream counts as too. While a progress line shows, a timer (`watchQuiet()`) puts a `{hint}` below it: after 30 s
+    without any sign since the event (`NO_REACTION`), or after 60 s of silence from an agent that did react
+    (`QUIET`, e.g. a permission prompt in the terminal). The agent's next status or message replaces both.
   - Chat sessions (`src/chats.ts`, a file store without Express): every chat is one `.chats/<id>.json` in
     `process.cwd()`, the project the MCP client opened, so it can be committed and continued by someone else. The id
     is UTC time plus random hex (no merge conflicts, no clash between twin instances), the file is valid JSON with
@@ -178,6 +183,10 @@ in `agentScript` and `views/chat.js` drop the slashes because `new URL()` would 
 ignores a repeated request for the same slide even if the user moved away, so navigation sets `location.hash`
 (1-based) instead; slide changes use `history.pushState` and fire no event, so `agentScript` patches it; the
 player's `message` listener has an `eval` command without an origin check, so `agentScript` registers a gate first.
+A deep link (`#n` on load) shows the right slide but leaves `document.title` at the course title, so `title` in
+the state is stale until the next slide change. `goto` to another file loads a new page: the old one still
+reports while it closes, so `goto` waits (`nextState(ms, arrived)`) for a report of the new file and slide and
+adds a `warning` if none comes within 10 s.
 
 `agentScript` and `gotoScript` are template literals: keep them free of backslashes, backticks and `${`.
 
