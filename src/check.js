@@ -250,6 +250,11 @@ async function main() {
   let state = await tool('get_state', {})
   assert.strictEqual(state.connected, false)
   assert.strictEqual(state.root, ROOT)
+  assert.strictEqual(state.codex_bridge.available, true)
+  assert.strictEqual(state.codex_bridge.command, process.execPath)
+  assert.strictEqual(state.codex_bridge.cwd, PROJECT)
+  assert.strictEqual(state.codex_bridge.args[0], path.join(ROOT, 'dist/codex-bridge.js'))
+  assert.ok(msg.result.tools.filter((t) => t.name === 'get_state')[0].description.includes('codex_bridge'), 'agents receive bridge startup instructions')
 
   const report = { type: 'state', context: { file: 'README.md', slide: 3, title: 'T', selection: 'x'.repeat(100000) } }
   assert.strictEqual((await post(report, { Origin: undefined })).status, 403, 'no origin')
@@ -263,6 +268,10 @@ async function main() {
   assert.strictEqual(state.file, 'README.md')
   assert.strictEqual(state.slide, 3)
   assert.strictEqual(state.selection.length, 2000, 'selection is capped')
+  assert.strictEqual(state.codex_bridge.args[4], path.join(ROOT, 'README.md'))
+  await post({ type: 'state', context: { ...report.context, file: '../outside.md' } })
+  assert.strictEqual((await tool('get_state', {})).codex_bridge.args[4], ROOT, 'forged browser paths cannot become external launch inputs')
+  await post(report)
 
   // text-to-speech: the browser reports its speech voices, and without any
   // the state says how to get them
@@ -332,7 +341,8 @@ async function main() {
 
   assert.deepStrictEqual(await tool('wait_for_event', {}), command, 'the fallback gets the same event')
   assert.deepStrictEqual(await tool('wait_for_event', { timeout_s: 1 }), { timeout: true })
-  assert.ok((await tool('wait_for_event', { timeout_s: 0 })).isError)
+  assert.deepStrictEqual(await tool('wait_for_event', { timeout_s: 0 }), { timeout: true })
+  assert.ok((await tool('wait_for_event', { timeout_s: -1 })).isError)
 
   const waiting = tool('wait_for_event', { timeout_s: 5 })
   await sleep(100)
@@ -387,6 +397,17 @@ async function main() {
     { id: 'topics', type: 'checkbox', options: ['a', 'b', 'c'] },
   ]
   const askId = () => /"chat":\{"id":"(ask-[0-9a-f]{8})"/.exec(stream.slice(stream.lastIndexOf('"chat"')))[1]
+
+  // Codex can post a form and collect its answer without a Monitor.
+  assert.ok((await tool('chat', { markdown: 'pick', inputs, wait: 'false' })).isError)
+  const immediate = await tool('chat', { markdown: 'pick', inputs, wait: false })
+  assert.strictEqual(immediate.sent, true)
+  await post({ type: 'answer', params: { ask: immediate.ask, level: 'easy', topics: ['a', 'c'] } })
+  const answerEvent = await tool('wait_for_event', { timeout_s: 0 })
+  assert.strictEqual(answerEvent.type, 'answer')
+  assert.strictEqual(answerEvent.params.ask, immediate.ask)
+  await sleep(100)
+  notifications.pop()
 
   // answered: the values are the result of the call, not an event
   let asked = tool('chat', { markdown: 'pick', inputs })
@@ -579,6 +600,8 @@ async function main() {
   assert.strictEqual(fresh.resumed, false)
   assert.notStrictEqual(fresh.id, saved.id)
   assert.ok(shellStream.includes('{"session":{"id":"' + fresh.id + '","entries":[]}}'), 'the shell shows the new chat')
+  assert.deepStrictEqual((await tool('read_chat', {})).entries, [])
+  assert.ok((await tool('chat', { markdown: 'late reply', session: saved.id })).isError, 'a delayed reply cannot enter another session')
   assert.deepStrictEqual((await tool('read_chat', {})).entries, [])
   assert.strictEqual(files().length, 1, 'an empty chat has no file')
   await post({ type: 'session', params: {} })

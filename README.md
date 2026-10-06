@@ -375,8 +375,84 @@ Claude Code is told about a click at once, in one of two ways:
   told to do so, there is nothing to set up. While it listens, forms in the
   chat do not keep it waiting; your answer arrives like a click.
 
-Other agents cannot be notified by an MCP server. Ask them to call
-`wait_for_event` in a loop instead, it returns as soon as you click.
+For Codex, call `wait_for_event` with `{ "timeout_s": 0 }` between work steps:
+it returns the next queued event immediately, or `{ "timeout": true }`.
+Post forms with `chat({ markdown, inputs, wait: false })`; this returns
+`{ sent: true, ask }` immediately and the answer arrives as an `answer` event.
+Without these options, `wait_for_event` and forms retain their waiting behavior.
+The fallback queue keeps only the latest 20 events, so poll regularly.
+
+#### Persistent Codex bridge
+
+With Codex CLI installed and signed in (`codex login`), run the bridge from
+the course project folder. After installing this package:
+
+```bash
+liascript-codex -- --live --open -i README.md -p 3001
+```
+
+From this repository, build first and run:
+
+```bash
+npm run build
+npm run codex -- -- --live --open -i test.md -p 3001
+```
+
+Options before `--` belong to the bridge (`--model MODEL`, `--codex PATH`);
+options after it belong to the devserver. Use a free port if another MCP
+client already runs the devserver. The bridge owns one MCP subprocess and
+one [Codex app-server](https://developers.openai.com/codex/app-server).
+It consumes MCP event notifications directly, forwards browser input with
+`turn/start` or `turn/steer`, and exposes the existing MCP tools to Codex as
+dynamic tools with a `lia_` prefix. There is no polling turn or Monitor timeout.
+This requires app-server's experimental dynamic tools API (tested with Codex
+CLI 0.160.0); no additional runtime dependency or separate API key is needed
+when Codex is already signed in.
+
+MCP agents receive these startup instructions in the `get_state` tool
+description. Its `codex_bridge` result supplies the installed program path,
+argument array, working directory and availability. Codex can use them to
+start a background PTY and open the URL printed after `Bridge ready:`. The
+description explicitly distinguishes that new thread from an existing IDE
+session and tells an agent already using `lia_` tools to keep its current bridge.
+
+Type in the browser or in the bridge terminal: both reach the same thread.
+Final replies appear in both, progress appears in the browser status line,
+and forms always return immediately. `/stop` interrupts the current turn;
+`/quit` stops both subprocesses. Closing the browser interrupts active work
+after the usual disconnect delay, without opening it again.
+
+Run one bridge per project. Each saved browser chat has its own Codex thread.
+The local mapping lives in
+`.chats/.codex-threads.json`; restart the bridge to resume it, or use the
+browser chat menu to change conversations. This mapping belongs to the
+local Codex login, so exclude it from version control even if you share the
+chat transcripts. A resumed thread on another machine must be created there.
+The bridge hosts its own conversation; it does not inject messages into an
+already-running IDE chat.
+
+Browser input remains untrusted page content. Command/file approvals appear
+only in the bridge terminal: `/approve ID yes` or `/approve ID no`. Other
+structured requests show their payload and accept `/reply ID JSON`. Browser
+text never invokes these terminal commands. Codex runs with `workspace-write`
+and `on-request`; managed Codex requirements continue to apply.
+
+Checks after building:
+
+```bash
+npm run test:mcp
+npm run test:codex
+npm run test:codex -- --live
+```
+
+The normal bridge check uses the real MCP server and a deterministic
+app-server peer. The live check uses the signed-in Codex and a visible
+Playwright Chromium window; it verifies browser/terminal input, steering,
+forms and resume after restart. It needs Playwright and its browser already
+installed. Set `PLAYWRIGHT_MODULE_PATH` to an installed Playwright module
+directory and optionally `PLAYWRIGHT_CHROMIUM_PATH` to an existing Chromium
+binary. `HEADLESS=1` runs without a window. Test transcripts and screenshots
+are written to a temporary folder printed at the end.
 
 Closing the preview is an event as well: two seconds after the last browser
 went away the agent is told that nobody is looking anymore, a form it was
