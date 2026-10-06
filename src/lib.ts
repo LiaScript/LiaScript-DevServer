@@ -6,6 +6,8 @@ import * as net from 'net'
 import * as path from 'path'
 import { EventEmitter } from 'events'
 
+import * as chats from './chats'
+
 const cors = require('cors')
 const handlebars = require('express-handlebars')
 const ip = require('ip')
@@ -83,6 +85,34 @@ export function setAgent(name: string, list?: Agent[]) {
   send(agentsMessage())
 }
 
+// The chat the user sees, saved in .chats/ of the project (see chats.ts):
+// continued after F5 and after a restart, until the user starts a new one.
+// The progress line is no part of it, a reloaded shell gets it from here.
+var session: chats.Session | null = null
+var progress = ''
+
+function record(entry: { type: string; [key: string]: any }) {
+  if (!session) return
+  const before = session.entries.length ? chats.title(session) : ''
+  if (!session.file) session.file = state.file
+  try {
+    chats.append(session, entry)
+  } catch (e: any) {
+    console.warn('chat not saved:', e.message)
+  }
+  // a new session or a new title for the menu
+  if (chats.title(session) !== before) send({ sessions: chats.list() })
+}
+
+function sessionMessage() {
+  return { session: { id: session!.id, entries: session!.entries } }
+}
+
+export function readChat(id?: string) {
+  const chat = id === undefined || (session && id === session.id) ? session : chats.load(id)
+  return chat ? { ...chats.summary(chat), file: chat.file, entries: chat.entries } : undefined
+}
+
 function agentsMessage() {
   return { agents: { current: currentAgent() || null, list: agents.list } }
 }
@@ -146,6 +176,7 @@ export function getState() {
     voices: speech.voices,
     agent: agents.current,
     agents: agents.list,
+    session: session && chats.summary(session),
     // only present when the course cannot be read aloud
     tts: ttsHint(),
   }
@@ -409,6 +440,9 @@ export async function start(
   if (agent) {
     player = '/liascript/chat.html'
     events = origin + '/agent/events/' + token
+    // where the MCP client opened the project, which is usually root
+    chats.open(path.join(process.cwd(), '.chats'))
+    session = chats.latest() || chats.create('')
 
     // Browser content becomes agent prompts here, so only answer requests
     // addressed to this machine: a rebound DNS name sends its own Host.
@@ -599,6 +633,9 @@ export async function start(
       function (req: express.Request, res: express.Response) {
         res.sendFile('chat.' + req.params.ext, {
           root: path.resolve(path.join(dirname, 'views')),
+          // revalidated on every load: a cached chat.js from an older
+          // version does not understand the messages of this one
+          headers: { 'Cache-Control': 'no-cache' },
         })
       },
     )
@@ -648,7 +685,7 @@ export async function start(
       }
 
       const body = req.body || {}
-      if (['state', 'command', 'chat', 'answer'].indexOf(body.type) < 0) {
+      if (['state', 'command', 'chat', 'answer', 'session'].indexOf(body.type) < 0) {
         return res.sendStatus(400)
       }
 
@@ -673,7 +710,8 @@ export async function start(
       // agent and cmd end up as attributes of the channel tag, params in its
       // body: all of it is page content, so only names and bounded strings.
       // command: agent/cmd from the link. chat: params.text. answer:
-      // params.ask plus one entry per input of the form.
+      // params.ask plus one entry per input of the form. session: params.id
+      // of a saved chat, none for a new one.
       const command = body.type === 'command'
       const agentName = (command && body.agent) || ''
       const params = body.params || {}
@@ -684,7 +722,8 @@ export async function start(
         Array.isArray(params) ||
         Object.keys(params).length > 20 ||
         (body.type === 'chat' && !text(params.text, 1).trim()) ||
-        (body.type === 'answer' && !isName(params.ask))
+        (body.type === 'answer' && !isName(params.ask)) ||
+        (body.type === 'session' && (!session || (params.id !== undefined && !isName(params.id))))
       ) {
         return res.sendStatus(400)
       }
@@ -715,6 +754,33 @@ export async function start(
         agents.list.some((a) => a.name === agentName)
       ) {
         setAgent(agentName)
+      }
+
+      if (body.type === 'session') {
+        const id = checked.id as string | undefined
+        const next = id
+          ? id === session!.id
+            ? session
+            : chats.load(id)
+          : // a new chat, unless the current one is still empty
+            session!.entries.length
+            ? chats.create(state.file)
+            : session
+        if (!next) return res.sendStatus(400)
+        session = next
+        progress = ''
+        send({ sessions: chats.list() })
+        send(sessionMessage())
+        send({ status: '' })
+        checked.id = next.id
+        // what the agent needs to pick up the thread
+        ;(checked as any).title = chats.title(next)
+        ;(checked as any).resumed = next.entries.length > 0
+      } else if (body.type === 'chat') {
+        record({ type: 'user', text: checked.text })
+      } else if (body.type === 'answer') {
+        const { ask, ...values } = checked
+        record({ type: 'answer', ask, values })
       }
 
       const { root, ...context } = state
@@ -909,8 +975,17 @@ function connectionChanged() {
   if (settling.unref) settling.unref()
 }
 
-// server -> every connected browser
-export function send(msg: object) {
+// server -> every connected browser. A chat message is saved in the session
+// on the way, the progress line kept for a shell that connects later.
+export function send(msg: any) {
+  if (typeof msg.status === 'string') progress = msg.status
+  if (msg.chat) {
+    const { id, inputs, status, ...rest } = msg.chat
+    progress = status || ''
+    record(
+      inputs && inputs.length ? { type: 'ai', ask: id, inputs, ...rest } : { type: 'ai', ...rest },
+    )
+  }
   clients.forEach((client) =>
     client.write(`data: ${JSON.stringify(msg)}\n\n`),
   )
@@ -938,9 +1013,13 @@ function eventsHandler(
 
   // the chat shell connects with ?chat, a bare player cannot show messages
   ;(response as any).chat = request.query.chat !== undefined
-  // a reloaded shell has to know who it talks to
-  if ((response as any).chat && agents.list.length) {
-    response.write(`data: ${JSON.stringify(agentsMessage())}\n\n`)
+  // a reloaded shell has to know its chat, who it talks to and what is going on
+  if ((response as any).chat) {
+    const replay: object[] = []
+    if (session) replay.push({ sessions: chats.list() }, sessionMessage())
+    if (agents.list.length) replay.push(agentsMessage())
+    if (progress) replay.push({ status: progress })
+    replay.forEach((msg) => response.write(`data: ${JSON.stringify(msg)}\n\n`))
   }
   clients.push(response)
   connectionChanged()

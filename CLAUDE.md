@@ -18,8 +18,9 @@ node src/check.js  # end-to-end check of --mcp against the BUILT dist/index.js, 
 ```
 
 `build` always runs `shebang` and `lib` afterward. There is no separate lint or test script. The only automated
-check is `src/check.js`: it spawns `dist/index.js --mcp`, speaks JSON-RPC to it and treats every stdout line as
-protocol, so it also fails on a stray `console.log`. Never call the `chat` or `goto` tool in it without a fake SSE
+check is `src/check.js`: it spawns `dist/index.js --mcp` in a temporary project folder (the chats land in its
+`.chats/`, not in the repo), speaks JSON-RPC to it and treats every stdout line as protocol, so it also fails on a
+stray `console.log`. Never call the `chat` or `goto` tool in it without a fake SSE
 client connected, they open a real browser otherwise. There's no dedicated `tsconfig.json`; `lib` compiles
 `src/lib.ts` directly via CLI flags (`--module commonjs -d --outDir dist`).
 
@@ -52,7 +53,7 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   `server.init()` and `server.start()` from `lib.ts`. With `--mcp` it first redirects `console.log` to stderr
   (stdout then belongs to the MCP protocol) and starts `mcp()` from `mcp.ts`.
 - **`src/lib.ts`** — all server logic, exported so it can also be used as a library (see `init`, `start`, `stop`,
-  `gotoLine`). Sets up an Express app that:
+  `gotoLine`, `readChat`). Sets up an Express app that:
   - Serves the compiled LiaScript player from `node_modules/@liascript/editor/dist` (resolved as `liascriptPath`) at
     `/liascript/*`, injecting a small `gotoScript` snippet into `index.html` on the fly (string-replacing `</head>`)
     to wire up bidirectional "goto line" communication between the LiaScript editor and the served preview.
@@ -80,9 +81,9 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   - Agent bridge primitives, active only when `start()` gets `agent = true` (the 9th positional parameter) and free
     of any MCP knowledge, so another adapter (e.g. an ACP host mode) can sit on the same three exports:
     `getState()` (what the browser last reported: file, 1-based slide, title, selection, `connected`, `chat`, plus
-    `events` and `watched`, see below), `send()`, and `bus` (an `EventEmitter` with `'state'` and `'event'`). The
-    browser reports through `POST /agent` with one envelope `{type: state|command|chat|answer, agent, cmd, params,
-    context}`; the route validates and caps every field and attaches the cached state as `context`. A fifth type,
+    `events`, `watched` and `session`, see below), `send()`, and `bus` (an `EventEmitter` with `'state'` and
+    `'event'`). The browser reports through `POST /agent` with one envelope `{type: state|command|chat|answer|session,
+    agent, cmd, params, context}`; the route validates and caps every field and attaches the cached state as `context`. A fifth type,
     `connection` with `params: {connected, chat}`, comes from the server itself: the SSE handler emits `'state'` on
     every open and close, and a change that lasts 2 s (`SETTLE_MS`, so F5 and live reloads do not count) becomes
     this event, so an agent notices a closed tab without polling. Every event
@@ -101,9 +102,24 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
     `chat` and `answer` events carry the current agent in `agent`. A `command` with `cmd: 'switch'` and a roster
     name (the agent menu of the chat, or a course link `agent:<name>/switch`) switches at once, before the event
     goes out; an unknown name stays a plain command.
+  - Chat sessions (`src/chats.ts`, a file store without Express): every chat is one `.chats/<id>.json` in
+    `process.cwd()`, the project the MCP client opened, so it can be committed and continued by someone else. The id
+    is UTC time plus random hex (no merge conflicts, no clash between twin instances), the file is valid JSON with
+    one entry per line, rewritten on every entry: `ai {markdown, ask, inputs, agent, lang}` (recorded in `send()`
+    from a `chat` message, `ask`/`inputs` only for a form), `user {text}` and `answer {ask, values}` (recorded in
+    `POST /agent`). A session gets its file with the first entry. On start the server continues the session that
+    changed last. The progress line and the roster are kept in memory only (quiet diffs, the agent sends them again
+    after a restart). Every `?chat` stream first gets `{sessions: list}`, `{session: {id, entries}}`, the agents and
+    `{status}`, so F5, a restart and messages sent while no tab was open are covered. `POST /agent` type `session`
+    with `params.id` (or none: a new chat, unless the current one is still empty) switches, broadcasts both
+    messages and emits a `session` event with `{id, title, resumed}`. The title is the first user message, see
+    `chats.title()`.
 - **`src/mcp.ts`** — the MCP adapter: a dependency-free newline-delimited JSON-RPC server on stdio (deliberately
-  not the MCP SDK, see the header comment) with the tools `get_state`, `goto`, `chat`, `set_agent`, `wait_for_event`,
-  `outline`, `read_section` and `write_section`. The last three (logic in `src/sections.ts`, pure functions) let an
+  not the MCP SDK, see the header comment) with the tools `get_state`, `goto`, `chat`, `set_agent`, `read_chat`,
+  `wait_for_event`, `outline`, `read_section` and `write_section`. `read_chat` returns the saved chat (default the
+  last 50 entries, agents by name) so that a fresh agent can pick up a resumed session; ask ids are random
+  (`ask-<hex>`) because a resumed chat can still hold an open form of an earlier process, and a `session` event
+  ends a waiting `chat` form with `{switched: true}`. The last three (logic in `src/sections.ts`, pure functions) let an
   agent work on one section of a long `journal.md` instead of reading the whole file: every ATX heading outside code
   fences and HTML comments is a section and a slide, addressed by heading path in the notation of the teaching-agent
   specs (`## Agents → ### Teaching-Agent`, a part matches a heading that starts with it as a whole word), by slide,
@@ -143,7 +159,13 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   browser voices it uses the `responsiveVoice` object of the player if there is one, else the buttons stay hidden.
   The `chat` tool takes an optional `lang`, which becomes the `lang` attribute of the message; `runs()` splits a
   message into passages by the closest `lang` attribute inside the log (never the one of the page itself), so
-  `<span lang="fr">` in the Markdown gets a French voice.
+  `<span lang="fr">` in the Markdown gets a French voice. The bar above the log holds the session menu
+  (`+ New chat` and the saved chats; the current one counts as new until it has a file) and the agent menu.
+  `showSession()` clears the log and replays the entries: `answered()` locks a form of the history and shows the
+  choice, a form without an answer stays usable. A message whose `POST` fails goes into a `localStorage` outbox and
+  gets a `Send again` button; after a replay it shows up in its chat, or in the current one if its chat was never
+  saved. Both files are served with `Cache-Control: no-cache`, a heuristically cached `chat.js` from an older
+  version would not understand the messages of a newer server.
 
 Things the player does that the bridge works around (verified against the minified bundle of `@liascript/editor`,
 re-check after upgrading it): since 2.1.0 `agent` is in the scheme whitelist of the link parser, so the href

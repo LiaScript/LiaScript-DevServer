@@ -90,15 +90,22 @@
         max-height: calc(100vh - 3rem);
         border-top: 1px solid GrayText;
       }
-      #agents {
+      /* which chat, and which agent of a workflow */
+      #bar {
+        display: flex;
+        gap: 0.5rem;
         padding: 0.4rem 0.75rem;
         border-bottom: 1px solid GrayText;
       }
-      #agents select {
+      #bar select {
+        flex: 1;
+        min-width: 0;
         font: inherit;
-        width: 100%;
         padding: 0.2rem 0.3rem;
         border-radius: 6px;
+      }
+      #bar select[hidden] {
+        display: none;
       }
       #log {
         flex: 1;
@@ -126,6 +133,11 @@
       }
       .failed {
         outline: 2px solid red;
+      }
+      .resend {
+        margin: 0;
+        padding: 0.1rem 0.5rem;
+        font: inherit;
       }
       .ai > div > :first-child {
         margin-top: 0;
@@ -256,8 +268,9 @@
       <summary id="who">Chat</summary>
       <div id="grip" title="Resize" aria-hidden="true"></div>
       <div id="panel">
-        <div id="agents" hidden>
-          <select id="pick" aria-label="Agent"></select>
+        <div id="bar">
+          <select id="sessions" aria-label="Chat"></select>
+          <select id="pick" aria-label="Agent" hidden></select>
         </div>
         <div id="log" role="log" aria-live="polite"></div>
         <div id="status" role="status" hidden></div>
