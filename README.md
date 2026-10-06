@@ -297,6 +297,7 @@ The agent gets these tools:
 | `get_state`      | the open course, the slide (1-based, like `#3` in the URL), its title, the text you have selected, and whether the browser can read aloud |
 | `goto`           | show a `slide`, the slide of a source `line`, or another course `file`; opens the browser if it is not open    |
 | `chat`           | write into the chat on top of the course, optionally with buttons, radio buttons and checkboxes for you to answer |
+| `read_chat`      | read the saved chat, so that an agent can continue a conversation it did not start                               |
 | `wait_for_event` | fallback for agents that cannot be notified, see below                                                         |
 
 #### Reading aloud
@@ -390,6 +391,14 @@ you type goes to the agent, and its answers are rendered as Markdown, including
 ` ```mermaid ` diagrams. While the agent works on an answer, a line below the
 messages tells what it is doing. Markdown and diagram rendering are loaded from
 jsDelivr; without a connection the chat falls back to plain text.
+
+Every chat is saved as a file in `.chats/` of the folder the agent works in, one
+file per conversation, together with your answers to its forms. A reload of the
+page, a restart of the agent or the server continue the last chat; the menu at
+the top of the chat starts a new one or reopens an older one, and the agent is
+told which. Commit `.chats/` so that others can continue your conversations, or
+add it to `.gitignore` to keep them to yourself. A message that does not reach
+the server, e.g. while it restarts, is marked and can be sent again.
 
 #### Security
 
