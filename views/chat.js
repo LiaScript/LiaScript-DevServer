@@ -18,8 +18,97 @@ function post(msg) {
   })
 }
 
-// agent: {name, emoji} of the agent that wrote it, if the AI declared one,
-// t: the time it was saved, for a message of the history
+// ---------------------------------------------------------------- language
+
+// The chat speaks the language of the course, which the player puts on its
+// document; a text without a translation stays English. The English text is
+// the key, so the progress lines of the server translate as well.
+var TEXTS = {
+  de: {
+    'LiaScript course': 'LiaScript-Kurs',
+    Resize: 'Größe ändern',
+    Agent: 'Assistent',
+    'Message to the AI': 'Nachricht an die KI',
+    'Ask the AI about this course …': 'Frag die KI zu diesem Kurs …',
+    Send: 'Senden',
+    'Send answer': 'Antwort senden',
+    '+ New chat': '+ Neuer Chat',
+    'Send again': 'Erneut senden',
+    'not delivered': 'nicht zugestellt',
+    'No longer open': 'Nicht mehr offen',
+    'Read aloud': 'Vorlesen',
+    'Read this message aloud': 'Diese Nachricht vorlesen',
+    Stop: 'Stopp',
+    'Stop reading': 'Vorlesen beenden',
+    'Cannot read aloud': 'Kann nicht vorlesen',
+    'This browser cannot read aloud, it has no speech voices. Chrome and Edge bring their own, Firefox on Linux needs speech-dispatcher with a voice. The assistant can help to set it up.':
+      'Dieser Browser kann nicht vorlesen, ihm fehlen die Stimmen. Chrome und Edge bringen eigene mit, Firefox unter Linux braucht speech-dispatcher mit einer Stimme. Der Assistent hilft beim Einrichten.',
+    'Waiting for the assistant…': 'Wartet auf den Assistenten …',
+    'Thinking…': 'Denkt nach …',
+    'The assistant has not reacted yet. Your message is saved and waits for it.':
+      'Der Assistent hat noch nicht reagiert. Deine Nachricht ist gespeichert und wartet auf ihn.',
+    'No sign of the assistant for a minute. It may still be working, or wait for a permission on the computer.':
+      'Seit einer Minute kein Lebenszeichen vom Assistenten. Vielleicht arbeitet er noch, oder er wartet am Rechner auf eine Freigabe.',
+  },
+}
+var lang = ''
+
+function t(text) {
+  var table = TEXTS[lang.slice(0, 2).toLowerCase()]
+  return (table && table[text]) || text
+}
+
+// sets the text, or with attr an attribute, and keeps the English one for a
+// change of the language
+function tr(el, text, attr) {
+  el.setAttribute(attr ? 'data-t-' + attr : 'data-t', text)
+  if (attr) el.setAttribute(attr, t(text))
+  else el.textContent = t(text)
+  return el
+}
+
+function clock(time) {
+  var options = { hour: '2-digit', minute: '2-digit' }
+  try {
+    return new Date(time).toLocaleTimeString(lang || [], options)
+  } catch (e) {
+    // not a language tag the browser knows
+    return new Date(time).toLocaleTimeString([], options)
+  }
+}
+
+function localize() {
+  var now = language()
+  if (now == lang) return
+  lang = now
+  document.documentElement.lang = lang
+  document.querySelectorAll('[data-t]').forEach(function (el) {
+    el.textContent = t(el.getAttribute('data-t'))
+  })
+  ;['title', 'placeholder', 'aria-label'].forEach(function (attr) {
+    document.querySelectorAll('[data-t-' + attr + ']').forEach(function (el) {
+      el.setAttribute(attr, t(el.getAttribute('data-t-' + attr)))
+    })
+  })
+  document.querySelectorAll('time').forEach(function (el) {
+    el.textContent = clock(el.dateTime)
+  })
+  showSessions(sessionList)
+}
+
+// the player sets its language once the course is parsed, again after a reload
+course.addEventListener('load', function () {
+  localize()
+  try {
+    new MutationObserver(localize).observe(course.contentDocument.documentElement, {
+      attributes: true,
+      attributeFilter: ['lang'],
+    })
+  } catch (e) {}
+})
+
+// agent: {name, emoji, label} of the agent that wrote it, if the AI declared
+// one, t: the time it was saved, for a message of the history
 function add(who, content, extra, agent, t) {
   var msg = document.createElement('div')
   msg.className = 'msg ' + who
@@ -28,13 +117,13 @@ function add(who, content, extra, agent, t) {
 
   var stamp = document.createElement('span')
   stamp.className = 'stamp'
-  stamp.textContent = (t ? new Date(t) : new Date()).toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+  var time = document.createElement('time')
+  time.dateTime = (t ? new Date(t) : new Date()).toISOString()
+  time.textContent = clock(time.dateTime)
+  stamp.append(time)
   if (agent) {
     stamp.prepend(agent.emoji + ' ')
-    stamp.title = agent.name
+    stamp.title = agent.label || agent.name
   }
   var foot = document.createElement('div')
   foot.className = 'foot'
@@ -56,13 +145,13 @@ var current = ''
 function showAgents(agents) {
   var now = agents.current
   current = now ? now.name : ''
-  who.textContent = now ? now.emoji + ' ' + now.name : 'Chat'
+  who.textContent = now ? now.emoji + ' ' + (now.label || now.name) : 'Chat'
 
   pick.textContent = ''
   ;(agents.list || []).forEach(function (agent) {
     var option = document.createElement('option')
     option.value = agent.name
-    option.textContent = agent.emoji + ' ' + agent.name
+    option.textContent = agent.emoji + ' ' + (agent.label || agent.name)
     pick.append(option)
   })
   pick.value = current
@@ -87,28 +176,29 @@ pick.addEventListener('change', function () {
 var sessions = document.getElementById('sessions')
 var chatId = '' // the session in the log
 var saved = [] // the ids of all sessions with a file
+var sessionList = [] // for a change of the language
 
 function showSessions(list) {
+  sessionList = list
   saved = list.map(function (session) {
     return session.id
   })
   sessions.textContent = ''
   var fresh = document.createElement('option')
   fresh.value = ''
-  fresh.textContent = '+ New chat'
+  tr(fresh, '+ New chat')
   sessions.append(fresh)
   list.forEach(function (session) {
     var option = document.createElement('option')
     option.value = session.id
-    option.textContent =
-      session.title +
-      ' \u00B7 ' +
-      new Date(session.updated).toLocaleString([], {
-        day: '2-digit',
-        month: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-      })
+    var date = new Date(session.updated)
+    var options = { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }
+    try {
+      date = date.toLocaleString(lang || [], options)
+    } catch (e) {
+      date = date.toLocaleString([], options)
+    }
+    option.textContent = session.title + ' \u00B7 ' + date
     sessions.append(option)
   })
   selectSession()
@@ -135,26 +225,7 @@ function showSession(session) {
   stop()
   log.textContent = ''
 
-  session.entries.forEach(function (entry) {
-    if (entry.type == 'ai') {
-      showAI(
-        {
-          id: entry.ask,
-          markdown: entry.markdown,
-          inputs: entry.inputs,
-          agent: entry.agent,
-          lang: entry.lang,
-        },
-        entry.t,
-      )
-    } else if (entry.type == 'user') {
-      add('me', entry.text, null, null, entry.t)
-    } else if (entry.type == 'answer') {
-      log.querySelectorAll('form[data-ask]').forEach(function (el) {
-        if (el.dataset.ask == entry.ask) answered(el, entry.values)
-      })
-    }
-  })
+  session.entries.forEach(showEntry)
   log.querySelectorAll('form[data-ask]').forEach(function (el) {
     if (el.dataset.ask != session.open) closed(el)
   })
@@ -168,6 +239,44 @@ function showSession(session) {
     failed(add('me', unsent.text, null, null, unsent.t), unsent)
   })
   outbox(list)
+}
+
+// one entry of the saved chat, from the history or as it happens
+function showEntry(entry) {
+  if (entry.type == 'ai') {
+    showAI(
+      {
+        id: entry.ask,
+        markdown: entry.markdown,
+        inputs: entry.inputs,
+        agent: entry.agent,
+        lang: entry.lang,
+      },
+      entry.t,
+    )
+  } else if (entry.type == 'user') {
+    add('me', entry.text, null, null, entry.t)
+  } else if (entry.type == 'answer') {
+    log.querySelectorAll('form[data-ask]').forEach(function (el) {
+      if (el.dataset.ask == entry.ask) answered(el, entry.values)
+    })
+    // what the user chose, so that it is clear that it arrived
+    add('me act', '✓ ' + choice(entry.values), null, null, entry.t)
+  } else if (entry.type == 'command') {
+    // a click on an agent: link, in the course or in the chat
+    add('me act', '▶ ' + entry.label, null, null, entry.t)
+  }
+}
+
+function choice(values) {
+  return (
+    Object.keys(values)
+      .map(function (key) {
+        return [].concat(values[key]).join(', ')
+      })
+      .filter(Boolean)
+      .join(' · ') || '–'
+  )
 }
 
 // --------------------------------------------------------------- outbox
@@ -193,7 +302,8 @@ function deliver(msg, unsent) {
         }),
       )
       msg.classList.remove('failed')
-      msg.title = ''
+      msg.removeAttribute('title')
+      msg.removeAttribute('data-t-title')
     })
     .catch(function () {
       failed(msg, unsent)
@@ -211,12 +321,12 @@ function failed(msg, unsent) {
   }
 
   msg.classList.add('failed')
-  msg.title = 'not delivered'
+  tr(msg, 'not delivered', 'title')
   if (msg.querySelector('.resend')) return
   var again = document.createElement('button')
   again.type = 'button'
   again.className = 'resend'
-  again.textContent = 'Send again'
+  tr(again, 'Send again')
   again.addEventListener('click', function () {
     again.remove()
     deliver(msg, unsent)
@@ -371,9 +481,22 @@ function language() {
   }
 }
 
+// Without voices the bar shows a muted speaker, which explains it on a click:
+// the user learns it once and in place, not from the AI in every greeting.
+var mute = document.getElementById('mute')
+var muteInfo = document.getElementById('mute-info')
+var settled = false // voices and responsiveVoice had time to arrive
+
 function canSpeak() {
-  log.classList.toggle('can-speak', voices().length > 0 || !!responsive())
+  var can = voices().length > 0 || !!responsive()
+  log.classList.toggle('can-speak', can)
+  mute.hidden = can || !settled
+  if (can) muteInfo.hidden = true
 }
+
+mute.addEventListener('click', function () {
+  muteInfo.hidden = !muteInfo.hidden
+})
 
 // Chrome loads its voices on the first call and tells when they are there,
 // responsiveVoice arrives with the course
@@ -383,7 +506,10 @@ try {
 } catch (e) {}
 course.addEventListener('load', function () {
   canSpeak()
-  setTimeout(canSpeak, 3000)
+  setTimeout(function () {
+    settled = true
+    canSpeak()
+  }, 3000)
 })
 
 function speaker(content) {
@@ -401,8 +527,8 @@ function speaker(content) {
 
 function idle(button) {
   button.textContent = '\u25B6'
-  button.title = 'Read aloud'
-  button.setAttribute('aria-label', 'Read this message aloud')
+  tr(button, 'Read aloud', 'title')
+  tr(button, 'Read this message aloud', 'aria-label')
 }
 
 // What is read: the text without code, tables, diagrams and forms, in runs of
@@ -480,8 +606,8 @@ function read(button, parts) {
 
   reading = button
   button.textContent = '\u25A0'
-  button.title = 'Stop'
-  button.setAttribute('aria-label', 'Stop reading')
+  tr(button, 'Stop', 'title')
+  tr(button, 'Stop reading', 'aria-label')
 
   var all = voices()
   if (!all.length) {
@@ -567,6 +693,7 @@ log.addEventListener('click', function (e) {
     agent: slash < 0 ? '' : uri.pathname.slice(0, slash),
     cmd: uri.pathname.slice(slash + 1),
     params: params,
+    label: a.textContent.trim(),
   }).catch(function () {
     a.classList.add('failed')
   })
@@ -687,7 +814,7 @@ function form(ask, inputs) {
   // a button of the form submits it together with its own value
   if (needsSubmit && !el.querySelector('button')) {
     var send = document.createElement('button')
-    send.textContent = 'Send'
+    tr(send, 'Send answer')
     el.append(send)
   }
 
@@ -743,14 +870,13 @@ function closed(el) {
   })
   var note = document.createElement('p')
   note.className = 'note'
-  note.textContent = 'No longer open'
-  el.append(note)
+  el.append(tr(note, 'No longer open'))
 }
 
 // what the AI is doing right now, until its next message without one
 function status(text) {
   var line = document.getElementById('status')
-  line.textContent = text || ''
+  tr(line, text || '')
   line.hidden = !text
   if (text) document.getElementById('chat').open = true
 }
@@ -758,7 +884,7 @@ function status(text) {
 // below the progress line when the server has no sign of the AI for a while
 function hint(text) {
   var line = document.getElementById('hint')
-  line.textContent = text
+  tr(line, text)
   line.hidden = !text
 }
 
@@ -779,6 +905,7 @@ new EventSource('/gotoLine?chat').onmessage = function (event) {
   if (data.agents) return showAgents(data.agents)
   if (data.sessions) return showSessions(data.sessions)
   if (data.session) return showSession(data.session)
+  if (data.entry) return showEntry(data.entry)
 
   var chat = data.chat
   if (!chat) return
@@ -798,3 +925,7 @@ function showAI(chat, t) {
   )
   if (typeof chat.lang == 'string') msg.lang = chat.lang
 }
+
+// the fixed texts of the page, in the language of the browser until the
+// course says its own
+localize()

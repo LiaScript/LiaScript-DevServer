@@ -115,8 +115,9 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
     `process.cwd()`, the project the MCP client opened, so it can be committed and continued by someone else. The id
     is UTC time plus random hex (no merge conflicts, no clash between twin instances), the file is valid JSON with
     one entry per line, rewritten on every entry: `ai {markdown, ask, inputs, agent, lang}` (recorded in `send()`
-    from a `chat` message, `ask`/`inputs` only for a form), `user {text}` and `answer {ask, values}` (recorded in
-    `POST /agent`). A session gets its file with the first entry. On start the server continues the session that
+    from a `chat` message, `ask`/`inputs` only for a form), `user {text}`, `answer {ask, values}` and `command {agent, cmd, label}` (recorded in
+    `POST /agent`, a command only with the link text as `label`, which `agentScript` and `chat.js` send along).
+    Answers and commands also go to every shell as `{entry}`, which shows them as a compact bubble of the user. A session gets its file with the first entry. On start the server continues the session that
     changed last. The progress line and the roster are kept in memory only (quiet diffs, the agent sends them again
     after a restart). Every `?chat` stream first gets `{sessions: list}`, `{session: {id, entries}}`, the agents and
     `{status}`, so F5, a restart and messages sent while no tab was open are covered. `POST /agent` type `session`
@@ -138,7 +139,8 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   by line (from grep), or by default the slide the user looks at. `write_section` replaces only with the `hash` that
   `read_section` returned, so an edit the user made in between is never overwritten; `append` needs none. `courseFile()`
   is the path check they share with `goto`. `set_agent` declares the roster and the current agent and opens no browser; `chat.agent` signs one message as a
-  roster agent and makes it current; every `chat` payload carries `agent: {name, emoji}`. Every
+  roster agent and makes it current; every `chat` payload carries `agent: {name, emoji, label}`, `label` being what the user reads
+  instead of the name. Every
   `'event'` on the bus is also pushed as `notifications/claude/channel`, which Claude Code turns into a
   `<channel>` tag in the running session (research preview, needs
   `claude --dangerously-load-development-channels server:<name>`). It must never negotiate protocol revision
@@ -168,7 +170,12 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   screen and `localStorage` remembers them. Every message has a read-aloud button (`speaker()` in `chat.js`):
   `speechSynthesis` with a voice for the language the player puts on its `<html lang>`, split into pieces of at
   most 180 characters because Chrome drops an utterance of its online voices after about 15 seconds; without
-  browser voices it uses the `responsiveVoice` object of the player if there is one, else the buttons stay hidden.
+  browser voices it uses the `responsiveVoice` object of the player if there is one, else the buttons stay hidden
+  and a muted speaker in the bar explains why on a click (so the agent need not say it in every greeting).
+  The chat speaks the language of the course (`localize()`, re-run when the player changes its `<html lang>`):
+  `TEXTS` maps English texts to translations (only `de` so far), `tr()` sets a text and keeps the English key in
+  `data-t`/`data-t-<attr>`, so the progress lines of the server translate as well; times are `<time>` elements
+  formatted in that language.
   The `chat` tool takes an optional `lang`, which becomes the `lang` attribute of the message; `runs()` splits a
   message into passages by the closest `lang` attribute inside the log (never the one of the page itself), so
   `<span lang="fr">` in the Markdown gets a French voice. The bar above the log holds the session menu

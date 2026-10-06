@@ -418,6 +418,8 @@ async function main() {
   const immediate = await tool('chat', { markdown: 'pick', inputs, wait: false })
   assert.strictEqual(immediate.sent, true)
   await post({ type: 'answer', params: { ask: immediate.ask, level: 'easy', topics: ['a', 'c'] } })
+  await sleep(100)
+  assert.ok(stream.includes('"type":"answer","ask":"' + immediate.ask + '","values":{"level":"easy","topics":["a","c"]}}'), 'the shell shows the choice: ' + stream)
   const answerEvent = await tool('wait_for_event', { timeout_s: 0 })
   assert.strictEqual(answerEvent.type, 'answer')
   assert.strictEqual(answerEvent.params.ask, immediate.ask)
@@ -469,6 +471,17 @@ async function main() {
   assert.ok(stream.endsWith('data: {"status":"Waiting for the assistant…"}\n\n'), 'waiting: ' + stream)
   await tool('wait_for_event', {}) // drain the fallback queue
   assert.ok(stream.endsWith('data: {"status":"Thinking…"}\n\n'), 'a tool call is a sign of the agent: ' + stream)
+
+  // a click on a link shows in the chat as what the user said, by its text
+  stream = ''
+  await post({ ...command, label: '  Explain\n it ' })
+  await sleep(100)
+  assert.ok(
+    /"entry":\{"t":"[^"]+","type":"command","agent":"tutor","cmd":"explain","label":"Explain it"\}/.test(stream),
+    'the shell shows the click: ' + stream,
+  )
+  notifications.pop()
+  await tool('wait_for_event', {}) // drain the fallback queue
 
   // cancelled: no answer to the call, a later click arrives as an event
   const cancelledId = 9000
@@ -539,6 +552,15 @@ async function main() {
   await sleep(100)
   assert.deepStrictEqual(notifications.pop().params.meta, { type: 'chat', agent: 'examiner' })
   for (let i = 0; i < 4; i++) await tool('wait_for_event', {}) // drain the fallback queue
+
+  // a label is what the user reads instead of the name
+  assert.ok((await tool('set_agent', { name: 'examiner', label: 'x'.repeat(41) })).isError, 'label is short')
+  assert.ok((await tool('set_agent', { name: 'nobody', label: 'Niemand' })).isError, 'a label alone declares no agent')
+  const labelled = await tool('set_agent', { name: 'examiner', label: 'Prüfung' })
+  assert.deepStrictEqual(labelled.agents[1], { ...examiner, label: 'Prüfung' }, 'a label alone keeps the emoji')
+  assert.ok(stream.includes('"current":{"name":"examiner","emoji":"📝","label":"Prüfung"}'), 'the shell learns it')
+  const declared = await tool('set_agent', { name: 'examiner', agents: [{ ...tutor, label: 'Unterricht' }, examiner] })
+  assert.deepStrictEqual(declared.agents, [{ ...tutor, label: 'Unterricht' }, examiner])
 
   // --- event stream for agents that watch a command (Claude Code's Monitor)
   state = await tool('get_state', {})
