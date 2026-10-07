@@ -41,6 +41,8 @@ var TEXTS = {
     Stop: 'Stopp',
     'Stop reading': 'Vorlesen beenden',
     'Cannot read aloud': 'Kann nicht vorlesen',
+    'Dock at the side': 'Am Rand andocken',
+    'Float over the course': 'Über dem Kurs schweben lassen',
     'This browser cannot read aloud, it has no speech voices. Chrome and Edge bring their own, Firefox on Linux needs speech-dispatcher with a voice. The assistant can help to set it up.':
       'Dieser Browser kann nicht vorlesen, ihm fehlen die Stimmen. Chrome und Edge bringen eigene mit, Firefox unter Linux braucht speech-dispatcher mit einer Stimme. Der Assistent hilft beim Einrichten.',
     'Waiting for the assistant…': 'Wartet auf den Assistenten …',
@@ -346,8 +348,47 @@ function px(value) {
   return Math.round(value) + 'px'
 }
 
+// Docked, the chat is a column at the right edge and the course gets the
+// rest, the grip on its left edge moves the border between them. Floating,
+// it is a window over the course. A narrow screen has no room for a column.
+var WIDE = 768
+var REM = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16
+// the first visit docks where there is room, then the choice of the user
+var dock = { on: innerWidth >= WIDE, width: 26 * REM }
+var dockButton = document.getElementById('dock')
+
+function docked() {
+  return document.body.classList.contains('docked')
+}
+
+// a column of at least 16rem next to a course of at least 20rem
+function dockWidth(width) {
+  return Math.max(16 * REM, Math.min(width, innerWidth - 20 * REM))
+}
+
+function applyDock() {
+  var room = innerWidth >= WIDE
+  dockButton.hidden = !room
+  dockButton.setAttribute('aria-pressed', String(dock.on))
+  tr(dockButton, dock.on ? 'Float over the course' : 'Dock at the side', 'title')
+  tr(dockButton, dock.on ? 'Float over the course' : 'Dock at the side', 'aria-label')
+  // closed, the button floats and the course has the whole width
+  document.body.classList.toggle('docked', dock.on && room && box.open)
+  if (!docked()) return clamp()
+  document.body.style.setProperty('--dock', px(dockWidth(dock.width)))
+  box.style.setProperty('--head', px(who.offsetHeight))
+}
+
+dockButton.addEventListener('click', function () {
+  dock.on = !dock.on
+  applyDock()
+  save()
+})
+
 // keeps the whole chat, open or not, on the screen
 function clamp() {
+  // the CSS holds a docked one in place, its floating place stays as it was
+  if (docked()) return
   var rect = box.getBoundingClientRect()
   var right = parseFloat(getComputedStyle(box).right)
   var bottom = parseFloat(getComputedStyle(box).bottom)
@@ -364,6 +405,8 @@ function save() {
         bottom: box.style.bottom,
         width: panel.style.width,
         height: panel.style.height,
+        dock: dock.on,
+        dockWidth: dock.width,
       }),
     )
   } catch (e) {}
@@ -375,10 +418,12 @@ try {
   if (layout.bottom) box.style.bottom = layout.bottom
   if (layout.width) panel.style.width = layout.width
   if (layout.height) panel.style.height = layout.height
+  if (typeof layout.dock == 'boolean') dock.on = layout.dock
+  if (layout.dockWidth > 0) dock.width = layout.dockWidth
 } catch (e) {}
-clamp()
-addEventListener('resize', clamp)
-box.addEventListener('toggle', clamp)
+applyDock()
+addEventListener('resize', applyDock)
+box.addEventListener('toggle', applyDock)
 
 function swallow(e) {
   e.preventDefault()
@@ -387,7 +432,7 @@ function swallow(e) {
 // pointer capture keeps the moves coming while the pointer is over the iframe
 function drag(handle, move) {
   handle.addEventListener('pointerdown', function (e) {
-    if (e.button != 0) return
+    if (e.button != 0 || (move.off && move.off())) return
     var x = e.clientX
     var y = e.clientY
     var started = false
@@ -425,6 +470,8 @@ function drag(handle, move) {
 }
 
 drag(who, {
+  // a docked chat stays where it is, the button only opens and closes it
+  off: docked,
   start: function () {
     var style = getComputedStyle(box)
     return { right: parseFloat(style.right), bottom: parseFloat(style.bottom) }
@@ -438,9 +485,14 @@ drag(who, {
 
 drag(document.getElementById('grip'), {
   start: function () {
-    return { width: panel.offsetWidth, height: panel.offsetHeight }
+    return { width: panel.offsetWidth, height: panel.offsetHeight, dock: box.offsetWidth }
   },
   to: function (start, dx, dy) {
+    // docked: the border between course and chat
+    if (docked()) {
+      dock.width = dockWidth(start.dock - dx)
+      return applyDock()
+    }
     // not past the edges of the screen, the min size comes from the CSS
     var rect = box.getBoundingClientRect()
     var chrome = rect.height - panel.offsetHeight

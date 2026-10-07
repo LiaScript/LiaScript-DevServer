@@ -165,9 +165,13 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   same-origin iframe with the chat on top, so a live reload only reloads the iframe. The script is a separate file
   because the page's CSP allows no inline scripts. The button shows emoji and name of the current agent, a menu
   above the log appears with two or more agents, and every message ends in a footer with the read-aloud button and
-  `emoji HH:MM` (arrival time). The chat stays anchored bottom-right: the button moves it (pointer capture, a drag
-  swallows the click that follows), the grip in the top-left corner resizes `#panel`; `clamp()` keeps both on
-  screen and `localStorage` remembers them. Every message has a read-aloud button (`speaker()` in `chat.js`):
+  `emoji HH:MM` (arrival time). The chat is docked or floats, the button `#dock` in the bar switches (`applyDock()`, first
+  visit: docked if the window is at least `WIDE` = 768 px, below that it always floats). Docked (`body.docked`,
+  only while open) it is a column at the right edge of width `--dock`, the course iframe ends left of it, and
+  the grip on its left edge moves the border (16rem chat to 20rem course at least, `dockWidth()`). Floating it
+  stays anchored bottom-right: the button moves it (pointer capture, a drag swallows the click that follows), the
+  grip in the top-left corner resizes `#panel`; `clamp()` keeps both on screen. `localStorage` remembers mode,
+  width, place and size. Every message has a read-aloud button (`speaker()` in `chat.js`):
   `speechSynthesis` with a voice for the language the player puts on its `<html lang>`, split into pieces of at
   most 180 characters because Chrome drops an utterance of its online voices after about 15 seconds; without
   browser voices it uses the `responsiveVoice` object of the player if there is one, else the buttons stay hidden
