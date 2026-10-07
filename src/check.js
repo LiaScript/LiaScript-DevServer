@@ -371,6 +371,9 @@ async function main() {
   const script = await request('GET', '/liascript/chat.js', {})
   assert.strictEqual(script.status, 200)
   assert.strictEqual(script.headers['cache-control'], 'no-cache', 'no stale chat.js after an update')
+  const robots = await request('GET', '/liascript/avatar.js', {})
+  assert.strictEqual(robots.status, 200, 'the shell gets the robots of the agents')
+  assert.strictEqual(robots.headers['cache-control'], 'no-cache')
 
   // a fake chat shell. Never call chat without one: it would open a browser.
   stream = ''

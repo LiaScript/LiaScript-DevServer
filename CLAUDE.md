@@ -161,11 +161,29 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   (`ttsHint()` in `lib.ts`). `--responsiveVoice` without a key injects `key=true`, which the service rejects.
   Automation tools start Chrome with `--disable-component-extensions-with-background-pages`, which removes its
   online voices.
-- **`views/chat.html` + `views/chat.js`** — the chat shell served at `/liascript/chat.html`: the player in a
-  same-origin iframe with the chat on top, so a live reload only reloads the iframe. The script is a separate file
-  because the page's CSP allows no inline scripts. The button shows emoji and name of the current agent, a menu
-  above the log appears with two or more agents, and every message ends in a footer with the read-aloud button and
-  `emoji HH:MM` (arrival time). The chat is docked or floats, the button `#dock` in the bar switches (`applyDock()`, first
+- **`views/chat.html` + `views/chat.js` + `views/avatar.js`** — the chat shell served at `/liascript/chat.html`: the player in a
+  same-origin iframe with the chat on top, so a live reload only reloads the iframe. The scripts are separate files
+  because the page's CSP allows no inline scripts. Every agent is a pixel robot (`avatar.js`, inline SVG, no
+  library): the 12 x 12 LED matrix of DiceBear's CC0 style Pixelbot, its eyes and mouths copied as cell numbers.
+  `Avatar.role()` takes the role from the name (`teaching`, `artist`, `learner`, `development`, `reviewer`,
+  `translator`, `research`, or a word of the name in `ALIASES`), else from the emoji (`EMOJI`), else LED colour,
+  case and eyes come from a hash of the name; a role adds its symbol in the three rows above the eyes. The
+  button shows robot and name of the current agent, a row of robots in the bar (`#agents`) appears with two or
+  more agents, and every message ends in a footer with the read-aloud button and `robot HH:MM` (arrival time).
+  The stage (`#stage`) below the log shows the robot of the current agent next to the progress line: a running
+  light in its bottom row while a progress line shows, a pulse while the newest form is open (`stageState()`).
+  While a message is read aloud the stage shows the robot of its agent and moves its mouth (`data-mouth`): with
+  the words where the voice fires `boundary` events, else in a beat estimated from the text (`Avatar.babble`,
+  also for `responsiveVoice`). Every robot has a voice profile (`Avatar.voice()`: gender, pitch, rate, spread so
+  that each stands out): `voiceFor()` takes a voice of that gender where the browser has one (the gender comes
+  from the voice name, `MALE`/`FEMALE` in `chat.js`; the gender counts more than the region, a British male
+  voice for `en-US` rather than an American female one made lower), else it shifts the one it has (male: pitch × 0.75, rate ×
+  0.94). Chrome on Linux has a single German voice, so there the profiles differ by pitch and rate alone.
+  A click on a message of the AI reads it too (not on links, forms or a selection).
+  The box `Read everything aloud` (`localStorage`) queues new messages and the progress lines of the agent; of
+  those of the server only `Thinking…`, as `One moment, I am thinking.` once per request. A waiting progress line
+  is dropped when something newer comes, nothing is read during the replay of the first 1.5 s of a stream, and
+  Chrome speaks only after a click or key on the page (`navigator.userActivation`). The chat is docked or floats, the button `#dock` in the bar switches (`applyDock()`, first
   visit: docked if the window is at least `WIDE` = 768 px, below that it always floats). Docked (`body.docked`,
   only while open) it is a column at the right edge of width `--dock`, the course iframe ends left of it, and
   the grip on its left edge moves the border (16rem chat to 20rem course at least, `dockWidth()`). Floating it
@@ -183,11 +201,11 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   The `chat` tool takes an optional `lang`, which becomes the `lang` attribute of the message; `runs()` splits a
   message into passages by the closest `lang` attribute inside the log (never the one of the page itself), so
   `<span lang="fr">` in the Markdown gets a French voice. The bar above the log holds the session menu
-  (`+ New chat` and the saved chats; the current one counts as new until it has a file) and the agent menu.
+  (`+ New chat` and the saved chats; the current one counts as new until it has a file) and the robots of the agents.
   `showSession()` clears the log and replays the entries: `answered()` locks a form of the history and shows the
   choice, `closed()` locks every other form but `session.open` with a note. A message whose `POST` fails goes into a `localStorage` outbox and
   gets a `Send again` button; after a replay it shows up in its chat, or in the current one if its chat was never
-  saved. Both files are served with `Cache-Control: no-cache`, a heuristically cached `chat.js` from an older
+  saved. All three files are served with `Cache-Control: no-cache`, a heuristically cached `chat.js` from an older
   version would not understand the messages of a newer server.
 
 Things the player does that the bridge works around (verified against the minified bundle of `@liascript/editor`,

@@ -134,20 +134,48 @@
       /* which chat, and which agent of a workflow */
       #bar {
         display: flex;
+        flex-wrap: wrap;
+        align-items: center;
         gap: 0.5rem;
         padding: 0.4rem 0.75rem;
         border-bottom: 1px solid GrayText;
       }
       #bar select {
         flex: 1;
-        min-width: 0;
+        /* the robots and the box wrap to the next line before it gets narrower */
+        min-width: 9rem;
         font: inherit;
         padding: 0.2rem 0.3rem;
         border-radius: 6px;
       }
-      #bar select[hidden],
-      #bar button[hidden] {
-        display: none;
+      #bar [hidden] {
+        display: none !important;
+      }
+      /* the agents of a workflow, a click hands the chat over */
+      #agents {
+        display: flex;
+        gap: 0.25rem;
+      }
+      #agents button {
+        padding: 2px;
+        border: 2px solid transparent;
+        border-radius: 7px;
+        background: none;
+        line-height: 0;
+      }
+      #agents button[aria-checked='true'] {
+        border-color: Highlight;
+      }
+      #agents.failed {
+        outline: 2px solid red;
+      }
+      #autoread-box {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        font-size: 0.85em;
+        white-space: nowrap;
+        cursor: pointer;
       }
       #mute,
       #dock {
@@ -198,6 +226,13 @@
       .ai {
         align-self: flex-start;
         background: color-mix(in srgb, CanvasText 8%, Canvas);
+      }
+      /* a click on a message reads it aloud */
+      #log.can-speak .ai {
+        cursor: pointer;
+      }
+      .msg.reading {
+        outline: 2px solid Highlight;
       }
       .failed {
         outline: 2px solid red;
@@ -280,8 +315,99 @@
       }
       .stamp {
         margin-left: auto;
-        opacity: 0.6;
+        opacity: 0.75;
         white-space: nowrap;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+      }
+      /* the pixel robots of avatar.js: the mouth and the bottom row switch
+         with data-mouth and data-state */
+      .bot {
+        flex: none;
+        border-radius: 22%;
+        vertical-align: middle;
+      }
+      .bot .m,
+      .bot .tick,
+      .bot .wait {
+        visibility: hidden;
+      }
+      .bot:not([data-mouth]) .m0,
+      .bot[data-mouth='0'] .m0,
+      .bot[data-mouth='1'] .m1,
+      .bot[data-mouth='2'] .m2,
+      .bot[data-state='thinking'] .tick,
+      .bot[data-state='waiting'] .wait {
+        visibility: visible;
+      }
+      @media (prefers-reduced-motion: no-preference) {
+        .bot .eyes {
+          transform-box: fill-box;
+          transform-origin: center;
+          animation: bot-blink 5s linear infinite;
+        }
+        .bot .twinkle {
+          animation: bot-twinkle 1.6s ease-in-out infinite;
+        }
+        .bot .beacon {
+          animation: bot-beacon 1.2s steps(2) infinite;
+        }
+        .bot .tick {
+          opacity: 0;
+          animation: bot-tick 0.96s linear infinite;
+        }
+        .bot .wait {
+          animation: bot-wait 2.4s ease-in-out infinite;
+        }
+      }
+      @keyframes bot-blink {
+        0%, 91%, 97%, 100% {
+          transform: scaleY(1);
+        }
+        94% {
+          transform: scaleY(0.12);
+        }
+      }
+      @keyframes bot-twinkle {
+        50% {
+          opacity: 0.15;
+        }
+      }
+      @keyframes bot-beacon {
+        50% {
+          opacity: 0.1;
+        }
+      }
+      @keyframes bot-tick {
+        10%, 25% {
+          opacity: 1;
+        }
+      }
+      @keyframes bot-wait {
+        0%, 100% {
+          opacity: 0.2;
+        }
+        50% {
+          opacity: 1;
+        }
+      }
+      #who {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+      /* the robot of the agent below the log, it reads the messages aloud */
+      #stage {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        padding: 0.4rem 0.75rem;
+        border-top: 1px solid color-mix(in srgb, GrayText 40%, transparent);
+      }
+      #stage .lines {
+        flex: 1;
+        min-width: 0;
       }
       /* read aloud: only in a browser that has a voice */
       .speak {
@@ -307,31 +433,14 @@
         display: none;
       }
       #status {
-        padding: 0 0.75rem 0.5rem;
         font-size: 0.9em;
         color: GrayText;
       }
-      #status::before {
-        content: '✻ ';
-        display: inline-block;
-        animation: working 1.2s ease-in-out infinite;
-      }
       #hint {
-        margin: 0 0.75rem 0.5rem;
+        margin-top: 0.3rem;
         padding-left: 0.5rem;
         border-left: 3px solid GrayText;
         font-size: 0.85em;
-      }
-      @keyframes working {
-        50% {
-          opacity: 0.3;
-          transform: rotate(45deg);
-        }
-      }
-      @media (prefers-reduced-motion: reduce) {
-        #status::before {
-          animation: none;
-        }
       }
       #say {
         display: flex;
@@ -357,7 +466,11 @@
       <div id="panel">
         <div id="bar">
           <select id="sessions" aria-label="Chat"></select>
-          <select id="pick" aria-label="Agent" data-t-aria-label="Agent" hidden></select>
+          <div id="agents" role="radiogroup" aria-label="Agent" data-t-aria-label="Agent" hidden></div>
+          <label id="autoread-box" hidden>
+            <input id="autoread" type="checkbox" />
+            <span data-t="Read everything aloud">Read everything aloud</span>
+          </label>
           <button
             id="mute"
             type="button"
@@ -376,8 +489,13 @@
           hidden
         ></p>
         <div id="log" role="log" aria-live="polite"></div>
-        <div id="status" role="status" hidden></div>
-        <div id="hint" role="status" hidden></div>
+        <div id="stage">
+          <span id="bot"></span>
+          <div class="lines">
+            <div id="status" role="status" hidden></div>
+            <div id="hint" role="status" hidden></div>
+          </div>
+        </div>
         <form id="say">
           <textarea
             name="text"
@@ -408,6 +526,7 @@
       integrity="sha256-8mOwU2ngUPoXXU7LnJNY60JTYC1RApet+zHfSLLxxNU="
       crossorigin="anonymous"
     ></script>
+    <script src="avatar.js"></script>
     <script src="chat.js"></script>
   </body>
 </html>

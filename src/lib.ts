@@ -726,12 +726,13 @@ export async function start(
   )
 
   // the chat shell: the player in an iframe, the chat on top of it, so that
-  // a live reload of the course does not take the chat with it
+  // a live reload of the course does not take the chat with it, and the
+  // pixel robots of the agents
   if (agent) {
     app.get(
-      '/liascript/chat.:ext(html|js)',
+      '/liascript/:file(chat.html|chat.js|avatar.js)',
       function (req: express.Request, res: express.Response) {
-        res.sendFile('chat.' + req.params.ext, {
+        res.sendFile(req.params.file, {
           root: path.resolve(path.join(dirname, 'views')),
           // revalidated on every load: a cached chat.js from an older
           // version does not understand the messages of this one

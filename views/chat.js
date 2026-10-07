@@ -42,6 +42,8 @@ var TEXTS = {
     'Stop reading': 'Vorlesen beenden',
     'Cannot read aloud': 'Kann nicht vorlesen',
     'Dock at the side': 'Am Rand andocken',
+    'Read everything aloud': 'Alles vorlesen',
+    'One moment, I am thinking.': 'Moment, ich denke nach.',
     'Float over the course': 'Über dem Kurs schweben lassen',
     'This browser cannot read aloud, it has no speech voices. Chrome and Edge bring their own, Firefox on Linux needs speech-dispatcher with a voice. The assistant can help to set it up.':
       'Dieser Browser kann nicht vorlesen, ihm fehlen die Stimmen. Chrome und Edge bringen eigene mit, Firefox unter Linux braucht speech-dispatcher mit einer Stimme. Der Assistent hilft beim Einrichten.',
@@ -110,7 +112,8 @@ course.addEventListener('load', function () {
 })
 
 // agent: {name, emoji, label} of the agent that wrote it, if the AI declared
-// one, t: the time it was saved, for a message of the history
+// one, t: the time it was saved, for a message of the history. A message of
+// the AI shows the robot of its agent, the robot on the stage reads it.
 function add(who, content, extra, agent, t) {
   var msg = document.createElement('div')
   msg.className = 'msg ' + who
@@ -123,10 +126,9 @@ function add(who, content, extra, agent, t) {
   time.dateTime = (t ? new Date(t) : new Date()).toISOString()
   time.textContent = clock(time.dateTime)
   stamp.append(time)
-  if (agent) {
-    stamp.prepend(agent.emoji + ' ')
-    stamp.title = agent.label || agent.name
-  }
+  if (who == 'ai') stamp.prepend(Avatar.bot(agent, 16))
+  if (agent) stamp.title = agent.label || agent.name
+  msg.agent = agent
   var foot = document.createElement('div')
   foot.className = 'foot'
   foot.append(speaker(content), stamp)
@@ -139,36 +141,74 @@ function add(who, content, extra, agent, t) {
 
 // ------------------------------------------------------------------ agents
 
-// who the user talks to, on the button and in the menu of a workflow
+// who the user talks to, on the button and in the robots of a workflow
 var who = document.getElementById('who')
-var pick = document.getElementById('pick')
+var team = document.getElementById('agents')
 var current = ''
+var currentAgent // {name, emoji, label} of the current agent, if there is one
 
 function showAgents(agents) {
   var now = agents.current
   current = now ? now.name : ''
-  who.textContent = now ? now.emoji + ' ' + (now.label || now.name) : 'Chat'
+  currentAgent = now
+  who.textContent = ''
+  who.append(Avatar.bot(now, 22), now ? now.label || now.name : 'Chat')
 
-  pick.textContent = ''
+  team.textContent = ''
   ;(agents.list || []).forEach(function (agent) {
-    var option = document.createElement('option')
-    option.value = agent.name
-    option.textContent = agent.emoji + ' ' + (agent.label || agent.name)
-    pick.append(option)
+    var button = document.createElement('button')
+    button.type = 'button'
+    button.setAttribute('role', 'radio')
+    button.setAttribute('aria-checked', String(agent.name == current))
+    button.title = agent.label || agent.name
+    button.append(Avatar.bot(agent, 24))
+    button.addEventListener('click', function () {
+      if (agent.name != current) choose(agent.name)
+    })
+    team.append(button)
   })
-  pick.value = current
-  pick.classList.remove('failed')
-  pick.hidden = pick.options.length < 2
+  team.classList.remove('failed')
+  team.hidden = team.children.length < 2
+  if (!reading) showStage(currentAgent)
 }
 
 // the same as a click on agent:<name>/switch, the server switches and the
-// broadcast that follows updates button and menu
-pick.addEventListener('change', function () {
-  post({ type: 'command', agent: pick.value, cmd: 'switch', params: {} }).catch(function () {
-    pick.value = current
-    pick.classList.add('failed')
+// broadcast that follows updates button and robots
+function choose(name) {
+  post({ type: 'command', agent: name, cmd: 'switch', params: {} }).catch(function () {
+    team.classList.add('failed')
   })
-})
+}
+
+// ------------------------------------------------------------------- stage
+
+// The robot of the agent below the log, next to the progress line. It shows
+// the agent that talks to the user, and while a message is read aloud the
+// agent that wrote it. Its bottom row shows a running light while the agent
+// works, a pulse while a form waits for the user.
+var stageBox = document.getElementById('bot')
+var stageBot
+
+function showStage(agent) {
+  stageBot = Avatar.bot(agent, 56)
+  stageBox.textContent = ''
+  stageBox.append(stageBot)
+  stageState()
+}
+
+function stageState() {
+  if (!stageBot) return
+  var state = !document.getElementById('status').hidden ? 'thinking' : waitingForm() ? 'waiting' : ''
+  if (state) stageBot.setAttribute('data-state', state)
+  else stageBot.removeAttribute('data-state')
+}
+
+// the newest form, if it can still be answered
+function waitingForm() {
+  var forms = log.querySelectorAll('form[data-ask]')
+  var last = forms[forms.length - 1]
+  return !!last && !last.classList.contains('answered') && !last.classList.contains('closed')
+}
 
 // ---------------------------------------------------------------- sessions
 
@@ -224,6 +264,7 @@ sessions.addEventListener('change', function () {
 function showSession(session) {
   chatId = session.id
   selectSession()
+  queue = []
   stop()
   log.textContent = ''
 
@@ -241,6 +282,7 @@ function showSession(session) {
     failed(add('me', unsent.text, null, null, unsent.t), unsent)
   })
   outbox(list)
+  stageState()
 }
 
 // one entry of the saved chat, from the history or as it happens
@@ -506,9 +548,11 @@ drag(document.getElementById('grip'), {
 // ------------------------------------------------------------- read aloud
 
 // Every message has a button that reads it aloud, with a voice of the browser
-// in the language of the course. A browser without voices shows no buttons;
-// with --responsiveVoice the service loaded by the player steps in.
-var reading // the button of the message that is read right now
+// in the language of the course, and so has a click on the message itself. A
+// browser without voices shows no buttons; with --responsiveVoice the service
+// loaded by the player steps in. The robot on the stage moves its mouth.
+var reading // what is read right now: {parts, msg, button, status}
+var queue = [] // what waits for its turn, with the box "Read everything aloud"
 
 function voices() {
   try {
@@ -542,6 +586,7 @@ var settled = false // voices and responsiveVoice had time to arrive
 function canSpeak() {
   var can = voices().length > 0 || !!responsive()
   log.classList.toggle('can-speak', can)
+  document.getElementById('autoread-box').hidden = !can
   mute.hidden = can || !settled
   if (can) muteInfo.hidden = true
 }
@@ -570,9 +615,10 @@ function speaker(content) {
   button.className = 'speak'
   idle(button)
   button.addEventListener('click', function () {
-    var mine = reading == button
+    var mine = reading && reading.button == button
+    queue = []
     stop()
-    if (!mine) read(button, runs(content))
+    if (!mine) read({ parts: runs(content), msg: button.closest('.msg'), button: button })
   })
   return button
 }
@@ -627,76 +673,218 @@ function sentences(text) {
 }
 
 function stop() {
-  var button = reading
+  var item = reading
   reading = undefined
-  if (button) idle(button)
+  if (item && item.button) idle(item.button)
+  if (item && item.msg) item.msg.classList.remove('reading')
   try {
     speechSynthesis.cancel()
   } catch (e) {}
   var service = responsive()
   if (service) service.cancel()
+  if (stageBot) Avatar.quiet([stageBot])
+  if (item) showStage(currentAgent)
 }
 
-// a voice for the language: the same region, else the same language
-function voiceFor(lang, all) {
+// Every robot speaks in a voice of its own (Avatar.voice): a female or male
+// voice of the language where the browser has one, with its own pitch and
+// rate. Without a male voice a female one gets lower and slower, and the
+// other way round. Voices tell their gender only by their name.
+var MALE = /\bmale\b|männlich|stefan|conrad|killian|florian|markus|yannick|hans|klaus|bernd|jonas|felix|daniel|thomas|david|guy|mark|james|george|ryan|eric|christopher|andrew|brian|jorge|diego|paul|luca|jacques|reed|rocko|eddy|fred|ralph|albert|bruce|aaron|arthur|oliver|grandpa/i
+var FEMALE = /female|weiblich|katja|hedda|anna|petra|helena|marlene|vicki|zira|aria|jenny|samantha|karen|moira|tessa|victoria|amelie|sandy|shelley|kathy|nora|ellen|alice|ingrid|grandma|google deutsch|google us english|google français|google italiano|google español/i
+
+function genderOf(name) {
+  if (FEMALE.test(name)) return 'female'
+  if (MALE.test(name)) return 'male'
+  return ''
+}
+
+// {voice, pitch, rate}: a voice of the same region, else of the same
+// language. The gender of the robot counts more than the region: a British
+// man for American English rather than an American woman made lower.
+function voiceFor(lang, all, profile) {
   lang = lang.toLowerCase()
-  return (
-    all.filter(function (v) {
-      return v.lang.toLowerCase() == lang
-    })[0] ||
-    all.filter(function (v) {
-      return v.lang.slice(0, 2).toLowerCase() == lang.slice(0, 2)
-    })[0]
-  )
+  var same = all.filter(function (v) {
+    return v.lang.toLowerCase() == lang
+  })
+  var near = all.filter(function (v) {
+    return v.lang.toLowerCase() != lang && v.lang.slice(0, 2).toLowerCase() == lang.slice(0, 2)
+  })
+  return pickVoice(same.length ? same : near, profile, near)
 }
 
-function read(button, parts) {
-  if (!parts.length) return
+// others: voices to try for the gender before list is changed towards it
+function pickVoice(list, profile, others) {
+  var fitting = gendered(list, profile)
+  if (!fitting.length && others) fitting = gendered(others, profile)
+  if (fitting.length) {
+    return { voice: fitting[profile.pick % fitting.length], pitch: profile.pitch, rate: profile.rate }
+  }
+  // none of that gender: one that says none, and changed towards it
+  var voice =
+    list.filter(function (v) {
+      return !genderOf(v.name)
+    })[0] || list[0]
+  var shift = { pitch: profile.pitch, rate: profile.rate }
+  if (profile.gender == 'male' && (!voice || genderOf(voice.name) != 'male')) {
+    shift = { pitch: profile.pitch * 0.75, rate: profile.rate * 0.94 }
+  } else if (profile.gender == 'female' && voice && genderOf(voice.name) == 'male') {
+    shift = { pitch: profile.pitch * 1.25, rate: profile.rate }
+  }
+  return { voice: voice, pitch: Math.min(2, shift.pitch), rate: shift.rate }
+}
+
+function gendered(list, profile) {
+  return list.filter(function (v) {
+    return profile.gender && genderOf(v.name) == profile.gender
+  })
+}
+
+// item: {parts, msg, button, status}, msg and button for a message
+function read(item) {
+  if (!item.parts.length) return next()
   var done = function () {
-    if (reading == button) stop()
+    if (reading != item) return
+    stop()
+    next()
   }
 
-  reading = button
-  button.textContent = '\u25A0'
-  tr(button, 'Stop', 'title')
-  tr(button, 'Stop reading', 'aria-label')
+  reading = item
+  var button = item.button
+  if (button) {
+    button.textContent = '\u25A0'
+    tr(button, 'Stop', 'title')
+    tr(button, 'Stop reading', 'aria-label')
+  }
+  if (item.msg) item.msg.classList.add('reading')
+  var agent = item.msg ? item.msg.agent : currentAgent
+  showStage(agent)
+  var bots = [stageBot]
+  var parts = item.parts
+  var profile = Avatar.voice(agent)
 
   var all = voices()
   if (!all.length) {
     var service = responsive()
     if (!service) return done()
-    // one voice of the service for the whole message, else its default
+    // one voice of the service for the whole message, else its default; its
+    // names say the gender ("Deutsch Male")
     var short = parts[0].lang.slice(0, 2).toLowerCase()
-    var named = (service.getVoices() || []).filter(function (v) {
-      return (v.lang || v.flag || '').slice(0, 2).toLowerCase() == short
-    })[0]
+    var chosen = pickVoice(
+      (service.getVoices() || []).filter(function (v) {
+        return (v.lang || v.flag || '').slice(0, 2).toLowerCase() == short
+      }),
+      profile,
+    )
+    var named = chosen.voice
     var text = parts
       .map(function (run) {
         return run.text
       })
       .join(' ')
-    return service.speak(text, named ? named.name : undefined, { onend: done, onerror: done })
+    // the service tells no words, the mouth moves in an estimated beat
+    return service.speak(text, named ? named.name : undefined, {
+      pitch: chosen.pitch,
+      rate: chosen.rate,
+      onstart: function () {
+        Avatar.babble(bots, text)
+      },
+      onend: done,
+      onerror: done,
+    })
   }
 
-  var queue = []
+  var utterances = []
   parts.forEach(function (run) {
-    var voice = voiceFor(run.lang, all)
+    var chosen = voiceFor(run.lang, all, profile)
+    var voice = chosen.voice
     sentences(run.text).forEach(function (chunk) {
       var utterance = new SpeechSynthesisUtterance(chunk)
       utterance.lang = voice ? voice.lang : run.lang
       if (voice) utterance.voice = voice
+      utterance.pitch = chosen.pitch
+      utterance.rate = chosen.rate
       // cancel() ends an utterance with an error, which is no reason to reset
       // the button of the message that was started instead
       utterance.onerror = function (e) {
         if (e.error != 'interrupted' && e.error != 'canceled') done()
       }
-      queue.push(utterance)
+      // The mouth follows the words where the voice tells them, Chrome's
+      // online voices do not: then it moves in a beat estimated from the text.
+      var heard = false
+      utterance.onboundary = function (e) {
+        if ((e.name && e.name != 'word') || reading != item) return
+        heard = true
+        Avatar.talk(bots, chunk.slice(e.charIndex).split(/\s/)[0] || chunk)
+      }
+      utterance.onstart = function () {
+        setTimeout(function () {
+          if (!heard && reading == item) Avatar.babble(bots, chunk)
+        }, 450)
+      }
+      utterances.push(utterance)
     })
   })
-  queue[queue.length - 1].onend = done
-  queue.forEach(function (utterance) {
+  utterances[utterances.length - 1].onend = done
+  utterances.forEach(function (utterance) {
     speechSynthesis.speak(utterance)
   })
+}
+
+// the next one in the queue. Chrome speaks only after the user clicked or
+// typed something on the page, e.g. after F5 with the box checked.
+function next() {
+  if (reading || !queue.length) return
+  var ua = navigator.userActivation
+  if (ua && !ua.hasBeenActive) return setTimeout(next, 1000)
+  read(queue.shift())
+}
+
+// a status that still waits is outdated by everything that comes after it
+function enqueue(item) {
+  queue = queue.filter(function (waiting) {
+    return !waiting.status
+  })
+  queue.push(item)
+  next()
+}
+
+// Read everything aloud: new messages, and what the agent says it does. Of
+// the progress lines of the server only Thinking, once for every request.
+var autoread = document.getElementById('autoread')
+var AUTOREAD = 'liascript-chat-autoread'
+var thought = false // "One moment" was said for this request
+var said = '' // the last progress line that was read
+var replay = 0 // until then the stream replays what was, nothing is read
+
+try {
+  autoread.checked = localStorage.getItem(AUTOREAD) == 'on'
+} catch (e) {}
+autoread.addEventListener('change', function () {
+  try {
+    localStorage.setItem(AUTOREAD, autoread.checked ? 'on' : 'off')
+  } catch (e) {}
+  if (!autoread.checked) queue = []
+})
+
+function readNew(msg) {
+  if (!autoread.checked || Date.now() < replay || !log.classList.contains('can-speak')) return
+  enqueue({ parts: runs(msg.firstChild), msg: msg, button: msg.querySelector('.speak') })
+}
+
+function readStatus(text) {
+  // a new request, or the agent is done: the same line may come again
+  if (!text || text == 'Waiting for the assistant…') said = ''
+  if (text == 'Waiting for the assistant…') thought = false
+  if (!autoread.checked || Date.now() < replay || !log.classList.contains('can-speak')) return
+  if (!text || text == 'Waiting for the assistant…' || text == said) return
+  if (text == 'Thinking…') {
+    if (thought) return
+    thought = true
+    text = 'One moment, I am thinking.'
+  }
+  said = text
+  enqueue({ parts: [{ lang: language(), text: t(text) }], status: true })
 }
 
 // a reload of the shell must not leave the browser talking
@@ -722,10 +910,11 @@ say.text.addEventListener('keydown', function (e) {
   }
 })
 
-// agent: links work in the chat like in the course
+// agent: links work in the chat like in the course, a click elsewhere on a
+// message of the AI reads it aloud, unless it selects text or works a form
 log.addEventListener('click', function (e) {
   var a = e.target.closest('a[href^="agent:"]')
-  if (!a) return
+  if (!a) return readClicked(e)
   e.preventDefault()
 
   var uri
@@ -750,6 +939,16 @@ log.addEventListener('click', function (e) {
     a.classList.add('failed')
   })
 })
+
+function readClicked(e) {
+  var msg = e.target.closest('.msg.ai')
+  if (!msg || !log.classList.contains('can-speak')) return
+  if (e.target.closest('a, button, input, label, select, textarea, form, summary')) return
+  var selection = getSelection()
+  if (selection && !selection.isCollapsed) return
+  var button = msg.querySelector('.foot .speak')
+  if (button) button.click()
+}
 
 // ---------------------------------------------------------------- AI -> user
 
@@ -910,6 +1109,7 @@ function answered(el, values) {
   el.querySelectorAll('fieldset, button').forEach(function (x) {
     x.disabled = true
   })
+  stageState()
 }
 
 // replaced by a newer form, withdrawn by the AI or asked before a restart
@@ -923,6 +1123,7 @@ function closed(el) {
   var note = document.createElement('p')
   note.className = 'note'
   el.append(tr(note, 'No longer open'))
+  stageState()
 }
 
 // what the AI is doing right now, until its next message without one
@@ -931,6 +1132,8 @@ function status(text) {
   tr(line, text || '')
   line.hidden = !text
   if (text) document.getElementById('chat').open = true
+  stageState()
+  readStatus(text || '')
 }
 
 // below the progress line when the server has no sign of the AI for a while
@@ -940,7 +1143,12 @@ function hint(text) {
   line.hidden = !text
 }
 
-new EventSource('/gotoLine?chat').onmessage = function (event) {
+var stream = new EventSource('/gotoLine?chat')
+// every (re)connect first replays the chat, the agents and the progress line
+stream.onopen = function () {
+  replay = Date.now() + 1500
+}
+stream.onmessage = function (event) {
   var data
   try {
     data = JSON.parse(event.data)
@@ -962,7 +1170,7 @@ new EventSource('/gotoLine?chat').onmessage = function (event) {
   var chat = data.chat
   if (!chat) return
 
-  showAI(chat)
+  readNew(showAI(chat))
   document.getElementById('chat').open = true
   status(chat.status)
 }
@@ -976,8 +1184,11 @@ function showAI(chat, t) {
     t,
   )
   if (typeof chat.lang == 'string') msg.lang = chat.lang
+  stageState()
+  return msg
 }
 
 // the fixed texts of the page, in the language of the browser until the
 // course says its own
 localize()
+showStage()
