@@ -71,6 +71,47 @@
       #chat[open] > #grip {
         display: block;
       }
+      /* Docked: a column at the right edge, the course gets the rest and the
+         grip becomes the border between them. chat.js sets --dock, the width
+         of the column, and --head, the height of the button. */
+      body.docked #course {
+        width: calc(100% - var(--dock));
+      }
+      body.docked #chat {
+        top: 0;
+        right: 0 !important;
+        bottom: 0 !important;
+        width: var(--dock);
+        box-sizing: border-box;
+        border-width: 0 0 0 1px;
+        border-radius: 0;
+        box-shadow: none;
+      }
+      body.docked #chat > summary {
+        cursor: pointer;
+      }
+      body.docked #panel {
+        width: auto !important;
+        height: calc(100vh - var(--head, 2.5rem)) !important;
+        box-sizing: border-box;
+        min-width: 0;
+        max-width: none;
+        max-height: none;
+      }
+      body.docked #chat > #grip {
+        top: 0;
+        bottom: 0;
+        left: -4px;
+        width: 8px;
+        height: auto;
+        border: 0;
+        border-radius: 0;
+        cursor: ew-resize;
+      }
+      body.docked #grip:hover,
+      body.docked.dragging #grip {
+        background: color-mix(in srgb, Highlight 50%, transparent);
+      }
       /* the course must not swallow the pointer while the chat moves */
       body.dragging #course {
         pointer-events: none;
@@ -108,10 +149,18 @@
       #bar button[hidden] {
         display: none;
       }
-      #mute {
+      #mute,
+      #dock {
         padding: 0 0.4rem;
         border: 0;
         background: none;
+      }
+      #dock {
+        font-size: 1.3em;
+        line-height: 1;
+      }
+      #dock[aria-pressed='true'] {
+        color: Highlight;
       }
       #mute-info {
         margin: 0;
@@ -319,6 +368,7 @@
           >
             🔇
           </button>
+          <button id="dock" type="button" aria-pressed="false" hidden>◨</button>
         </div>
         <p
           id="mute-info"
