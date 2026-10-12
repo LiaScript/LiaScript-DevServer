@@ -106,7 +106,10 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
     name (the agent menu of the chat, or a course link `agent:<name>/switch`) switches at once, before the event
     goes out; an unknown name stays a plain command. Every `chat`, `answer` and `command` (except a switch the
     server handled) sets the progress line to `Waiting for the assistant…` before the event goes out, so the user
-    sees at once that it arrived. It turns into `Thinking…` with the first sign of an agent: `activity()`, which
+    sees at once that it arrived. An `activity` gets `params.help = 'true'` from the server alone (`needsHelp()`: the
+    3rd wrong check of a quiz, `resolved`, the 3rd failed code run; once per task until it is solved) and, if no
+    progress line shows, `Looking at your answer…`; the agent then has to answer or clear the line. Both turn into
+    `Thinking…` with the first sign of an agent: `activity()`, which
     `mcp.ts` calls on every tool call and when it hands an event to a waiting call, and which a watcher of the event
     stream counts as too. While a progress line shows, a timer (`watchQuiet()`) puts a `{hint}` below it: after 30 s
     without any sign since the event (`NO_REACTION`), or after 60 s of silence from an agent that did react
@@ -185,7 +188,7 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   turns them into `<code class="math">`, pandoc's rule keeps `5$ and 10$` text) and Ace's `ext-static_highlight`
   for fences with a language (static HTML, no editor; Ace loads the mode files itself, without SRI).
   The box `Read everything aloud` (`localStorage`) queues new messages and the progress lines of the agent; of
-  those of the server only `Thinking…`, as `One moment, I am thinking.` once per request. A waiting progress line
+  those of the server only `Thinking…` and `Looking at your answer…` (`SPOKEN`), one of them once per request. A waiting progress line
   is dropped when something newer comes, nothing is read during the replay of the first 1.5 s of a stream, and
   Chrome speaks only after a click or key on the page (`navigator.userActivation`). The chat is docked or floats, the button `#dock` in the bar switches (`applyDock()`, first
   visit: docked if the window is at least `WIDE` = 768 px, below that it always floats). Docked (`body.docked`,

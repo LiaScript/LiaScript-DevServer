@@ -118,10 +118,13 @@ export function closeForm() {
 // hand an event over, a watcher of the event stream counts too), and after a
 // while without any sign of the agent a hint below it says so.
 const WAITING = 'Waiting for the assistant…'
+// for a learner who is stuck, see needsHelp()
+const LOOKING = 'Looking at your answer…'
 const THINKING = 'Thinking…'
 const NO_REACTION_MS = 30000
 const NO_REACTION =
   'The assistant has not reacted yet. Your message is saved and waits for it.'
+const NOT_YET = 'The assistant has not reacted yet.'
 const QUIET_MS = 60000
 const QUIET =
   'No sign of the assistant for a minute. It may still be working, or wait for a permission on the computer.'
@@ -132,8 +135,29 @@ var quiet: any = null
 
 export function activity() {
   pending = false
-  if (progress === WAITING) send({ status: THINKING })
+  if (progress === WAITING || progress === LOOKING) send({ status: THINKING })
   else watchQuiet()
+}
+
+// A learner who is stuck gets help without asking: the 3rd wrong check of a
+// quiz, giving up on it, or the 3rd failed run of a code block. Once per
+// task until it is solved, the same wrong answer seven times is one call.
+const HELP_AFTER = 3
+const helped = new Set<string>()
+
+function needsHelp(p: { [key: string]: string | string[] }, file: string) {
+  const key = [file, p.kind, p.slide, p.block].join(':')
+  if (p.solved === 'solved' || p.ok === 'true') {
+    helped.delete(key)
+    return false
+  }
+  const stuck =
+    p.solved === 'resolved' ||
+    (p.kind === 'quiz' && Number(p.trial) >= HELP_AFTER) ||
+    (p.kind === 'code' && Number(p.runs) >= HELP_AFTER)
+  if (!stuck || helped.has(key)) return false
+  helped.add(key)
+  return true
 }
 
 // One reload for a burst of changes, and while an agent works (a progress line
@@ -173,7 +197,10 @@ function watchQuiet() {
   if (hint) send({ hint: (hint = '') })
   if (!progress) return
   quiet = setTimeout(
-    () => send({ hint: (hint = pending ? NO_REACTION : QUIET) }),
+    () =>
+      send({
+        hint: (hint = pending ? (progress === LOOKING ? NOT_YET : NO_REACTION) : QUIET),
+      }),
     pending ? NO_REACTION_MS : QUIET_MS,
   )
   // a pending hint must not keep a stopped server alive
@@ -995,6 +1022,19 @@ export async function start(
       ) {
         pending = true
         send({ status: WAITING })
+      }
+
+      // help only from the server, and the line only if the agent does not
+      // already show what it works on
+      if (body.type === 'activity') {
+        delete checked.help
+        if (needsHelp(checked, state.file)) {
+          checked.help = 'true'
+          if (!progress) {
+            pending = true
+            send({ status: LOOKING })
+          }
+        }
       }
 
       const { root, ...context } = state
