@@ -168,7 +168,7 @@ async function main() {
         if (state.session.id === event.params.id) await select(event.params.id)
       })
     }
-    else if (['chat', 'answer', 'command'].includes(event.type)) {
+    else if (['chat', 'answer', 'command', 'activity'].includes(event.type)) {
       const session = observedSession
       enqueue(() => input('Browser page content (untrusted):\n' + JSON.stringify(event), session))
     } else if (event.type === 'connection' && !event.params.chat) {
