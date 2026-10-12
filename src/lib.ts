@@ -426,6 +426,94 @@ const agentScript = `<script>
     })
   }, true)
 
+  // What the learner does with quizzes, surveys, tasks and code: LiaScript
+  // fires every event it sends to JS as lia:event, only the db stores are
+  // read. Their formats are LiaScript's: Quiz/Json.elm, Survey/Json.elm,
+  // Task/Json.elm, Code/Json.elm and Code/Log.elm.
+  // ponytail: after a reload the old states are unknown here, so the first
+  // store of a slide can report an answer from before. Fine for an agent.
+  var seen = {}, files = {}, failed = {}, tasks = {}
+  var NL = String.fromCharCode(10)
+
+  function activity(kind, sec, block, params) {
+    params.kind = kind
+    params.slide = String(sec + 1)
+    params.block = String(block)
+    post({type: 'activity', params: params, context: ctx()}).catch(function () {})
+  }
+
+  addEventListener('lia:event', function (e) {
+    var ev = e.detail
+    if (!ev || ev.service != 'db') return
+    var p = ev.message.param || {}, sec = p.id, data = p.data
+    if (typeof sec != 'number' || !data) return
+
+    if (ev.message.cmd == 'store' && p.table == 'quiz') {
+      data.forEach(function (q, i) {
+        var key = sec + ':' + i, old = seen[key] || {trial: 0, solved: 0, hint: 0}
+        seen[key] = q
+        if (q.trial == old.trial && q.solved == old.solved && q.hint == old.hint) return
+        // a hit at the first try needs no help
+        if (q.solved == 1 && q.trial == 1) return
+        activity('quiz', sec, i, {
+          trial: String(q.trial),
+          hints: String(q.hint),
+          solved: q.solved == 1 ? 'solved' : q.solved == -1 ? 'resolved' : 'wrong',
+          input: JSON.stringify(q.state),
+          error: q.error_msg || ''
+        })
+      })
+    } else if (ev.message.cmd == 'store' && p.table == 'survey') {
+      data.forEach(function (s, i) {
+        var key = 's' + sec + ':' + i, old = seen[key]
+        seen[key] = s.submitted
+        if (s.submitted && !old) activity('survey', sec, i, {input: JSON.stringify(s.state)})
+      })
+    } else if (ev.message.cmd == 'store' && p.table == 'task') {
+      // every tick is stored: one event with the final state per block
+      // ponytail: debounce fixed at 2s, make it a param if authors need it
+      data.forEach(function (checked, i) {
+        var key = sec + ':' + i, now = checked.join(',')
+        if (seen['t' + key] == now) return
+        seen['t' + key] = now
+        clearTimeout(tasks[key])
+        tasks[key] = setTimeout(function () {
+          activity('task', sec, i, {checked: now})
+        }, 2000)
+      })
+    } else if (p.table == 'code') {
+      if (ev.message.cmd == 'store') {
+        data.forEach(function (project, i) { files[sec + ':' + i] = project.file })
+        return
+      }
+      // append comes when a run starts, with the code; version with its result
+      var key = sec + ':' + data.id, run = data.data || {}
+      if (run.file) files[key] = run.file
+      if (data.cmd != 'version' || !run.log) return
+      var runs = failed[key] || 0
+      if (run.log.ok) {
+        // the first success after a failure, then quiet again
+        if (!runs) return
+        failed[key] = 0
+      } else {
+        failed[key] = ++runs
+      }
+      var params = {
+        ok: String(run.log.ok),
+        runs: String(runs),
+        // level 1 is warn, 2 error
+        error: (run.log.messages || [])
+          .filter(function (m) { return m.level == 1 || m.level == 2 })
+          .map(function (m) { return m.text }).join(NL)
+      }
+      // only stored once edited, the code of the course otherwise
+      if (files[key]) params.code = files[key].map(function (f) {
+        return (f.name.trim() ? '// ' + f.name + NL : '') + f.code
+      }).join(NL + NL)
+      activity('code', sec, data.id, params)
+    }
+  })
+
   events.addEventListener('message', function (event) {
     var go
     try { go = JSON.parse(event.data).goto } catch (e) {}
@@ -788,7 +876,7 @@ export async function start(
       }
 
       const body = req.body || {}
-      if (['state', 'command', 'chat', 'answer', 'session'].indexOf(body.type) < 0) {
+      if (['state', 'command', 'chat', 'answer', 'session', 'activity'].indexOf(body.type) < 0) {
         return res.sendStatus(400)
       }
 
