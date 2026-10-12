@@ -7,12 +7,13 @@
       The chat shows what an AI writes after reading course text nobody vetted.
       So: no inline scripts, no remote images (a Markdown image could carry
       data out in its URL), no connections but to this server.
-      style-src needs unsafe-inline for the diagrams mermaid renders.
+      style-src needs unsafe-inline for the diagrams mermaid renders and the
+      styles Ace adds, the CDN for the stylesheet and fonts of KaTeX.
       This policy covers the chat only, the course in the iframe has its own.
     -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'"
+      content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src https://cdn.jsdelivr.net; img-src 'self' data:; connect-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'"
     />
     <title>LiaScript</title>
     <style>
@@ -253,6 +254,17 @@
         padding: 0.5rem;
         background: color-mix(in srgb, CanvasText 12%, Canvas);
         border-radius: 6px;
+      }
+      /* code Ace highlighted: its colours, the font and background of the chat */
+      .ai pre > div {
+        background: none;
+      }
+      .ai pre .ace_static_highlight {
+        font: inherit;
+      }
+      .ai .katex-display {
+        overflow-x: auto;
+        overflow-y: hidden;
       }
       .ai img,
       .ai svg {
@@ -512,9 +524,10 @@
     </details>
 
     <!--
-      ponytail: from a CDN, pinned and integrity-checked. Offline the chat
-      falls back to plain text and shows no diagrams. Vendor the files into
-      views/ if offline use matters (mermaid alone is 5 MB per package/binary).
+      ponytail: from a CDN, pinned and integrity-checked, like mermaid, KaTeX
+      and Ace in chat.js. Offline the chat falls back to plain text and shows
+      no diagrams, formulas or highlighting. Vendor the files into views/ if
+      offline use matters (mermaid alone is 5 MB, ace-builds 55 MB unpacked).
     -->
     <script
       src="https://cdn.jsdelivr.net/npm/marked@18.0.13/lib/marked.umd.js"

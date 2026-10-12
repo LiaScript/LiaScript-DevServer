@@ -629,7 +629,7 @@ function idle(button) {
   tr(button, 'Read this message aloud', 'aria-label')
 }
 
-// What is read: the text without code, tables, diagrams and forms, in runs of
+// What is read: the text without code, formulas, tables, diagrams and forms, in runs of
 // one language. A message says its language with lang, and so does a passage
 // in it (<span lang="fr">); everything else is in the language of the course.
 function runs(content) {
@@ -641,7 +641,7 @@ function runs(content) {
   var node
   while ((node = walker.nextNode())) {
     var el = node.parentElement
-    if (el.closest('pre, svg, form, table')) continue
+    if (el.closest('pre, svg, form, table, .math')) continue
     // only what the message itself says, not the lang of this page
     var marked = el.closest('[lang]')
     var lang = (marked && log.contains(marked) && marked.lang) || course
@@ -966,6 +966,57 @@ if (window.DOMPurify) {
   })
 }
 
+function escapeHTML(text) {
+  return text.replace(/[&<>"]/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]
+  })
+}
+
+// a formula stays its source in a <code class="math"> until KaTeX renders it
+function tex(token) {
+  var css = token.display ? 'math display' : 'math'
+  return '<code class="' + css + '">' + escapeHTML(token.text) + '</code>'
+}
+
+// $…$ and $$…$$ as in LiaScript. Like pandoc, no space inside the dollars of
+// $…$ and no digit after it, so "5$ and 10$" or "$5 and $10" stay text.
+if (window.marked) {
+  marked.use({
+    extensions: [
+      {
+        name: 'mathBlock',
+        level: 'block',
+        start: function (src) {
+          var at = src.search(/^ {0,3}\$\$/m)
+          return at < 0 ? undefined : at
+        },
+        tokenizer: function (src) {
+          var m = /^ {0,3}\$\$([\s\S]+?)\$\$[ \t]*(?:\n+|$)/.exec(src)
+          if (m) return { type: 'mathBlock', raw: m[0], text: m[1].trim(), display: true }
+        },
+        renderer: function (token) {
+          return '<p>' + tex(token) + '</p>\n'
+        },
+      },
+      {
+        name: 'math',
+        level: 'inline',
+        start: function (src) {
+          var at = src.indexOf('$')
+          return at < 0 ? undefined : at
+        },
+        tokenizer: function (src) {
+          var m = /^\$\$([\s\S]+?)\$\$/.exec(src)
+          if (m) return { type: 'math', raw: m[0], text: m[1].trim(), display: true }
+          m = /^\$(?![\s$])((?:\\[\s\S]|[^\\$\n])+?)\$(?!\d)/.exec(src)
+          if (m && !/\s$/.test(m[1])) return { type: 'math', raw: m[0], text: m[1], display: false }
+        },
+        renderer: tex,
+      },
+    ],
+  })
+}
+
 function markdown(text) {
   var div = document.createElement('div')
 
@@ -974,6 +1025,8 @@ function markdown(text) {
       ALLOWED_URI_REGEXP: URIS,
     })
     div.querySelectorAll('pre > code.language-mermaid').forEach(diagram)
+    div.querySelectorAll('pre > code[class*="language-"]:not(.language-mermaid)').forEach(highlight)
+    div.querySelectorAll('code.math').forEach(formula)
   } else {
     // the CDN is out of reach
     div.textContent = text
@@ -982,28 +1035,131 @@ function markdown(text) {
   return div
 }
 
+// one file from the CDN, pinned and integrity-checked
+function script(src, integrity) {
+  return new Promise(function (resolve, reject) {
+    var el = document.createElement('script')
+    el.src = src
+    el.integrity = integrity
+    el.crossOrigin = 'anonymous'
+    el.onload = resolve
+    el.onerror = reject
+    document.head.append(el)
+  })
+}
+
+var KATEX = 'https://cdn.jsdelivr.net/npm/katex@0.18.9/dist/'
+var katexLoading
+
+// 270 KB and its fonts, so only when the first formula shows up
+function loadKatex() {
+  if (!katexLoading) {
+    var css = document.createElement('link')
+    css.rel = 'stylesheet'
+    css.href = KATEX + 'katex.min.css'
+    css.integrity = 'sha256-uc4OjOk/DBjEmG/h8cPCadkhtWpp5sl/g6UHkWs4qrU='
+    css.crossOrigin = 'anonymous'
+    document.head.append(css)
+    katexLoading = script(KATEX + 'katex.min.js', 'sha256-FV9sLWc8WRLjtI9F2IMOqtGK4ZU5FZOc62SOqLnD5+I=').then(
+      function () {
+        return katex
+      },
+    )
+  }
+  return katexLoading
+}
+
+function formula(code) {
+  loadKatex()
+    .then(function (katex) {
+      var span = document.createElement('span')
+      span.className = 'math'
+      katex.render(code.textContent, span, {
+        displayMode: code.classList.contains('display'),
+        throwOnError: false,
+        // the formula is as untrusted as the rest of the message: no \href,
+        // \url, \includegraphics or \html…, and no box larger than 10em
+        trust: false,
+        maxSize: 10,
+      })
+      code.replaceWith(span)
+      log.scrollTop = log.scrollHeight
+    })
+    .catch(function () {
+      // the source stays visible as code
+    })
+}
+
+var ACE = 'https://cdn.jsdelivr.net/npm/ace-builds@1.44.0/src-min-noconflict/'
+var aceLoading
+
+// 470 KB, so only when the first code block with a language shows up.
+// ponytail: Ace loads the mode of a language itself from ACE, without an
+// integrity hash; pinned to the version, the CSP allows that host anyway.
+function loadAce() {
+  if (!aceLoading) {
+    var dark = matchMedia('(prefers-color-scheme: dark)').matches
+    aceLoading = script(ACE + 'ace.js', 'sha256-By0T5T0R4s7M//4aD6fxXPacVDXYl99T2YxxvhxKLn8=')
+      .then(function () {
+        ace.config.set('basePath', ACE)
+        return Promise.all([
+          script(ACE + 'ext-static_highlight.js', 'sha256-fJ+a3BZJhPnzp10lFc1cNbwrlqrdau+Ld/o+vGRuewY='),
+          script(ACE + 'ext-modelist.js', 'sha256-lgYENE7treG/uF32EmFdej1Ia4A6e+02EemJfAFNHRI='),
+          dark
+            ? script(ACE + 'theme-github_dark.js', 'sha256-5OuEYU3UL6mPcPAX4DU6yd9o4J86KP+BfbBrWNtMarc=')
+            : script(ACE + 'theme-github.js', 'sha256-GTHH+cSdlKmzrI9DiWmNP8GjOHyXFqa99ccipdj/aW8='),
+        ])
+      })
+      .then(function () {
+        return {
+          highlight: ace.require('ace/ext/static_highlight'),
+          modelist: ace.require('ace/ext/modelist'),
+          dom: ace.require('ace/lib/dom'),
+          theme: dark ? 'ace/theme/github_dark' : 'ace/theme/github',
+        }
+      })
+  }
+  return aceLoading
+}
+
+// read-only, as static HTML: selectable, wraps in a narrow chat, no editor
+function highlight(code) {
+  var lang = /\blanguage-(\S+)/.exec(code.className)[1].toLowerCase()
+  loadAce()
+    .then(function (ace) {
+      // python or py, bash or sh
+      var byName = ace.modelist.modesByName
+      var mode = byName.hasOwnProperty(lang) ? byName[lang] : ace.modelist.getModeForPath('x.' + lang)
+      if (mode.name == 'text') return
+      // marked ends the code with a newline, Ace would show it as an empty line
+      ace.highlight.render(code.textContent.replace(/\n$/, ''), mode.mode, ace.theme, 1, true, function (out) {
+        ace.dom.importCssString(out.css, 'ace_highlight', true)
+        code.parentNode.innerHTML = DOMPurify.sanitize(out.html)
+        log.scrollTop = log.scrollHeight
+      })
+    })
+    .catch(function () {
+      // the code stays as it is
+    })
+}
+
 var mermaidLoading
 var diagrams = 0
 
 // 5 MB, so only when the first diagram shows up
 function loadMermaid() {
   if (!mermaidLoading) {
-    mermaidLoading = new Promise(function (resolve, reject) {
-      var script = document.createElement('script')
-      script.src = 'https://cdn.jsdelivr.net/npm/mermaid@12.0.0/dist/mermaid.min.js'
-      script.integrity = 'sha256-KPynrm68fte7Y73mMTanS/7xTylqV+QDZX7rizKDYHM='
-      script.crossOrigin = 'anonymous'
-      script.onerror = reject
-      script.onload = function () {
-        mermaid.initialize({
-          startOnLoad: false,
-          // the diagram source is as untrusted as the rest of the message
-          securityLevel: 'strict',
-          theme: matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default',
-        })
-        resolve(mermaid)
-      }
-      document.head.append(script)
+    mermaidLoading = script(
+      'https://cdn.jsdelivr.net/npm/mermaid@12.0.0/dist/mermaid.min.js',
+      'sha256-KPynrm68fte7Y73mMTanS/7xTylqV+QDZX7rizKDYHM=',
+    ).then(function () {
+      mermaid.initialize({
+        startOnLoad: false,
+        // the diagram source is as untrusted as the rest of the message
+        securityLevel: 'strict',
+        theme: matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default',
+      })
+      return mermaid
     })
   }
   return mermaidLoading
