@@ -179,7 +179,11 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   from the voice name, `MALE`/`FEMALE` in `chat.js`; the gender counts more than the region, a British male
   voice for `en-US` rather than an American female one made lower), else it shifts the one it has (male: pitch × 0.75, rate ×
   0.94). Chrome on Linux has a single German voice, so there the profiles differ by pitch and rate alone.
-  A click on a message of the AI reads it too (not on links, forms or a selection).
+  A click on a message of the AI reads it too (not on links, forms or a selection, and never code or formulas).
+  `markdown()` renders with marked + DOMPurify, then loads on first use, pinned and with SRI from jsDelivr like
+  marked itself: mermaid for ```` ```mermaid ````, KaTeX (`trust: false`) for `$…$` / `$$…$$` (a marked extension
+  turns them into `<code class="math">`, pandoc's rule keeps `5$ and 10$` text) and Ace's `ext-static_highlight`
+  for fences with a language (static HTML, no editor; Ace loads the mode files itself, without SRI).
   The box `Read everything aloud` (`localStorage`) queues new messages and the progress lines of the agent; of
   those of the server only `Thinking…`, as `One moment, I am thinking.` once per request. A waiting progress line
   is dropped when something newer comes, nothing is read during the replay of the first 1.5 s of a stream, and
