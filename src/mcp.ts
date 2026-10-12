@@ -27,9 +27,9 @@ Browser events are JSON {type, agent, cmd, params, context}; context is {file, s
 - command: the user clicked a link the course author wrote as agent:<agent>/<cmd>?<params>. agent is the role or sub-agent for it, empty means you.
 - chat: the user typed params.text into the chat over the course. They look at the browser: ALWAYS answer with the chat tool, for longer work send a status first.
 - answer: a late answer to a chat form, params.ask is the id from the chat tool.
-- connection: params {connected, chat}. connected false means the user closed the preview on purpose: do NOT reopen it with goto or chat, answer in the terminal and wait.
+- connection: params {connected, chat}. connected false: the user closed the preview on purpose: do NOT reopen it with goto or chat, answer in the terminal and wait.
 - session: a new or resumed chat: read_chat first.
-- activity: the learner's quiz, survey, task or code result; see wait_for_event.
+- activity: a quiz, survey, task or code result (wait_for_event). help: stuck, ALWAYS send a chat hint.
 
 Events reach you one way, the first that works:
 1. <channel> tags in this session. Then do nothing else.
@@ -37,11 +37,11 @@ Events reach you one way, the first that works:
 3. Codex: persistent bridge setup in get_state; otherwise poll wait_for_event(timeout_s: 0), chat(wait: false). No idle wakeup.
 
 Opening the preview, the first that applies:
-1. get_state.connected is true: use that tab, never a second one.
+1. get_state.connected: use that tab, never a second one.
 2. Visible browser automation: open get_state.url there before goto or chat to share the tab.
 3. Otherwise goto opens the user's default browser.
 
-A tts entry in get_state: the browser cannot read aloud. Mention it only if asked, follow it only with consent.`
+get_state.tts: the browser cannot read aloud. Mention it only if asked, follow it only with consent.`
 
 const SECTION =
   'heading path as in the specs, e.g. "## Agents → ### Teaching-Agent" or "Sessions → 3": every part is a heading below the one before, a part also matches a heading that starts with it ("3" for "3. First words"), # and backticks are optional'
@@ -145,7 +145,7 @@ const TOOLS = [
   {
     name: 'wait_for_event',
     description:
-      'Returns the next queued browser event, or {timeout: true}. timeout_s: 0 polls immediately without blocking. Otherwise waits for a command, chat, answer, session, connection or activity event. Polling does not wake an idle agent; call between work steps. activity: what the learner did, params.kind quiz|survey|task|code, slide (1-based, as read_section) and block (the n-th such element on it). quiz: a wrong check, gave up (resolved), a hint, or solved after failing {trial, hints, solved, input, error}. code: a failed run or the first success after one {ok, runs, error, code if edited}. survey: a submitted answer without a solution {input}, opinions or self-assessment. task: the checklist state {checked}, what the learner says they know or can do. input is the raw state, read_section has the options. Not a request: mostly stay silent, remember surveys and tasks to adapt explanations. Step in via chat when it helps, e.g. from the 3rd failure or on resolved: a hint, a different explanation or a smaller sub-question, not the solution.',
+      'Returns the next queued browser event, or {timeout: true}. timeout_s: 0 polls immediately without blocking. Otherwise waits for a command, chat, answer, session, connection or activity event. Polling does not wake an idle agent; call between work steps. activity: what the learner did, params.kind quiz|survey|task|code, slide (1-based, as read_section) and block (the n-th such element on it). quiz: a wrong check, gave up (resolved), a hint, or solved after failing {trial, hints, solved, input, error}. code: a failed run or the first success after one {ok, runs, error, code if edited}. survey: a submitted answer without a solution {input}, opinions or self-assessment. task: the checklist state {checked}, what the learner says they know or can do. input is the raw state, read_section has the options. Not a request: stay silent, remember surveys and tasks to adapt explanations. Except help: "true", the learner is stuck (3rd failure or resolved, once per task) and the chat shows at once that you look at the answer: send a hint, a different explanation or a smaller sub-question, not the solution, or clear that line with chat({status: ""}).',
     inputSchema: {
       type: 'object',
       properties: {

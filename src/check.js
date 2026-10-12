@@ -475,6 +475,42 @@ async function main() {
   await tool('wait_for_event', {}) // drain the fallback queue
   assert.ok(stream.endsWith('data: {"status":"Thinking…"}\n\n'), 'a tool call is a sign of the agent: ' + stream)
 
+  // a stuck learner gets help: the 3rd wrong check, once per task until solved
+  const quiz = (trial, solved, extra) =>
+    post({
+      type: 'activity',
+      params: { kind: 'quiz', slide: '4', block: '0', trial: String(trial), hints: '0', solved, input: '{}', ...extra },
+    })
+  const help = async () => {
+    await sleep(100)
+    const event = JSON.parse(notifications.pop().params.content)
+    return event.params.help
+  }
+  await tool('chat', { status: '' })
+  stream = ''
+  await quiz(2, 'wrong', { help: 'true' })
+  assert.strictEqual(await help(), undefined, 'two failures need no help, and the page cannot ask for it')
+  await quiz(3, 'wrong')
+  assert.strictEqual(await help(), 'true', 'the 3rd failure needs help')
+  assert.ok(stream.endsWith('data: {"status":"Looking at your answer…"}\n\n'), 'the chat says so at once: ' + stream)
+  await tool('wait_for_event', {})
+  assert.ok(stream.endsWith('data: {"status":"Thinking…"}\n\n'), 'until the agent reacts: ' + stream)
+  await tool('wait_for_event', { timeout_s: 0 })
+  await quiz(4, 'wrong')
+  assert.strictEqual(await help(), undefined, 'once per task')
+  await quiz(5, 'solved')
+  await help()
+  await quiz(3, 'wrong')
+  assert.strictEqual(await help(), 'true', 'again after it was solved')
+  await tool('chat', { status: '' })
+  stream = ''
+  await quiz(1, 'resolved', { block: '1' })
+  assert.strictEqual(await help(), 'true', 'giving up needs help')
+  assert.ok(stream.endsWith('data: {"status":"Looking at your answer…"}\n\n'), stream)
+  await tool('chat', { status: '' })
+  // drain the fallback queue
+  for (let i = 0; i < 5; i++) await tool('wait_for_event', { timeout_s: 0 })
+
   // a click on a link shows in the chat as what the user said, by its text
   stream = ''
   await post({ ...command, label: '  Explain\n it ' })

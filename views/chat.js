@@ -49,6 +49,9 @@ var TEXTS = {
       'Dieser Browser kann nicht vorlesen, ihm fehlen die Stimmen. Chrome und Edge bringen eigene mit, Firefox unter Linux braucht speech-dispatcher mit einer Stimme. Der Assistent hilft beim Einrichten.',
     'Waiting for the assistant…': 'Wartet auf den Assistenten …',
     'Thinking…': 'Denkt nach …',
+    'Looking at your answer…': 'Schaut sich deine Antwort an …',
+    'One moment, I am looking at your answer.': 'Moment, ich schaue mir deine Antwort an.',
+    'The assistant has not reacted yet.': 'Der Assistent hat noch nicht reagiert.',
     'The assistant has not reacted yet. Your message is saved and waits for it.':
       'Der Assistent hat noch nicht reagiert. Deine Nachricht ist gespeichert und wartet auf ihn.',
     'No sign of the assistant for a minute. It may still be working, or wait for a permission on the computer.':
@@ -872,16 +875,24 @@ function readNew(msg) {
   enqueue({ parts: runs(msg.firstChild), msg: msg, button: msg.querySelector('.speak') })
 }
 
+// what the server says when a request comes, as it is read aloud
+var SPOKEN = {
+  'Thinking…': 'One moment, I am thinking.',
+  'Looking at your answer…': 'One moment, I am looking at your answer.',
+}
+
 function readStatus(text) {
   // a new request, or the agent is done: the same line may come again
-  if (!text || text == 'Waiting for the assistant…') said = ''
-  if (text == 'Waiting for the assistant…') thought = false
+  var request = text == 'Waiting for the assistant…' || text == 'Looking at your answer…'
+  if (!text || request) said = ''
+  if (request) thought = false
   if (!autoread.checked || Date.now() < replay || !log.classList.contains('can-speak')) return
   if (!text || text == 'Waiting for the assistant…' || text == said) return
-  if (text == 'Thinking…') {
+  // once per request: "Looking" and then "Thinking" would say the same twice
+  if (SPOKEN.hasOwnProperty(text)) {
     if (thought) return
     thought = true
-    text = 'One moment, I am thinking.'
+    text = SPOKEN[text]
   }
   said = text
   enqueue({ parts: [{ lang: language(), text: t(text) }], status: true })
