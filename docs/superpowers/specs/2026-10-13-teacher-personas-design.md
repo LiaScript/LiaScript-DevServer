@@ -134,6 +134,26 @@ Höchstens sechs ids, jede muss im Katalog stehen. Die Antwort ist `{values: {wh
 - Agenten-Menü und Robot-Reihe (`#agents`) zeigen das Gesicht der Persona.
 - Fehlt `window.Teachers`, zum Beispiel bei einem kaputten Build, fällt `Avatar.bot` auf den Roboter zurück.
 
+## Ansichten: Autoren und Lernende
+
+Zwei Ansichten des Chats, `view` ∈ `author | learner`, Standard `author`:
+
+- `author` wie bisher: alle Agenten in der Reihe (`#agents`), wählbar. Auch mit einer Persona, z. B. um mit Marie
+  Curie als Lehrender zu planen.
+- `learner`: nur der aktuelle Agent. Die Reihe `#agents` ist ausgeblendet (auch bei zwei oder mehr Agenten), das
+  Porträt auf der Bühne ist 96 statt 56 px groß (`body.learner`).
+
+Wechsel:
+- Automatisch: `set_agent` setzt eine `persona` (nicht `null`) und gibt kein `view` an → `learner`.
+- Explizit: `set_agent({name, view})`. Mit `persona` zusammen gilt `view` statt des Automatismus. Die Ansicht bleibt,
+  bis sie wieder gewechselt oder erneut eine Persona gesetzt wird.
+- Auf Zuruf: Schreibt jemand im Chat z. B. „bitte den Autorenmodus verlassen“ oder „jetzt in den Lernendenmodus“, ruft
+  der Agent `set_agent` mit `view` auf. Die Beschreibung von `set_agent` sagt das. Die Ansicht ist nur Darstellung,
+  keine Berechtigung, deshalb ohne Bestätigung im Terminal.
+
+`view` liegt wie das Roster nur im Speicher (`lib.ts`, neben `agents`), steht in `getState().view` und reist in
+`{agents: {current, list, view}}` mit, auch beim Replay für einen neu geladenen Chat.
+
 ## Speicherung
 
 Das Agenten-Objekt jeder `ai`-Nachricht in `.chats/<id>.json` bekommt `persona`. Ältere Nachrichten behalten so ihr
@@ -154,6 +174,8 @@ derselben Persona neu setzen kann. Das Roster selbst bleibt im Speicher, wie bis
   Öffnen eines Browsers, kein Aufruf von `chat` ohne Fake-SSE-Client.
 - `get_state.teacher` aus einer Kursdatei mit `teacher: socrates` im Kopf, und `null` plus `warning` bei einer
   unbekannten id.
+- `view`: `persona` schaltet auf `learner`, `view: "author"` mit `persona` bleibt `author`, `view` allein wechselt,
+  ein anderer Wert ist ein Fehler, `get_state.view` und die Nachricht `agents` (auch im Replay) tragen ihn.
 - Die bestehende Prüfung der 2048 Zeichen deckt die neue Tool-Beschreibung ab.
 
 Der Browser wird nicht automatisch getestet. Am Ende folgt eine Sichtprüfung im Chat (Karten, Bühne, Mundbewegung),
