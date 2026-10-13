@@ -1178,7 +1178,12 @@ function form(ask, inputs) {
         var card = document.createElement('button')
         card.name = input.id
         card.value = option
-        card.append(Avatar.bot({ name: option, persona: option, label: person ? person.name : option }, 64))
+        // the name follows as text, a screen reader reads it once
+        var face = Avatar.bot({ name: option, persona: option, label: person ? person.name : option }, 64)
+        face.setAttribute('aria-hidden', 'true')
+        face.removeAttribute('role')
+        face.removeAttribute('aria-label')
+        card.append(face)
         var name = document.createElement('strong')
         name.textContent = person ? person.name : option
         card.append(name)

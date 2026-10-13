@@ -129,7 +129,7 @@ const TOOLS = [
         view: {
           type: 'string',
           enum: ['author', 'learner'],
-          description: 'author: the chat shows every agent; learner: only the current one, larger. A persona switches to learner unless view is given. Switch when the user asks for it in the chat, e.g. to leave the author mode',
+          description: 'author: the chat shows every agent; learner: only the current one, larger. A persona of the agent that talks now switches to learner unless view is given. Switch when the user asks for it in the chat, e.g. to leave the author mode',
         },
         agents: {
           type: 'array',
@@ -160,7 +160,7 @@ const TOOLS = [
   {
     name: 'read_chat',
     description:
-      'The chat as the user sees it, saved in .chats/ of the project and continued after a reload or restart: {id, title, file, count, open, skipped, entries}. entries are in order, each with t (time) and type: ai {markdown, agent, ask, inputs} for your messages, ask and inputs only for a form; user {text} for what the user typed; answer {ask, values} for a submitted form; command {agent, cmd, label} for a clicked agent: link. open is the ask id of the one form the user can still answer, its answer arrives as an answer event; every other form is closed, also those asked before a restart: ask again if you need one. Read it when get_state.session shows messages you do not remember, or after a session event. last limits it to the newest entries (default 50). session is the id of another saved chat, default the current one.',
+      'The chat as the user sees it, saved in .chats/ of the project and continued after a reload or restart: {id, title, file, count, open, skipped, entries}. entries are in order, each with t (time) and type: ai {markdown, agent, persona, ask, inputs} for your messages, persona only for an agent with one (set it again with set_agent), ask and inputs only for a form; user {text} for what the user typed; answer {ask, values} for a submitted form; command {agent, cmd, label} for a clicked agent: link. open is the ask id of the one form the user can still answer, its answer arrives as an answer event; every other form is closed, also those asked before a restart: ask again if you need one. Read it when get_state.session shows messages you do not remember, or after a session event. last limits it to the newest entries (default 50). session is the id of another saved chat, default the current one.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -610,8 +610,10 @@ function setAgent(args: any) {
     throw new Error('unknown agent ' + name + ', pass its emoji or declare it in agents')
   }
 
-  // a persona is for learners, unless the call says otherwise
-  server.setAgent(name, list, view !== undefined ? view : persona ? 'learner' : undefined)
+  // a persona for the agent that talks now is for learners, unless the call
+  // says otherwise; it may come in agents as well
+  const personaNow = persona || (args.agents || []).some((a: any) => a.name === name && typeof a.persona === 'string')
+  server.setAgent(name, list, view !== undefined ? view : personaNow ? 'learner' : undefined)
   const { agent, agents, view: shown, voice_names: names } = server.getState()
   const role = personaOf(server.currentAgent())
   const result: any = role ? { agent, agents, view: shown, persona: role } : { agent, agents, view: shown }

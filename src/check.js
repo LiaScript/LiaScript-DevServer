@@ -154,6 +154,7 @@ async function main() {
   msg = await rpc('tools/list')
   const names = msg.result.tools.map((t) => t.name)
   for (const name of ['get_state', 'goto', 'wait_for_event', 'chat', 'set_agent', 'find_teacher', 'read_chat', 'outline', 'read_section', 'write_section']) assert.ok(names.includes(name), name)
+  assert.ok(/persona/.test(msg.result.tools.filter((t) => t.name === 'read_chat')[0].description), 'read_chat tells about the persona')
   for (const t of msg.result.tools) {
     assert.ok(t.description.length <= LIMIT, 'the description of ' + t.name + ' has ' + t.description.length + ' characters')
   }
@@ -175,7 +176,7 @@ async function main() {
     assert.ok(REGIONS.includes(t.region), id + ' region')
     assert.ok(Number.isInteger(t.lived[0]) && t.lived[0] < t.lived[1], id + ' lived')
     assert.ok(t.fields.length >= 1 && t.fields.length <= 5 && t.fields.every((f) => /^[a-z]+(-[a-z]+)*$/.test(f)), id + ' fields')
-    assert.ok(t.teaching && t.teaching.length <= 240 && !/["“”„]/.test(t.teaching), id + ' teaching')
+    assert.ok(t.teaching && t.teaching.length <= 240 && !/["“”„‘’‚«»]/.test(t.teaching), id + ' teaching')
     assert.strictEqual(t.options, undefined, 'get() leaves out the DiceBear options')
     const f = Teachers.frames(id)
     assert.ok(f.rest.startsWith('data:image/svg+xml'), id + ' rest')
@@ -725,7 +726,9 @@ async function main() {
   await tool('set_agent', { name: 'prof', agents: [{ name: 'tutor', emoji: '🧑‍🏫' }, examiner, { name: 'prof', emoji: '🎓', label: 'Sokrates', persona: 'socrates', voice: 'de_DE-thorsten-high' }] })
   assert.strictEqual((await tool('set_agent', { name: 'prof', persona: 'hypatia' })).agents[2].voice, 'de_DE-thorsten-high', 'a new persona keeps the voice until the agent picks another')
   assert.strictEqual((await tool('set_agent', { name: 'prof', voice: null })).agents[2].voice, undefined, 'null removes it')
+  await tool('set_agent', { name: 'tutor', view: 'author' })
   const listed = await tool('set_agent', { name: 'tutor', agents: [{ ...tutor, persona: 'hypatia' }, examiner] })
+  assert.strictEqual(listed.view, 'learner', 'a persona in agents for the current agent switches too')
   assert.deepStrictEqual(listed.agents, [{ ...tutor, persona: 'hypatia', label: 'Hypatia' }, examiner], 'agents replaces the roster, personas too')
   assert.strictEqual(listed.persona.id, 'hypatia', 'the persona of the current agent')
   assert.ok((await tool('set_agent', { name: 'tutor', agents: [{ ...tutor, persona: 'nobody' }] })).isError)

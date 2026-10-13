@@ -183,10 +183,10 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   the chat form `type: "teacher"` shows 1 to 6 as portraits (the answer bubble shows the name), `get_state.teacher`
   is `teacher: <id>` of the course header (`sections.header()`). Two views (`view`, in memory next to the roster,
   part of `{agents}`): `author` shows every agent, `learner` only the current one with a 96 px stage
-  (`body.learner`); a top-level `persona` of `set_agent` switches to `learner` unless `view` is given, the agent
+  (`body.learner`); a `persona` for the agent that talks now (top-level or in `agents`) switches to `learner` unless `view` is given, the agent
   switches back when the user asks in the chat. `Avatar.bot()` in `views/avatar.js` returns a `span.bot.persona`
-  with the same `data-mouth`/`data-state` classes as the robot and falls back to the robot if `window.Teachers`
-  does not know the id; `Avatar.voice()` takes the gender of the person. The server instructions are at 2045 of
+  with the same `data-mouth`/`data-state` classes as the robot (below 40 px only the resting face, only the stage
+  speaks and works) and falls back to the robot if `window.Teachers` does not know the id or throws; `Avatar.voice()` takes the gender of the person. The server instructions are at 2045 of
   2048 characters, so the personas live in the tool descriptions only.
 - **`views/chat.html` + `views/chat.js` + `views/chat.css` + `views/avatar.js`** — the chat shell served at `/liascript/chat.html`: the player in a
   same-origin iframe with the chat on top, so a live reload only reloads the iframe. The messages are LiaScript,
