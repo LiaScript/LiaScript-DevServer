@@ -1,0 +1,191 @@
+/* What the chat shell and the messages share. The messages are rendered by
+   @liascript/chat in an iframe of its own, chat.js loads this file there too
+   and hangs into every message its own part: a form, the read-aloud button,
+   robot and time. Rules that would reach LiaScript's own elements stay scoped
+   to .msg, the part of the shell. */
+
+/* the pixel robots of avatar.js: the mouth and the bottom row switch with
+   data-mouth and data-state */
+.bot {
+  flex: none;
+  border-radius: 22%;
+  vertical-align: middle;
+}
+.bot .m,
+.bot .tick,
+.bot .wait {
+  visibility: hidden;
+}
+.bot:not([data-mouth]) .m0,
+.bot[data-mouth='0'] .m0,
+.bot[data-mouth='1'] .m1,
+.bot[data-mouth='2'] .m2,
+.bot[data-state='thinking'] .tick,
+.bot[data-state='waiting'] .wait {
+  visibility: visible;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .bot .eyes {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: bot-blink 5s linear infinite;
+  }
+  .bot .twinkle {
+    animation: bot-twinkle 1.6s ease-in-out infinite;
+  }
+  .bot .beacon {
+    animation: bot-beacon 1.2s steps(2) infinite;
+  }
+  .bot .tick {
+    opacity: 0;
+    animation: bot-tick 0.96s linear infinite;
+  }
+  .bot .wait {
+    animation: bot-wait 2.4s ease-in-out infinite;
+  }
+}
+@keyframes bot-blink {
+  0%, 91%, 97%, 100% {
+    transform: scaleY(1);
+  }
+  94% {
+    transform: scaleY(0.12);
+  }
+}
+@keyframes bot-twinkle {
+  50% {
+    opacity: 0.15;
+  }
+}
+@keyframes bot-beacon {
+  50% {
+    opacity: 0.1;
+  }
+}
+@keyframes bot-tick {
+  10%, 25% {
+    opacity: 1;
+  }
+}
+@keyframes bot-wait {
+  0%, 100% {
+    opacity: 0.2;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.failed {
+  outline: 2px solid red;
+}
+
+/* ------------------------------------------------- inside the LiaScript chat */
+
+/* name and time come with the part of the shell */
+.lia-chat__foot {
+  display: none;
+}
+/* a click or a choice of the user, smaller than what they typed */
+.lia-chat__msg:has(> .msg.act) {
+  padding: 0.3em 0.6em;
+  font-size: 0.9em;
+}
+/* a long formula scrolls on its own, not the whole chat */
+.lia-chat__msg lia-formula[displaymode='true'] {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+/* a click on a message of the AI reads it aloud */
+.can-speak .lia-chat__msg:has(> .msg.ai) {
+  cursor: pointer;
+}
+.lia-chat__msg:has(> .msg.reading) {
+  outline: 2px solid Highlight;
+}
+.lia-chat__msg:has(> .msg.failed) {
+  outline: 2px solid red;
+}
+.msg button {
+  font: inherit;
+  padding: 0.35em 0.8em;
+  border-radius: 8px;
+  border: 1px solid GrayText;
+  cursor: pointer;
+}
+.msg button.chosen {
+  background: Highlight;
+  color: HighlightText;
+}
+.msg .resend {
+  margin: 0;
+  padding: 0.1em 0.5em;
+}
+.msg form {
+  margin-top: 0.6em;
+  display: grid;
+  gap: 0.5em;
+}
+.msg fieldset {
+  margin: 0;
+  padding: 0.4em 0.6em;
+  border: 1px solid GrayText;
+  border-radius: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3em 0.9em;
+}
+.msg fieldset.buttons {
+  border: 0;
+  padding: 0;
+}
+.msg form.closed fieldset {
+  opacity: 0.5;
+}
+.msg form .note {
+  margin: 0;
+  font-size: 0.85em;
+  font-style: italic;
+  color: GrayText;
+}
+/* under every message: read aloud, who wrote it and when */
+.msg .foot {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  margin-top: 0.35em;
+  font-size: 0.8em;
+}
+.msg .stamp {
+  margin-left: auto;
+  opacity: 0.75;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+}
+/* read aloud: only in a browser that has a voice */
+.msg .speak {
+  display: none;
+  margin: 0;
+  padding: 0 0.45em;
+  border: 0;
+  background: none;
+  color: inherit;
+  font-size: 1em;
+  line-height: 1.6;
+  opacity: 0.6;
+}
+.msg .speak:hover,
+.msg .speak:focus-visible {
+  opacity: 1;
+}
+.can-speak .msg .speak {
+  display: inline-block;
+}
+/* a click or a choice needs no reading aloud */
+.can-speak .msg.act .speak {
+  display: none;
+}

@@ -164,8 +164,20 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   (`ttsHint()` in `lib.ts`). `--responsiveVoice` without a key injects `key=true`, which the service rejects.
   Automation tools start Chrome with `--disable-component-extensions-with-background-pages`, which removes its
   online voices.
-- **`views/chat.html` + `views/chat.js` + `views/avatar.js`** — the chat shell served at `/liascript/chat.html`: the player in a
-  same-origin iframe with the chat on top, so a live reload only reloads the iframe. The scripts are separate files
+- **`views/chat.html` + `views/chat.js` + `views/chat.css` + `views/avatar.js`** — the chat shell served at `/liascript/chat.html`: the player in a
+  same-origin iframe with the chat on top, so a live reload only reloads the iframe. The messages are LiaScript,
+  rendered by `<lia-chat>` of `@liascript/chat` (served from its `dist/` at `/liascript/lia-chat/`, `liachatPath`) in a
+  second same-origin iframe: one `add()` is one `.lia-chat__msg` there, in order, and `place()` hangs the part of the
+  shell (`.msg`: form, read-aloud button, robot, time) into the n-th one; `chat.css` is loaded on both sides, its rules
+  inside the iframe are scoped to `.msg` and hide LiaScript's own footer. Elm reuses the nodes of old messages and
+  renders `clear()` with the `add()`s after it in one frame, so `clear()` drops the old parts at once and places new
+  ones only after `export()` and one animation frame of the iframe. The iframe's sandbox gets `allow-forms`, else the
+  forms of the shell never fire `submit`. LiaScript's `agent` event (href only, the label comes from the click) becomes
+  a `command`, its `store` events of quizzes, surveys and tasks become `activity` like those of the course, with
+  `chat` (number of the message) instead of `slide`; their states are not saved. The CSP of `chat.html` does not reach
+  that iframe: like a course it runs the scripts of a message, so a message of the AI is as trusted as the course.
+  `@liascript/chat` up to 0.1.1--2.2.2 declares `postinstall: patch-package`, which fails outside its own repo: installed with
+  `--ignore-scripts` until a release without it. The scripts are separate files
   because the page's CSP allows no inline scripts. Every agent is a pixel robot (`avatar.js`, inline SVG, no
   library): the 12 x 12 LED matrix of DiceBear's CC0 style Pixelbot, its eyes and mouths copied as cell numbers.
   `Avatar.role()` takes the role from the name (`teaching`, `artist`, `learner`, `development`, `reviewer`,
@@ -182,11 +194,7 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   from the voice name, `MALE`/`FEMALE` in `chat.js`; the gender counts more than the region, a British male
   voice for `en-US` rather than an American female one made lower), else it shifts the one it has (male: pitch × 0.75, rate ×
   0.94). Chrome on Linux has a single German voice, so there the profiles differ by pitch and rate alone.
-  A click on a message of the AI reads it too (not on links, forms or a selection, and never code or formulas).
-  `markdown()` renders with marked + DOMPurify, then loads on first use, pinned and with SRI from jsDelivr like
-  marked itself: mermaid for ```` ```mermaid ````, KaTeX (`trust: false`) for `$…$` / `$$…$$` (a marked extension
-  turns them into `<code class="math">`, pandoc's rule keeps `5$ and 10$` text) and Ace's `ext-static_highlight`
-  for fences with a language (static HTML, no editor; Ace loads the mode files itself, without SRI).
+  A click on a message of the AI reads it too (not on links, forms, quizzes, code or a selection; `SILENT` lists what is never read).
   The box `Read everything aloud` (`localStorage`) queues new messages and the progress lines of the agent; of
   those of the server only `Thinking…` and `Looking at your answer…` (`SPOKEN`), one of them once per request. A waiting progress line
   is dropped when something newer comes, nothing is read during the replay of the first 1.5 s of a stream, and
@@ -212,7 +220,7 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   `showSession()` clears the log and replays the entries: `answered()` locks a form of the history and shows the
   choice, `closed()` locks every other form but `session.open` with a note. A message whose `POST` fails goes into a `localStorage` outbox and
   gets a `Send again` button; after a replay it shows up in its chat, or in the current one if its chat was never
-  saved. All three files are served with `Cache-Control: no-cache`, a heuristically cached `chat.js` from an older
+  saved. The files of the shell are served with `Cache-Control: no-cache`, a heuristically cached `chat.js` from an older
   version would not understand the messages of a newer server.
 
 Things the player does that the bridge works around (verified against the minified bundle of `@liascript/editor`,

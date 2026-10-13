@@ -89,16 +89,20 @@ function localize() {
   if (now == lang) return
   lang = now
   document.documentElement.lang = lang
-  document.querySelectorAll('[data-t]').forEach(function (el) {
-    el.textContent = t(el.getAttribute('data-t'))
-  })
-  ;['title', 'placeholder', 'aria-label'].forEach(function (attr) {
-    document.querySelectorAll('[data-t-' + attr + ']').forEach(function (el) {
-      el.setAttribute(attr, t(el.getAttribute('data-t-' + attr)))
+  // the shell, and its parts in the messages
+  ;[document, frame()].forEach(function (doc) {
+    if (!doc) return
+    doc.querySelectorAll('[data-t]').forEach(function (el) {
+      el.textContent = t(el.getAttribute('data-t'))
     })
-  })
-  document.querySelectorAll('time').forEach(function (el) {
-    el.textContent = clock(el.dateTime)
+    ;['title', 'placeholder', 'aria-label'].forEach(function (attr) {
+      doc.querySelectorAll('[data-t-' + attr + ']').forEach(function (el) {
+        el.setAttribute(attr, t(el.getAttribute('data-t-' + attr)))
+      })
+    })
+    doc.querySelectorAll('.msg time').forEach(function (el) {
+      el.textContent = clock(el.dateTime)
+    })
   })
   showSessions(sessionList)
 }
@@ -114,32 +118,132 @@ course.addEventListener('load', function () {
   } catch (e) {}
 })
 
+// ---------------------------------------------------------------- messages
+
+// Every message is LiaScript: quizzes, surveys, code, templates. The package
+// @liascript/chat renders them in an iframe of this origin, one add() is one
+// .lia-chat__msg there, in order. Into each the shell hangs its part (.msg):
+// a form, the read-aloud button, robot and time. Relative links and images
+// are those of the course.
+var lia = document.createElement('lia-chat')
+try {
+  lia.setAttribute('base', new URL(decodeURIComponent(location.search.slice(1))).href)
+} catch (e) {}
+// the forms of the shell in the messages submit, their handler stops it
+lia.iframe.sandbox.add('allow-forms')
+log.append(lia)
+
+var parts = [] // the part of every message since the last clear(), in order
+var forms = [] // the forms among them
+var synced = true // false from clear() until the iframe shows its result
+var rounds = 0
+
+function frame() {
+  try {
+    return lia.iframe.contentDocument
+  } catch (e) {}
+}
+
+// The n-th message is the n-th .lia-chat__msg, once the iframe shows it
+function place() {
+  var doc = frame()
+  if (!synced || !doc) return
+  var bubbles = doc.querySelectorAll('.lia-chat__msg')
+  var moved = false
+  parts.forEach(function (msg, i) {
+    var bubble = bubbles[i]
+    if (!bubble || msg.parentNode == bubble) return
+    bubble.append(msg)
+    if (msg.lang) bubble.lang = msg.lang
+    moved = true
+    msg.resolve()
+  })
+  if (moved) doc.scrollingElement.scrollTop = doc.scrollingElement.scrollHeight
+}
+
+// Elm keeps the nodes of the old messages for the new ones and shows clear()
+// and the add()s after it in one go: the old parts go at once, the new ones
+// only after a round trip through the iframe and its next frame.
+function clear() {
+  parts.forEach(function (msg) {
+    msg.remove()
+  })
+  parts = []
+  forms = []
+  seen = {}
+  synced = false
+  var round = ++rounds
+  lia.clear()
+  lia.export().then(function () {
+    lia.iframe.contentWindow.requestAnimationFrame(function () {
+      if (round != rounds) return
+      synced = true
+      place()
+    })
+  })
+}
+
+lia.iframe.addEventListener('load', function () {
+  var doc = frame()
+  var css = doc.createElement('link')
+  css.rel = 'stylesheet'
+  css.href = new URL('chat.css', location.href).href
+  doc.head.append(css)
+  doc.body.classList.toggle('can-speak', log.classList.contains('can-speak'))
+  // the link a click on agent: was about, for its text
+  doc.addEventListener(
+    'click',
+    function (e) {
+      lastLink = e.target.closest && e.target.closest('a')
+    },
+    true,
+  )
+  doc.addEventListener('click', readClicked)
+  new MutationObserver(place).observe(doc.body, { childList: true, subtree: true })
+  place()
+})
+
 // agent: {name, emoji, label} of the agent that wrote it, if the AI declared
 // one, t: the time it was saved, for a message of the history. A message of
 // the AI shows the robot of its agent, the robot on the stage reads it.
-function add(who, content, extra, agent, t) {
+// Returns the part of the shell, msg.placed resolves when it is in the chat.
+function add(who, text, extra, agent, t) {
+  var time = document.createElement('time')
+  time.dateTime = (t ? new Date(t) : new Date()).toISOString()
+  time.textContent = clock(time.dateTime)
+  lia.add({
+    user: who == 'ai' ? (agent ? agent.label || agent.name : 'AI') : '',
+    self: who != 'ai',
+    time: Date.parse(time.dateTime),
+    message: text,
+  })
+
   var msg = document.createElement('div')
   msg.className = 'msg ' + who
-  msg.append(content)
   if (extra) msg.append(extra)
 
   var stamp = document.createElement('span')
   stamp.className = 'stamp'
-  var time = document.createElement('time')
-  time.dateTime = (t ? new Date(t) : new Date()).toISOString()
-  time.textContent = clock(time.dateTime)
   stamp.append(time)
   if (who == 'ai') stamp.prepend(Avatar.bot(agent, 16))
   if (agent) stamp.title = agent.label || agent.name
   msg.agent = agent
   var foot = document.createElement('div')
   foot.className = 'foot'
-  foot.append(speaker(content), stamp)
+  foot.append(speaker(), stamp)
   msg.append(foot)
 
-  log.append(msg)
-  log.scrollTop = log.scrollHeight
+  msg.placed = new Promise(function (resolve) {
+    msg.resolve = resolve
+  })
+  parts.push(msg)
+  place()
   return msg
+}
+
+// what LiaScript rendered of the message, next to the part of the shell
+function content(msg) {
+  return msg.parentNode && msg.parentNode.firstElementChild
 }
 
 // ------------------------------------------------------------------ agents
@@ -208,7 +312,6 @@ function stageState() {
 
 // the newest form, if it can still be answered
 function waitingForm() {
-  var forms = log.querySelectorAll('form[data-ask]')
   var last = forms[forms.length - 1]
   return !!last && !last.classList.contains('answered') && !last.classList.contains('closed')
 }
@@ -269,10 +372,10 @@ function showSession(session) {
   selectSession()
   queue = []
   stop()
-  log.textContent = ''
+  clear()
 
   session.entries.forEach(showEntry)
-  log.querySelectorAll('form[data-ask]').forEach(function (el) {
+  forms.forEach(function (el) {
     if (el.dataset.ask != session.open) closed(el)
   })
 
@@ -304,7 +407,7 @@ function showEntry(entry) {
   } else if (entry.type == 'user') {
     add('me', entry.text, null, null, entry.t)
   } else if (entry.type == 'answer') {
-    log.querySelectorAll('form[data-ask]').forEach(function (el) {
+    forms.forEach(function (el) {
       if (el.dataset.ask == entry.ask) answered(el, entry.values)
     })
     // what the user chose, so that it is clear that it arrived
@@ -589,6 +692,8 @@ var settled = false // voices and responsiveVoice had time to arrive
 function canSpeak() {
   var can = voices().length > 0 || !!responsive()
   log.classList.toggle('can-speak', can)
+  var doc = frame()
+  if (doc && doc.body) doc.body.classList.toggle('can-speak', can)
   document.getElementById('autoread-box').hidden = !can
   mute.hidden = can || !settled
   if (can) muteInfo.hidden = true
@@ -612,16 +717,17 @@ course.addEventListener('load', function () {
   }, 3000)
 })
 
-function speaker(content) {
+function speaker() {
   var button = document.createElement('button')
   button.type = 'button'
   button.className = 'speak'
   idle(button)
   button.addEventListener('click', function () {
     var mine = reading && reading.button == button
+    var msg = button.closest('.msg')
     queue = []
     stop()
-    if (!mine) read({ parts: runs(content), msg: button.closest('.msg'), button: button })
+    if (!mine) read({ parts: runs(content(msg)), msg: msg, button: button })
   })
   return button
 }
@@ -632,22 +738,26 @@ function idle(button) {
   tr(button, 'Read this message aloud', 'aria-label')
 }
 
-// What is read: the text without code, formulas, tables, diagrams and forms, in runs of
-// one language. A message says its language with lang, and so does a passage
-// in it (<span lang="fr">); everything else is in the language of the course.
+// What is read: the text without code blocks, formulas, tables, diagrams, quizzes
+// and forms, in runs of one language. A message says its language with lang,
+// and so does a passage in it (<span lang="fr">); everything else is in the
+// language of the course.
+var SILENT =
+  'pre, svg, form, table, button, script, style, lia-formula, lia-chart, .lia-code:not(.lia-code--inline), .lia-quiz, .lia-survey, .lia-table'
+
 function runs(content) {
   var course = language()
-  if (typeof content == 'string') return [{ lang: course, text: content }]
+  if (!content) return []
 
   var out = []
-  var walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT)
+  var walker = content.ownerDocument.createTreeWalker(content, NodeFilter.SHOW_TEXT)
   var node
   while ((node = walker.nextNode())) {
     var el = node.parentElement
-    if (el.closest('pre, svg, form, table, .math')) continue
-    // only what the message itself says, not the lang of this page
+    if (el.closest(SILENT)) continue
+    // only what the message itself says, not the lang of the chat page
     var marked = el.closest('[lang]')
-    var lang = (marked && log.contains(marked) && marked.lang) || course
+    var lang = (marked && marked.closest('.lia-chat__msg') && marked.lang) || course
     var last = out[out.length - 1]
     if (last && last.lang == lang) last.text += node.data
     else out.push({ lang: lang, text: node.data })
@@ -872,7 +982,9 @@ autoread.addEventListener('change', function () {
 
 function readNew(msg) {
   if (!autoread.checked || Date.now() < replay || !log.classList.contains('can-speak')) return
-  enqueue({ parts: runs(msg.firstChild), msg: msg, button: msg.querySelector('.speak') })
+  msg.placed.then(function () {
+    enqueue({ parts: runs(content(msg)), msg: msg, button: msg.querySelector('.speak') })
+  })
 }
 
 // what the server says when a request comes, as it is read aloud
@@ -921,17 +1033,18 @@ say.text.addEventListener('keydown', function (e) {
   }
 })
 
-// agent: links work in the chat like in the course, a click elsewhere on a
-// message of the AI reads it aloud, unless it selects text or works a form
-log.addEventListener('click', function (e) {
-  var a = e.target.closest('a[href^="agent:"]')
-  if (!a) return readClicked(e)
-  e.preventDefault()
+// agent: links work in the chat like in the course: LiaScript reports the
+// href, its text comes from the click. A click elsewhere on a message of the
+// AI reads it aloud, unless it selects text or works a quiz, code or a form.
+var lastLink // the link of the last click in the chat
 
+lia.addEventListener('agent', function (e) {
+  var href = String(e.detail || '')
+  var a = lastLink && lastLink.getAttribute('href') == href ? lastLink : null
   var uri
   try {
     // agent://tutor/explain is agent:tutor/explain, as in the course
-    uri = new URL('agent:' + a.getAttribute('href').slice(6).replace(/^[/]+/, ''))
+    uri = new URL('agent:' + href.slice(6).replace(/^[/]+/, ''))
   } catch (x) {
     return
   }
@@ -945,258 +1058,82 @@ log.addEventListener('click', function (e) {
     agent: slash < 0 ? '' : uri.pathname.slice(0, slash),
     cmd: uri.pathname.slice(slash + 1),
     params: params,
-    label: a.textContent.trim(),
+    label: a ? a.textContent.trim() : '',
   }).catch(function () {
-    a.classList.add('failed')
+    if (a) a.classList.add('failed')
   })
 })
 
 function readClicked(e) {
-  var msg = e.target.closest('.msg.ai')
+  var bubble = e.target.closest && e.target.closest('.lia-chat__msg')
+  var msg = bubble && bubble.querySelector(':scope > .msg.ai')
   if (!msg || !log.classList.contains('can-speak')) return
-  if (e.target.closest('a, button, input, label, select, textarea, form, summary')) return
-  var selection = getSelection()
+  if (e.target.closest('a, button, input, label, select, textarea, form, summary, ' + SILENT)) return
+  var selection = e.target.ownerDocument.getSelection()
   if (selection && !selection.isCollapsed) return
   var button = msg.querySelector('.foot .speak')
   if (button) button.click()
 }
 
-// ---------------------------------------------------------------- AI -> user
+// What the learner does with a quiz, survey or task in a message, reported
+// like those of the course (agentScript in lib.ts), chat is the number of the
+// message. ponytail: the states are not saved, after a reload they are new.
+var seen = {}
+var tasks = {}
 
-// what DOMPurify allows by default, plus agent:
-var URIS = /^(?:(?:https?|mailto|tel|agent):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i
+function activity(kind, id, block, params) {
+  params.kind = kind
+  params.chat = String(id)
+  params.block = String(block)
+  post({ type: 'activity', params: params }).catch(function () {})
+}
 
-if (window.DOMPurify) {
-  // a link must not replace the shell and the chat in it
-  DOMPurify.addHook('afterSanitizeAttributes', function (node) {
-    var href = node.tagName == 'A' && node.getAttribute('href')
-    if (href && href.indexOf('agent:') != 0) {
-      node.setAttribute('target', '_blank')
-      node.setAttribute('rel', 'noopener noreferrer')
+lia.addEventListener('store', function (e) {
+  var record = e.detail || {}
+  var id = record.id
+  var data = record.data
+  if (typeof id != 'number' || !Array.isArray(data)) return
+
+  data.forEach(function (block, i) {
+    var key = record.table + id + ':' + i
+    if (record.table == 'quiz') {
+      var old = seen[key] || { trial: 0, solved: 0, hint: 0 }
+      seen[key] = block
+      if (block.trial == old.trial && block.solved == old.solved && block.hint == old.hint) return
+      // a hit at the first try needs no help
+      if (block.solved == 1 && block.trial == 1) return
+      activity('quiz', id, i, {
+        trial: String(block.trial),
+        hints: String(block.hint),
+        solved: block.solved == 1 ? 'solved' : block.solved == -1 ? 'resolved' : 'wrong',
+        input: JSON.stringify(block.state),
+        error: block.error_msg || '',
+      })
+    } else if (record.table == 'survey') {
+      var before = seen[key]
+      seen[key] = block.submitted
+      if (block.submitted && !before) activity('survey', id, i, { input: JSON.stringify(block.state) })
+    } else if (record.table == 'task') {
+      // every tick is stored: one event with the final state per block
+      var now = block.join(',')
+      if (seen[key] == now) return
+      seen[key] = now
+      clearTimeout(tasks[key])
+      tasks[key] = setTimeout(function () {
+        activity('task', id, i, { checked: now })
+      }, 2000)
     }
   })
-}
+})
 
-function escapeHTML(text) {
-  return text.replace(/[&<>"]/g, function (c) {
-    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]
-  })
-}
-
-// a formula stays its source in a <code class="math"> until KaTeX renders it
-function tex(token) {
-  var css = token.display ? 'math display' : 'math'
-  return '<code class="' + css + '">' + escapeHTML(token.text) + '</code>'
-}
-
-// $…$ and $$…$$ as in LiaScript. Like pandoc, no space inside the dollars of
-// $…$ and no digit after it, so "5$ and 10$" or "$5 and $10" stay text.
-if (window.marked) {
-  marked.use({
-    extensions: [
-      {
-        name: 'mathBlock',
-        level: 'block',
-        start: function (src) {
-          var at = src.search(/^ {0,3}\$\$/m)
-          return at < 0 ? undefined : at
-        },
-        tokenizer: function (src) {
-          var m = /^ {0,3}\$\$([\s\S]+?)\$\$[ \t]*(?:\n+|$)/.exec(src)
-          if (m) return { type: 'mathBlock', raw: m[0], text: m[1].trim(), display: true }
-        },
-        renderer: function (token) {
-          return '<p>' + tex(token) + '</p>\n'
-        },
-      },
-      {
-        name: 'math',
-        level: 'inline',
-        start: function (src) {
-          var at = src.indexOf('$')
-          return at < 0 ? undefined : at
-        },
-        tokenizer: function (src) {
-          var m = /^\$\$([\s\S]+?)\$\$/.exec(src)
-          if (m) return { type: 'math', raw: m[0], text: m[1].trim(), display: true }
-          m = /^\$(?![\s$])((?:\\[\s\S]|[^\\$\n])+?)\$(?!\d)/.exec(src)
-          if (m && !/\s$/.test(m[1])) return { type: 'math', raw: m[0], text: m[1], display: false }
-        },
-        renderer: tex,
-      },
-    ],
-  })
-}
-
-function markdown(text) {
-  var div = document.createElement('div')
-
-  if (window.marked && window.DOMPurify) {
-    div.innerHTML = DOMPurify.sanitize(marked.parse(text), {
-      ALLOWED_URI_REGEXP: URIS,
-    })
-    div.querySelectorAll('pre > code.language-mermaid').forEach(diagram)
-    div.querySelectorAll('pre > code[class*="language-"]:not(.language-mermaid)').forEach(highlight)
-    div.querySelectorAll('code.math').forEach(formula)
-  } else {
-    // the CDN is out of reach
-    div.textContent = text
-    div.style.whiteSpace = 'pre-wrap'
-  }
-  return div
-}
-
-// one file from the CDN, pinned and integrity-checked
-function script(src, integrity) {
-  return new Promise(function (resolve, reject) {
-    var el = document.createElement('script')
-    el.src = src
-    el.integrity = integrity
-    el.crossOrigin = 'anonymous'
-    el.onload = resolve
-    el.onerror = reject
-    document.head.append(el)
-  })
-}
-
-var KATEX = 'https://cdn.jsdelivr.net/npm/katex@0.18.9/dist/'
-var katexLoading
-
-// 270 KB and its fonts, so only when the first formula shows up
-function loadKatex() {
-  if (!katexLoading) {
-    var css = document.createElement('link')
-    css.rel = 'stylesheet'
-    css.href = KATEX + 'katex.min.css'
-    css.integrity = 'sha256-uc4OjOk/DBjEmG/h8cPCadkhtWpp5sl/g6UHkWs4qrU='
-    css.crossOrigin = 'anonymous'
-    document.head.append(css)
-    katexLoading = script(KATEX + 'katex.min.js', 'sha256-FV9sLWc8WRLjtI9F2IMOqtGK4ZU5FZOc62SOqLnD5+I=').then(
-      function () {
-        return katex
-      },
-    )
-  }
-  return katexLoading
-}
-
-function formula(code) {
-  loadKatex()
-    .then(function (katex) {
-      var span = document.createElement('span')
-      span.className = 'math'
-      katex.render(code.textContent, span, {
-        displayMode: code.classList.contains('display'),
-        throwOnError: false,
-        // the formula is as untrusted as the rest of the message: no \href,
-        // \url, \includegraphics or \html…, and no box larger than 10em
-        trust: false,
-        maxSize: 10,
-      })
-      code.replaceWith(span)
-      log.scrollTop = log.scrollHeight
-    })
-    .catch(function () {
-      // the source stays visible as code
-    })
-}
-
-var ACE = 'https://cdn.jsdelivr.net/npm/ace-builds@1.44.0/src-min-noconflict/'
-var aceLoading
-
-// 470 KB, so only when the first code block with a language shows up.
-// ponytail: Ace loads the mode of a language itself from ACE, without an
-// integrity hash; pinned to the version, the CSP allows that host anyway.
-function loadAce() {
-  if (!aceLoading) {
-    var dark = matchMedia('(prefers-color-scheme: dark)').matches
-    aceLoading = script(ACE + 'ace.js', 'sha256-By0T5T0R4s7M//4aD6fxXPacVDXYl99T2YxxvhxKLn8=')
-      .then(function () {
-        ace.config.set('basePath', ACE)
-        return Promise.all([
-          script(ACE + 'ext-static_highlight.js', 'sha256-fJ+a3BZJhPnzp10lFc1cNbwrlqrdau+Ld/o+vGRuewY='),
-          script(ACE + 'ext-modelist.js', 'sha256-lgYENE7treG/uF32EmFdej1Ia4A6e+02EemJfAFNHRI='),
-          dark
-            ? script(ACE + 'theme-github_dark.js', 'sha256-5OuEYU3UL6mPcPAX4DU6yd9o4J86KP+BfbBrWNtMarc=')
-            : script(ACE + 'theme-github.js', 'sha256-GTHH+cSdlKmzrI9DiWmNP8GjOHyXFqa99ccipdj/aW8='),
-        ])
-      })
-      .then(function () {
-        return {
-          highlight: ace.require('ace/ext/static_highlight'),
-          modelist: ace.require('ace/ext/modelist'),
-          dom: ace.require('ace/lib/dom'),
-          theme: dark ? 'ace/theme/github_dark' : 'ace/theme/github',
-        }
-      })
-  }
-  return aceLoading
-}
-
-// read-only, as static HTML: selectable, wraps in a narrow chat, no editor
-function highlight(code) {
-  var lang = /\blanguage-(\S+)/.exec(code.className)[1].toLowerCase()
-  loadAce()
-    .then(function (ace) {
-      // python or py, bash or sh
-      var byName = ace.modelist.modesByName
-      var mode = byName.hasOwnProperty(lang) ? byName[lang] : ace.modelist.getModeForPath('x.' + lang)
-      if (mode.name == 'text') return
-      // marked ends the code with a newline, Ace would show it as an empty line
-      ace.highlight.render(code.textContent.replace(/\n$/, ''), mode.mode, ace.theme, 1, true, function (out) {
-        ace.dom.importCssString(out.css, 'ace_highlight', true)
-        code.parentNode.innerHTML = DOMPurify.sanitize(out.html)
-        log.scrollTop = log.scrollHeight
-      })
-    })
-    .catch(function () {
-      // the code stays as it is
-    })
-}
-
-var mermaidLoading
-var diagrams = 0
-
-// 5 MB, so only when the first diagram shows up
-function loadMermaid() {
-  if (!mermaidLoading) {
-    mermaidLoading = script(
-      'https://cdn.jsdelivr.net/npm/mermaid@12.0.0/dist/mermaid.min.js',
-      'sha256-KPynrm68fte7Y73mMTanS/7xTylqV+QDZX7rizKDYHM=',
-    ).then(function () {
-      mermaid.initialize({
-        startOnLoad: false,
-        // the diagram source is as untrusted as the rest of the message
-        securityLevel: 'strict',
-        theme: matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default',
-      })
-      return mermaid
-    })
-  }
-  return mermaidLoading
-}
-
-function diagram(code) {
-  loadMermaid()
-    .then(function (mermaid) {
-      return mermaid.render('diagram-' + ++diagrams, code.textContent)
-    })
-    .then(function (result) {
-      var figure = document.createElement('div')
-      figure.innerHTML = result.svg
-      code.parentNode.replaceWith(figure)
-      log.scrollTop = log.scrollHeight
-    })
-    .catch(function () {
-      // the source stays visible as a code block
-    })
-}
+// ---------------------------------------------------------------- AI -> user
 
 // inputs: [{id, type: buttons|radio|checkbox, label?, options: [string]}]
 // Built with DOM calls only, no option text ever becomes HTML.
 function form(ask, inputs) {
   var el = document.createElement('form')
   el.dataset.ask = ask
+  forms.push(el)
   var needsSubmit = false
 
   inputs.forEach(function (input) {
@@ -1325,7 +1262,7 @@ stream.onmessage = function (event) {
   if (typeof data.status == 'string') return status(data.status)
   if (typeof data.hint == 'string') return hint(data.hint)
   if (data.closed) {
-    return log.querySelectorAll('form[data-ask]').forEach(function (el) {
+    return forms.forEach(function (el) {
       if (el.dataset.ask == data.closed) closed(el)
     })
   }
@@ -1345,12 +1282,16 @@ stream.onmessage = function (event) {
 function showAI(chat, t) {
   var msg = add(
     'ai',
-    markdown(chat.markdown),
+    chat.markdown,
     chat.inputs && chat.inputs.length ? form(chat.id, chat.inputs) : null,
     chat.agent,
     t,
   )
-  if (typeof chat.lang == 'string') msg.lang = chat.lang
+  if (typeof chat.lang == 'string') {
+    msg.lang = chat.lang
+    // placed already, place() sets it otherwise
+    if (msg.parentNode) msg.parentNode.lang = chat.lang
+  }
   stageState()
   return msg
 }

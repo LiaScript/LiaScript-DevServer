@@ -68,6 +68,7 @@
   "pkg": {
     "assets": [
       "node_modules/@liascript/editor/dist/**/*",
+      "node_modules/@liascript/chat/dist/**/*",
       "views/**/*"
     ]
   },
