@@ -74,8 +74,7 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
     hidden files and folders and `node_modules` below the root, and every file whose extension is missing from
     the list of `--watch md,css` (default `WATCH`, the 10th parameter of `start()`, `*` for all, implies `--live`). Browser
     refreshes go out over reload's injected `/reload/reload.js` client script. `reload` 3.x runs its own `ws`
-    WebSocket server on `port + 10000` (see `reloadPort`), not socket.io — the `/socket.io` skip in the catch-all
-    route is a leftover that never matches. The client does a full `window.location.reload()` of the player page.
+    WebSocket server on `port + 10000` (see `reloadPort`), not socket.io. The client does a full `window.location.reload()` of the player page.
     `changed()` bundles: one reload 300 ms after a burst (`BURST_MS`), and while an agent works (a progress line
     shows and it reacted, not `pending`) at most every 30 s (`HOLD_MS`); the end of the progress line reloads at once.
   - Optional `--responsiveVoice` support: injects the responsiveVoice script tag with a given/default key (also
