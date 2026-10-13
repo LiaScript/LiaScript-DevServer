@@ -29,6 +29,10 @@
     "liadev": "dist/index.js",
     "liascript-codex": "dist/codex-bridge.js"
   },
+  "files": [
+    "dist",
+    "views"
+  ],
   "preferGlobal": true,
   "keywords": [
     "LiaScript",

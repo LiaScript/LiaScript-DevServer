@@ -11,3 +11,9 @@ docs
 *.md
 .mcp.json
 .chats
+*.tgz
+.playwright-mcp
+.superpowers
+.agents
+teaching-agent
+skills-lock.json
