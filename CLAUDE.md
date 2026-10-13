@@ -176,8 +176,7 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   a `command`, its `store` events of quizzes, surveys and tasks become `activity` like those of the course, with
   `chat` (number of the message) instead of `slide`; their states are not saved. The CSP of `chat.html` does not reach
   that iframe: like a course it runs the scripts of a message, so a message of the AI is as trusted as the course.
-  `@liascript/chat` up to 0.1.1--2.2.2 declares `postinstall: patch-package`, which fails outside its own repo: installed with
-  `--ignore-scripts` until a release without it. The scripts are separate files
+  The scripts are separate files
   because the page's CSP allows no inline scripts. Every agent is a pixel robot (`avatar.js`, inline SVG, no
   library): the 12 x 12 LED matrix of DiceBear's CC0 style Pixelbot, its eyes and mouths copied as cell numbers.
   `Avatar.role()` takes the role from the name (`teaching`, `artist`, `learner`, `development`, `reviewer`,
