@@ -50,13 +50,13 @@ Vanilla-JS im Chat, `src/check.js` als End-to-End-Test.
 | `src/teachers/teachers.ts` | neu | Browser-Einstieg, setzt `window.Teachers` |
 | `package.json` | ändern | Parcel-Ziel `teachers`, `build`, devDependencies |
 | `.gitignore` | ändern | `views/teachers.js` |
-| `src/lib.ts` | ändern | `Agent.persona`, Route für `teachers.js` |
+| `src/lib.ts` | ändern | `Agent.persona`, `view`, Route für `teachers.js` |
 | `src/mcp.ts` | ändern | `find_teacher`, `set_agent.persona`, Formular `teacher`, `get_state.teacher`, `read_chat.persona` |
 | `src/sections.ts` | ändern | `header(content, key)` |
 | `src/check.js` | ändern | Tests |
 | `views/chat.html` | ändern | `<script src="teachers.js">` |
 | `views/avatar.js` | ändern | Persona-Bild statt Roboter, Stimme |
-| `views/chat.js` | ändern | Formular `teacher`, `BC` übersetzen |
+| `views/chat.js` | ändern | Formular `teacher`, `BC` übersetzen, Lernendenansicht |
 | `views/chat.css` | ändern | `.bot.persona`, Karten |
 | `CLAUDE.md`, `README.md` | ändern | Doku |
 
@@ -1142,7 +1142,166 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ---
 
-### Task 6: Dokumentation
+### Task 6: Ansichten `author` und `learner`
+
+**Files:**
+- Modify: `src/lib.ts` (`agents`, `setAgent`, `agentsMessage`, `getState`), `src/mcp.ts` (`set_agent`: Schema, Beschreibung, `setAgent`), `views/chat.js` (`showAgents`, `showStage`)
+- Test: `src/check.js`
+
+**Interfaces:**
+- Consumes: `withPersona`, `personaOf` und die `persona`-Tests aus Task 3
+- Produces:
+  - `export type View = 'author' | 'learner'` und `export function setAgent(name: string, list?: Agent[], view?: View)` in `lib.ts`
+  - `getState().view`, SSE `{agents: {current, list, view}}`
+  - `set_agent({…, view?})` → `{agent, agents, view, persona?}`
+
+- [ ] **Step 1: Bestehende Tests an die neue Nachricht anpassen und neue schreiben**
+
+In `src/check.js`:
+
+a) `assert.deepStrictEqual(await tool('set_agent', { name: 'tutor', agents: [tutor, examiner] }), {` … `agents: [tutor, examiner],` `})` um `view: 'author',` im erwarteten Objekt ergänzen.
+
+b) `JSON.stringify({ agents: { current: tutor, list: [tutor, examiner] } })` ersetzen durch
+`JSON.stringify({ agents: { current: tutor, list: [tutor, examiner], view: 'author' } })`.
+
+c) In `stream.endsWith('data: {"agents":{"current":' + JSON.stringify(examiner) + ',"list":[{"name":"tutor","emoji":"🦉"},' + JSON.stringify(examiner) + ']}}\n\n')`
+das Ende `']}}\n\n'` ersetzen durch `'],"view":"author"}}\n\n'`.
+
+d) Direkt nach dem Persona-Block aus Task 3 (nach dessen letzter Zeile `await tool('set_agent', { name: 'tutor', agents: [tutor, examiner] })`):
+
+```js
+  // --- views: authors see every agent, learners only their teacher
+  assert.strictEqual((await tool('get_state', {})).view, 'learner', 'a persona switched to the learner view')
+  assert.ok((await tool('set_agent', { name: 'tutor', view: 'teacher' })).isError, 'view is author or learner')
+  let viewed = await tool('set_agent', { name: 'tutor', view: 'author' })
+  assert.strictEqual(viewed.view, 'author', 'asked for in the chat: back to the author view')
+  assert.ok(stream.includes('"view":"author"}}'), 'the shell hears of it')
+  viewed = await tool('set_agent', { name: 'tutor', persona: 'marie-curie', view: 'author' })
+  assert.strictEqual(viewed.view, 'author', 'an author plans with a persona')
+  await tool('set_agent', { name: 'tutor', view: 'learner' })
+  assert.strictEqual((await tool('get_state', {})).view, 'learner')
+  let replayView = ''
+  const reloadedView = http.get(ORIGIN + '/gotoLine?chat', (res) => res.on('data', (chunk) => (replayView += chunk)))
+  await sleep(200)
+  assert.ok(replayView.includes('"view":"learner"}}'), 'a reloaded chat gets the view: ' + replayView)
+  reloadedView.destroy()
+  viewed = await tool('set_agent', { name: 'tutor', agents: [tutor, examiner], view: 'author' })
+  assert.deepStrictEqual(viewed, { agent: 'tutor', agents: [tutor, examiner], view: 'author' })
+```
+
+- [ ] **Step 2: Tests scheitern sehen**
+
+Run: `npm run build && node src/check.js`
+Expected: FAIL an der angepassten Stelle a) (`view` fehlt im Ergebnis).
+
+- [ ] **Step 3: `src/lib.ts`**
+
+```ts
+// view: author shows every agent of the roster, learner only the current
+// one, with a larger portrait (a teacher persona in front of learners)
+export type View = 'author' | 'learner'
+const agents = { current: '', list: [] as Agent[], view: 'author' as View }
+```
+
+(ersetzt `const agents = { current: '', list: [] as Agent[] }`)
+
+```ts
+// list replaces the roster, name has to be in it (the caller checks that)
+export function setAgent(name: string, list?: Agent[], view?: View) {
+  if (list) agents.list = list
+  if (view) agents.view = view
+  agents.current = name
+  send(agentsMessage())
+}
+```
+
+`agentsMessage()`:
+
+```ts
+function agentsMessage() {
+  return { agents: { current: currentAgent() || null, list: agents.list, view: agents.view } }
+}
+```
+
+In `getState()` nach `agents: agents.list,` die Zeile `view: agents.view,`.
+
+- [ ] **Step 4: `src/mcp.ts`**
+
+Schema von `set_agent`, `properties`:
+
+```ts
+        view: {
+          type: 'string',
+          enum: ['author', 'learner'],
+          description: 'author: the chat shows every agent; learner: only the current one, larger. A persona switches to learner unless view is given. Switch when the user asks for it in the chat, e.g. to leave the author mode',
+        },
+```
+
+Im `description`-Text von `set_agent` den in Task 3 ergänzten Satz ersetzen durch:
+`persona turns the agent into a teacher persona, the result has its teaching style and rules, and the chat switches to the learner view (view).`
+
+In `setAgent`, nach der Prüfung von `persona`:
+
+```ts
+  const view = args.view
+  if (view !== undefined && view !== 'author' && view !== 'learner') throw new Error('view must be author or learner')
+```
+
+Das Ende von `setAgent` ersetzen:
+
+```ts
+  // a persona is for learners, unless the call says otherwise
+  server.setAgent(name, list, view !== undefined ? view : persona ? 'learner' : undefined)
+  const { agent, agents, view: shown } = server.getState()
+  const role = personaOf(server.currentAgent())
+  return role ? { agent, agents, view: shown, persona: role } : { agent, agents, view: shown }
+```
+
+- [ ] **Step 5: `views/chat.js`**
+
+In `showAgents`, vor `who.textContent = ''`:
+
+```js
+  // the learner view: only the agent who teaches, larger on the stage
+  document.body.classList.toggle('learner', agents.view == 'learner')
+```
+
+und `team.hidden = team.children.length < 2` ersetzen durch
+
+```js
+  team.hidden = team.children.length < 2 || agents.view == 'learner'
+```
+
+In `showStage`: `stageBot = Avatar.bot(agent, 56)` ersetzen durch
+
+```js
+  stageBot = Avatar.bot(agent, document.body.classList.contains('learner') ? 96 : 56)
+```
+
+- [ ] **Step 6: Tests laufen durch**
+
+Run: `npm run build && node src/check.js`
+Expected: `ok`. Die Länge der Beschreibung von `set_agent` bleibt unter 2048 (geprüft von `check.js`).
+
+- [ ] **Step 7: Sichtprüfung** (im selben Browserfenster wie Task 5, falls noch offen, sonst vorher ankündigen)
+
+1. `set_agent({name: 'teaching', agents: [{name: 'teaching', emoji: '🧑‍🏫'}, {name: 'reviewer', emoji: '✅'}]})`: Reihe mit zwei Robotern sichtbar.
+2. `set_agent({name: 'teaching', persona: 'maria-montessori'})`: Reihe verschwindet, Montessori groß auf der Bühne.
+3. `set_agent({name: 'teaching', view: 'author'})`: Reihe wieder da (Porträt und Roboter), Bühne klein.
+4. F5 in der Lernendenansicht: bleibt Lernendenansicht.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add src/lib.ts src/mcp.ts src/check.js views/chat.js
+git commit -m "Author and learner view: a teacher persona shows only itself, larger
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 7: Dokumentation
 
 **Files:**
 - Modify: `CLAUDE.md`, `README.md`
@@ -1168,7 +1327,9 @@ In „Architecture“, nach dem Absatz zu `src/mcp.ts`, einen Absatz:
   the resting face and the open mouths. The MCP side: `find_teacher` lists them, `set_agent.persona` puts one on a
   roster agent (label defaults to the person's name, `null` removes it, the result carries `teaching` and `rules`),
   the chat form `type: "teacher"` shows 1 to 6 as portraits, `get_state.teacher` is `teacher: <id>` of the course
-  header (`sections.header()`). `Avatar.bot()` in `views/avatar.js` returns a `span.bot.persona` with the same
+  header (`sections.header()`). Two views (`view`, in memory next to the roster, part of `{agents}`): `author` shows
+  every agent, `learner` only the current one with a 96 px stage (`body.learner`); a top-level `persona` of
+  `set_agent` switches to `learner` unless `view` is given, the agent switches back when the user asks in the chat. `Avatar.bot()` in `views/avatar.js` returns a `span.bot.persona` with the same
   `data-mouth`/`data-state` classes as the robot, and falls back to the robot if `window.Teachers` does not know
   the id; `Avatar.voice()` takes the gender of the person.
 ```
