@@ -114,9 +114,15 @@ var Avatar = (function () {
   }
 
   // how the robot of an agent speaks: {gender, pitch, rate, pick}, pick
-  // chooses among several fitting voices, the same one every time
+  // chooses among several fitting voices, the same one every time; a
+  // persona speaks with the gender of the person, pitch and rate from its id
   function voice(agent) {
     var v = role(agent).voice
+    var person = agent && agent.persona && window.Teachers ? window.Teachers.get(agent.persona) : null
+    if (person) {
+      var h = hash(agent.persona)
+      v = [person.gender, 0.9 + (h % 5) * 0.05, 0.92 + ((h >> 4) % 4) * 0.04]
+    }
     return { gender: v[0], pitch: v[1], rate: v[2], pick: hash(agent && agent.name ? agent.name : '') }
   }
 
@@ -144,9 +150,45 @@ var Avatar = (function () {
     document.body.append(svg)
   }
 
+  // A teacher persona (teachers.js): the portrait of a historical person
+  // instead of the robot. The same classes as the robot, so that data-mouth
+  // and data-state work alike: m0 resting, m1 and m2 open, a bar below for
+  // the running light and the pulse. null if the person is unknown here,
+  // e.g. teachers.js failed to load: then the robot.
+  function portrait(agent, size) {
+    var frames = agent && agent.persona && window.Teachers ? window.Teachers.frames(agent.persona) : null
+    if (!frames) return null
+    var box = document.createElement('span')
+    box.className = 'bot persona'
+    box.style.width = box.style.height = size + 'px'
+    if (frames.background) box.style.background = frames.background
+    ;[frames.rest, frames.mouths[0], frames.mouths[frames.mouths.length - 1]].forEach(function (src, i) {
+      var img = document.createElement('img')
+      img.className = 'm m' + i
+      img.src = src
+      img.alt = ''
+      box.append(img)
+    })
+    for (var i = 0; i < 8; i++) {
+      var tick = document.createElement('i')
+      tick.className = 'tick'
+      tick.style.animationDelay = (i * 0.12).toFixed(2) + 's'
+      box.append(tick)
+    }
+    var wait = document.createElement('i')
+    wait.className = 'wait'
+    box.append(wait)
+    box.title = frames.title
+    box.setAttribute('role', 'img')
+    box.setAttribute('aria-label', agent.label || agent.name)
+    return box
+  }
+
   var blinks = 0
 
   function bot(agent, size) {
+    var face = portrait(agent, size)
+    if (face) return face
     defs()
     var r = role(agent)
     var html = '<rect width="100" height="100" fill="' + r.bg + '"/><rect width="100" height="100" fill="url(#lia-bot-grid)"/>'
