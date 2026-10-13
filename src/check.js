@@ -623,10 +623,11 @@ async function main() {
   assert.deepStrictEqual(await tool('set_agent', { name: 'tutor', agents: [tutor, examiner] }), {
     agent: 'tutor',
     agents: [tutor, examiner],
+    view: 'author',
   })
   await sleep(100)
   assert.ok(
-    stream.includes(JSON.stringify({ agents: { current: tutor, list: [tutor, examiner] } })),
+    stream.includes(JSON.stringify({ agents: { current: tutor, list: [tutor, examiner], view: 'author' } })),
     'button and menu learn the agents: ' + stream,
   )
   await tool('chat', { markdown: 'from the tutor' })
@@ -648,7 +649,7 @@ async function main() {
   assert.strictEqual((await post({ type: 'command', agent: 'examiner', cmd: 'switch', params: {} })).status, 204)
   await sleep(100)
   assert.strictEqual((await tool('get_state', {})).agent, 'examiner', 'the switch takes effect at once')
-  assert.ok(stream.endsWith('data: {"agents":{"current":' + JSON.stringify(examiner) + ',"list":[{"name":"tutor","emoji":"🦉"},' + JSON.stringify(examiner) + ']}}\n\n'), 'and the shell hears of it')
+  assert.ok(stream.endsWith('data: {"agents":{"current":' + JSON.stringify(examiner) + ',"list":[{"name":"tutor","emoji":"🦉"},' + JSON.stringify(examiner) + '],"view":"author"}}\n\n'), 'and the shell hears of it')
   assert.deepStrictEqual(notifications.pop().params.meta, { type: 'command', agent: 'examiner', cmd: 'switch' }, 'the agents hear of it')
   await post({ type: 'command', agent: 'nobody', cmd: 'switch', params: {} })
   await sleep(100)
@@ -698,6 +699,24 @@ async function main() {
   assert.strictEqual(listed.persona.id, 'hypatia', 'the persona of the current agent')
   assert.ok((await tool('set_agent', { name: 'tutor', agents: [{ ...tutor, persona: 'nobody' }] })).isError)
   await tool('set_agent', { name: 'tutor', agents: [tutor, examiner] })
+
+  // --- views: authors see every agent, learners only their teacher
+  assert.strictEqual((await tool('get_state', {})).view, 'learner', 'a persona switched to the learner view')
+  assert.ok((await tool('set_agent', { name: 'tutor', view: 'teacher' })).isError, 'view is author or learner')
+  let viewed = await tool('set_agent', { name: 'tutor', view: 'author' })
+  assert.strictEqual(viewed.view, 'author', 'asked for in the chat: back to the author view')
+  assert.ok(stream.includes('"view":"author"}}'), 'the shell hears of it')
+  viewed = await tool('set_agent', { name: 'tutor', persona: 'marie-curie', view: 'author' })
+  assert.strictEqual(viewed.view, 'author', 'an author plans with a persona')
+  await tool('set_agent', { name: 'tutor', view: 'learner' })
+  assert.strictEqual((await tool('get_state', {})).view, 'learner')
+  let replayView = ''
+  const reloadedView = http.get(ORIGIN + '/gotoLine?chat', (res) => res.on('data', (chunk) => (replayView += chunk)))
+  await sleep(200)
+  assert.ok(replayView.includes('"view":"learner"}}'), 'a reloaded chat gets the view: ' + replayView)
+  reloadedView.destroy()
+  viewed = await tool('set_agent', { name: 'tutor', agents: [tutor, examiner], view: 'author' })
+  assert.deepStrictEqual(viewed, { agent: 'tutor', agents: [tutor, examiner], view: 'author' })
 
   // --- event stream for agents that watch a command (Claude Code's Monitor)
   state = await tool('get_state', {})

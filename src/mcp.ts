@@ -111,7 +111,7 @@ const TOOLS = [
   {
     name: 'set_agent',
     description:
-      'Shows the user who they talk to: a pixel robot (chosen by name, else by emoji) and the label (else the name) of the current agent on the chat button, its robot and the time under each of its messages. Give every agent a label the user understands. Call it before the first message and whenever the agent that talks to the user changes. agents declares all agents of a workflow and replaces the previous list; with two or more the chat offers a menu to pick one. A pick in that menu, or a click on a course link agent:<name>/switch, switches at once and arrives as a command event {agent: <name>, cmd: "switch"}: hand the conversation over to that agent. chat and answer events carry the current agent in their agent field, route them to it. name has to be in the list, unless emoji is given: then it is added or updated. persona turns the agent into a teacher persona, the result has its teaching style and rules. Opens no browser. Returns {agent, agents}.',
+      'Shows the user who they talk to: a pixel robot (chosen by name, else by emoji) and the label (else the name) of the current agent on the chat button, its robot and the time under each of its messages. Give every agent a label the user understands. Call it before the first message and whenever the agent that talks to the user changes. agents declares all agents of a workflow and replaces the previous list; with two or more the chat offers a menu to pick one. A pick in that menu, or a click on a course link agent:<name>/switch, switches at once and arrives as a command event {agent: <name>, cmd: "switch"}: hand the conversation over to that agent. chat and answer events carry the current agent in their agent field, route them to it. name has to be in the list, unless emoji is given: then it is added or updated. persona turns the agent into a teacher persona, the result has its teaching style and rules, and the chat switches to the learner view (view). Opens no browser. Returns {agent, agents}.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -121,6 +121,11 @@ const TOOLS = [
         persona: {
           type: ['string', 'null'],
           description: 'id of find_teacher: this agent shows that historical person instead of a robot and teaches in their style, null removes it',
+        },
+        view: {
+          type: 'string',
+          enum: ['author', 'learner'],
+          description: 'author: the chat shows every agent; learner: only the current one, larger. A persona switches to learner unless view is given. Switch when the user asks for it in the chat, e.g. to leave the author mode',
         },
         agents: {
           type: 'array',
@@ -530,6 +535,8 @@ function setAgent(args: any) {
   if (persona !== undefined && persona !== null && !isPersona(persona)) {
     throw new Error('persona must be an id of find_teacher, or null')
   }
+  const view = args.view
+  if (view !== undefined && view !== 'author' && view !== 'learner') throw new Error('view must be author or learner')
 
   let list: server.Agent[] = server.getState().agents
   if (args.agents !== undefined) {
@@ -574,10 +581,11 @@ function setAgent(args: any) {
     throw new Error('unknown agent ' + name + ', pass its emoji or declare it in agents')
   }
 
-  server.setAgent(name, list)
-  const { agent, agents } = server.getState()
+  // a persona is for learners, unless the call says otherwise
+  server.setAgent(name, list, view !== undefined ? view : persona ? 'learner' : undefined)
+  const { agent, agents, view: shown } = server.getState()
   const role = personaOf(server.currentAgent())
-  return role ? { agent, agents, persona: role } : { agent, agents }
+  return role ? { agent, agents, view: shown, persona: role } : { agent, agents, view: shown }
 }
 
 function readChat(args: any) {
