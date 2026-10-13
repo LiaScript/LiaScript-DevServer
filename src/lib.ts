@@ -75,7 +75,10 @@ const speech = { voices: -1, automated: false, fallback: false }
 // label: what the user reads instead of the name, e.g. "Unterrichtsplanung"
 // persona: a historical person of src/teachers/ the chat shows instead of the robot
 export type Agent = { name: string; emoji: string; label?: string; persona?: string }
-const agents = { current: '', list: [] as Agent[] }
+// view: author shows every agent of the roster, learner only the current
+// one, with a larger portrait (a teacher persona in front of learners)
+export type View = 'author' | 'learner'
+const agents = { current: '', list: [] as Agent[], view: 'author' as View }
 
 export function currentAgent(): Agent | undefined {
   // not find(): the lib build compiles against ES5
@@ -83,8 +86,9 @@ export function currentAgent(): Agent | undefined {
 }
 
 // list replaces the roster, name has to be in it (the caller checks that)
-export function setAgent(name: string, list?: Agent[]) {
+export function setAgent(name: string, list?: Agent[], view?: View) {
   if (list) agents.list = list
+  if (view) agents.view = view
   agents.current = name
   send(agentsMessage())
 }
@@ -236,7 +240,7 @@ export function readChat(id?: string) {
 }
 
 function agentsMessage() {
-  return { agents: { current: currentAgent() || null, list: agents.list } }
+  return { agents: { current: currentAgent() || null, list: agents.list, view: agents.view } }
 }
 
 // Automation tools start Chrome with this flag, which takes away its online
@@ -302,6 +306,7 @@ export function getState() {
     voices: speech.voices,
     agent: agents.current,
     agents: agents.list,
+    view: agents.view,
     session: session && chats.summary(session),
     // only present when the course cannot be read aloud
     tts: ttsHint(),

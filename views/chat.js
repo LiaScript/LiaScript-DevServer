@@ -259,6 +259,8 @@ function showAgents(agents) {
   var now = agents.current
   current = now ? now.name : ''
   currentAgent = now
+  // the learner view: only the agent who teaches, larger on the stage
+  document.body.classList.toggle('learner', agents.view == 'learner')
   who.textContent = ''
   who.append(Avatar.bot(now, 22), now ? now.label || now.name : 'Chat')
 
@@ -276,7 +278,7 @@ function showAgents(agents) {
     team.append(button)
   })
   team.classList.remove('failed')
-  team.hidden = team.children.length < 2
+  team.hidden = team.children.length < 2 || agents.view == 'learner'
   if (!reading) showStage(currentAgent)
 }
 
@@ -298,7 +300,7 @@ var stageBox = document.getElementById('bot')
 var stageBot
 
 function showStage(agent) {
-  stageBot = Avatar.bot(agent, 56)
+  stageBot = Avatar.bot(agent, document.body.classList.contains('learner') ? 96 : 56)
   stageBox.textContent = ''
   stageBox.append(stageBot)
   stageState()
