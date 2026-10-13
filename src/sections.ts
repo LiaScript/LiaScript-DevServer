@@ -171,3 +171,15 @@ export function write(
   const { text, ...section } = n < 0 ? { text: '' } : read(now, n, deep)
   return { content: doc.lines.join(doc.eol), section }
 }
+
+// A key of the macro header of a course: the HTML comment before the first
+// heading, e.g. teacher: socrates. undefined without header or key.
+export function header(content: string, key: string): string | undefined {
+  const start = content.indexOf('<!--')
+  const first = content.search(/^#{1,6}[ \t]/m)
+  if (start < 0 || (first >= 0 && first < start)) return undefined
+  const end = content.indexOf('-->', start)
+  const comment = content.slice(start + 4, end < 0 ? undefined : end)
+  const match = comment.match(new RegExp('^[ \\t]*' + key + '[ \\t]*:[ \\t]*(\\S+)', 'm'))
+  return match ? match[1] : undefined
+}
