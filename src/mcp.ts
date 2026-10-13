@@ -124,7 +124,7 @@ const TOOLS = [
         },
         voice: {
           type: ['string', 'null'],
-          description: 'a name of get_state.voice_names this agent reads aloud with, e.g. a male voice for a male persona; null for the automatic choice',
+          description: 'a name of get_state.voice_names this agent reads aloud with, e.g. a male voice for a male persona (another name is set too, with a warning); null for the automatic choice',
         },
         view: {
           type: 'string',
@@ -612,9 +612,18 @@ function setAgent(args: any) {
 
   // a persona is for learners, unless the call says otherwise
   server.setAgent(name, list, view !== undefined ? view : persona ? 'learner' : undefined)
-  const { agent, agents, view: shown } = server.getState()
+  const { agent, agents, view: shown, voice_names: names } = server.getState()
   const role = personaOf(server.currentAgent())
-  return role ? { agent, agents, view: shown, persona: role } : { agent, agents, view: shown }
+  const result: any = role ? { agent, agents, view: shown, persona: role } : { agent, agents, view: shown }
+  // set anyway: another browser may have it, but the agent should know it guessed
+  const guessed = [voice].concat((args.agents || []).map((a: any) => a.voice))
+    .filter((v: any) => typeof v === 'string' && names.length && names.indexOf(v) < 0)
+  if (guessed.length) {
+    result.warning =
+      'voice ' + guessed.join(', ') + ' is not one of get_state.voice_names (' + names.slice(0, 10).join(', ') +
+      (names.length > 10 ? ', …' : '') + '), the browser reads with a voice of its own choice'
+  }
+  return result
 }
 
 function readChat(args: any) {
