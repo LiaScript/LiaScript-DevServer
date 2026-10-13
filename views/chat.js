@@ -36,6 +36,7 @@ var TEXTS = {
     'Send again': 'Erneut senden',
     'not delivered': 'nicht zugestellt',
     'No longer open': 'Nicht mehr offen',
+    BC: 'v. Chr.',
     'Read aloud': 'Vorlesen',
     'Read this message aloud': 'Diese Nachricht vorlesen',
     Stop: 'Stopp',
@@ -418,11 +419,16 @@ function showEntry(entry) {
   }
 }
 
+// the id of a teacher form reads as the name of the person
 function choice(values) {
+  var name = function (value) {
+    var person = window.Teachers && window.Teachers.get(value)
+    return person ? person.name : value
+  }
   return (
     Object.keys(values)
       .map(function (key) {
-        return [].concat(values[key]).join(', ')
+        return [].concat(values[key]).map(name).join(', ')
       })
       .filter(Boolean)
       .join(' · ') || '–'
@@ -1128,7 +1134,21 @@ lia.addEventListener('store', function (e) {
 
 // ---------------------------------------------------------------- AI -> user
 
-// inputs: [{id, type: buttons|radio|checkbox, label?, options: [string]}]
+// 1867–1934, 470–399 v. Chr., 4 v. Chr.–65: BC in the language of the chat
+function lived(years) {
+  var el = document.createElement('small')
+  var year = function (y, last) {
+    el.append(String(Math.abs(y)))
+    if (y < 0 && (last || years[1] >= 0)) el.append(' ', tr(document.createElement('span'), 'BC'))
+  }
+  year(years[0], false)
+  el.append('–')
+  year(years[1], true)
+  return el
+}
+
+// inputs: [{id, type: buttons|radio|checkbox|teacher, label?, options: [string]}]
+// (teacher: ids of teachers.js, shown as portraits)
 // Built with DOM calls only, no option text ever becomes HTML.
 function form(ask, inputs) {
   var el = document.createElement('form')
@@ -1146,7 +1166,18 @@ function form(ask, inputs) {
     }
 
     input.options.forEach(function (option) {
-      if (input.type == 'buttons') {
+      if (input.type == 'teacher') {
+        var person = window.Teachers && window.Teachers.get(option)
+        var card = document.createElement('button')
+        card.name = input.id
+        card.value = option
+        card.append(Avatar.bot({ name: option, persona: option, label: person ? person.name : option }, 64))
+        var name = document.createElement('strong')
+        name.textContent = person ? person.name : option
+        card.append(name)
+        if (person) card.append(lived(person.lived))
+        set.append(card)
+      } else if (input.type == 'buttons') {
         var button = document.createElement('button')
         button.name = input.id
         button.value = button.textContent = option
