@@ -24,6 +24,8 @@ app.locals.version = packageJson.version
 var dirname = ''
 var node_modules
 var liascriptPath = ''
+// @liascript/chat: renders the messages of the chat shell as LiaScript
+var liachatPath = ''
 var reloadInstance: any = null
 var watcher: any = null
 
@@ -146,7 +148,8 @@ const HELP_AFTER = 3
 const helped = new Set<string>()
 
 function needsHelp(p: { [key: string]: string | string[] }, file: string) {
-  const key = [file, p.kind, p.slide, p.block].join(':')
+  // slide in the course, chat the number of a message in the chat
+  const key = [file, p.kind, p.slide, p.chat, p.block].join(':')
   if (p.solved === 'solved' || p.ok === 'true') {
     helped.delete(key)
     return false
@@ -574,6 +577,7 @@ export function init(serverPath?: string, nodeModulesPath?: string) {
   liascriptPath = path.resolve(
     path.join(node_modules, '@liascript/editor/dist'),
   )
+  liachatPath = path.resolve(path.join(node_modules, '@liascript/chat/dist'))
 }
 
 export async function start(
@@ -847,13 +851,23 @@ export async function start(
   // pixel robots of the agents
   if (agent) {
     app.get(
-      '/liascript/:file(chat.html|chat.js|avatar.js)',
+      '/liascript/:file(chat.html|chat.js|chat.css|avatar.js)',
       function (req: express.Request, res: express.Response) {
         res.sendFile(req.params.file, {
           root: path.resolve(path.join(dirname, 'views')),
           // revalidated on every load: a cached chat.js from an older
           // version does not understand the messages of this one
           headers: { 'Cache-Control': 'no-cache' },
+        })
+      },
+    )
+
+    // the LiaScript chat that renders the messages: element.js and its app
+    app.get(
+      '/liascript/lia-chat/*',
+      function (req: express.Request, res: express.Response) {
+        res.sendFile(req.params[0], { root: liachatPath }, (err) => {
+          if (err) res.sendStatus(404)
         })
       },
     )
