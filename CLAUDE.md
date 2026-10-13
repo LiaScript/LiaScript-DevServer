@@ -20,7 +20,7 @@ node src/check.js  # end-to-end check of --mcp against the BUILT dist/index.js, 
 `build` always runs `shebang` and `lib` afterward. There is no separate lint or test script. The only automated
 check is `src/check.js`: it spawns `dist/index.js --mcp` in a temporary project folder (the chats land in its
 `.chats/`, not in the repo), speaks JSON-RPC to it and treats every stdout line as protocol, so it also fails on a
-stray `console.log`. Never call the `chat` or `goto` tool in it without a fake SSE
+stray `console.log`. It also runs `views/teachers.js` in a `vm` sandbox and renders every persona. Never call the `chat` or `goto` tool in it without a fake SSE
 client connected, they open a real browser otherwise. There's no dedicated `tsconfig.json`; `lib` compiles
 `src/lib.ts` directly via CLI flags (`--module commonjs -d --outDir dist`).
 
@@ -28,6 +28,11 @@ Two build outputs come from the same `lib.ts` code for different consumers:
 - `dist/index.js` — parcel-bundled CLI executable (entry: `src/index.ts`, which parses argv and calls into `lib.ts`)
 - `dist/lib.js` (+ `.d.ts`) — plain tsc output, importable as a library (`server.init(...)`, `server.start(...)`) by
   other Node programs that want to embed the dev server
+
+A third, `views/teachers.js`, is the parcel target `teachers` (browser, global, entry `src/teachers/teachers.ts`): the
+catalog of the teacher personas and their DiceBear portraits for the chat. It is a build artefact (`.gitignore`) and
+still ships, because npm reads `.npmignore`. DiceBear is ESM only and a devDependency: never import it outside
+`src/teachers/render.ts`.
 
 When changing `src/lib.ts`, keep both build paths in mind — a change that works under parcel's bundling may need
 checking under plain tsc output too (e.g. `require(...)` for untyped deps vs `import`). `src/mcp.ts` is imported by
@@ -128,7 +133,7 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
     messages and emits a `session` event with `{id, title, resumed}`. The title is the first user message, see
     `chats.title()`.
 - **`src/mcp.ts`** — the MCP adapter: a dependency-free newline-delimited JSON-RPC server on stdio (deliberately
-  not the MCP SDK, see the header comment) with the tools `get_state`, `goto`, `chat`, `set_agent`, `read_chat`,
+  not the MCP SDK, see the header comment) with the tools `get_state`, `goto`, `chat`, `set_agent`, `find_teacher`, `read_chat`,
   `wait_for_event`, `outline`, `read_section` and `write_section`. `read_chat` returns the saved chat (default the
   last 50 entries, agents by name) so that a fresh agent can pick up a resumed session; ask ids are random
   (`ask-<hex>`) because a resumed chat holds the forms of earlier processes, and a `session` event
@@ -164,6 +169,21 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   (`ttsHint()` in `lib.ts`). `--responsiveVoice` without a key injects `key=true`, which the service rejects.
   Automation tools start Chrome with `--disable-component-extensions-with-background-pages`, which removes its
   online voices.
+- **`src/teachers/`** — teacher personas: historical people a teaching agent can take on. `looks.ts` is a verbatim
+  copy of `src/famous.ts` of `LiaTemplates/virtual-speaker` (copy it again to take over new people, only header and
+  last line differ), `traits.ts` holds gender, region, lived, fields and teaching (an English instruction, never a
+  quote) per id, typed against the ids of `looks.ts`, `catalog.ts` joins them (`TEACHERS`, `find`, `line`) without
+  DiceBear, so `mcp.ts` imports it. `render.ts` (copy of virtual-speaker's `avatar.ts`/`faces.ts`, six styles) makes
+  the resting face and the open mouths. The MCP side: `find_teacher` lists them, `set_agent.persona` puts one on a
+  roster agent (label defaults to the person's name, `null` removes it, the result carries `teaching` and `rules`),
+  the chat form `type: "teacher"` shows 1 to 6 as portraits (the answer bubble shows the name), `get_state.teacher`
+  is `teacher: <id>` of the course header (`sections.header()`). Two views (`view`, in memory next to the roster,
+  part of `{agents}`): `author` shows every agent, `learner` only the current one with a 96 px stage
+  (`body.learner`); a top-level `persona` of `set_agent` switches to `learner` unless `view` is given, the agent
+  switches back when the user asks in the chat. `Avatar.bot()` in `views/avatar.js` returns a `span.bot.persona`
+  with the same `data-mouth`/`data-state` classes as the robot and falls back to the robot if `window.Teachers`
+  does not know the id; `Avatar.voice()` takes the gender of the person. The server instructions are at 2045 of
+  2048 characters, so the personas live in the tool descriptions only.
 - **`views/chat.html` + `views/chat.js` + `views/chat.css` + `views/avatar.js`** — the chat shell served at `/liascript/chat.html`: the player in a
   same-origin iframe with the chat on top, so a live reload only reloads the iframe. The messages are LiaScript,
   rendered by `<lia-chat>` of `@liascript/chat` (served from its `dist/` at `/liascript/lia-chat/`, `liachatPath`) in a
