@@ -772,11 +772,21 @@ function runs(content) {
   }
   return out
     .map(function (run) {
-      return { lang: run.lang, text: run.text.replace(/\s+/g, ' ').trim() }
+      return { lang: run.lang, text: unemoji(run.text) }
     })
     .filter(function (run) {
       return run.text
     })
+}
+
+// Voices read an emoji by its name ("grinning face"), so it is left out, with
+// its joiners, variation selectors, skin tones and flag letters; the digit of a
+// keycap stays.
+function unemoji(text) {
+  return text
+    .replace(/[\p{Extended_Pictographic}\p{Regional_Indicator}\u{1F3FB}-\u{1F3FF}‍️⃣]/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 // Sentence by sentence: Chrome drops an utterance of its online voices after
@@ -1020,7 +1030,8 @@ function readStatus(text) {
     text = SPOKEN[text]
   }
   said = text
-  enqueue({ parts: [{ lang: language(), text: t(text) }], status: true })
+  text = unemoji(t(text))
+  if (text) enqueue({ parts: [{ lang: language(), text: text }], status: true })
 }
 
 // a reload of the shell must not leave the browser talking
