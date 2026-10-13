@@ -30,13 +30,15 @@ verstorben, nach Kontinent gruppiert, gezeichnet in sechs DiceBear-Stilen). Mit 
 
 ## Bausteine
 
-### `src/teachers/people.ts` (reine Daten)
+### `src/teachers/looks.ts`, `traits.ts`, `catalog.ts` (reine Daten)
 
-Kopie von `famous.ts`, ohne DiceBear-Import, jeder Eintrag ergänzt um:
+`looks.ts` ist eine wörtliche Kopie von `famous.ts` (nur der Typ-Import wird ersetzt), damit neue Personen aus
+virtual-speaker später durch erneutes Kopieren übernommen werden können. `traits.ts` hält die Merkmale pro id, typisiert
+als `Record<keyof typeof LOOKS, Traits>`, sodass tsc eine fehlende oder überzählige id meldet. `catalog.ts` fügt beides
+zu `TEACHERS` zusammen und enthält `find()` und `line()`. Ohne DiceBear-Import, damit `mcp.ts` es einbinden kann.
 
 ```ts
-'marie-curie': {
-  name: 'Marie Curie', style: 'toon-head', seed: 'marie-curie', options: { … },
+'marie-curie': {                    // traits.ts
   gender: 'female',                 // 'female' | 'male'
   region: 'europe',                 // europe | asia | africa | north-america | south-america | oceania | polar
   lived: [1867, 1934],              // negative Jahre v. Chr., [geboren, gestorben]
@@ -45,7 +47,7 @@ Kopie von `famous.ts`, ohne DiceBear-Import, jeder Eintrag ergänzt um:
 },
 ```
 
-`region` folgt den Abschnittskommentaren von `famous.ts`. Die Antarktis-Forscher (Amundsen, Shackleton, Mawson)
+`region` folgt den Abschnittskommentaren von `looks.ts`. Die Antarktis-Forscher (Amundsen, Shackleton, Mawson)
 werden `polar`. `gender` wird pro Person bestimmt, nicht aus dem Namen. `teaching` beschreibt die Art zu lehren in
 der zweiten Person als Anweisung an das Modell („Ask questions instead of explaining …“) und enthält keine Zitate.
 
@@ -65,8 +67,8 @@ Name, Stil, Urheber und Lizenz (CC BY bei toon-head, micah, personas). Blinzeln 
 Ergebnisse werden pro id gecacht.
 
 `views/teachers.js` ist ein zweites Parcel-Ziel im `build` (Browser, `outputFormat: global`, `includeNodeModules`),
-Einstieg `src/teachers/browser.ts`, das `window.Teachers = { get(id), frames(id) }` setzt. `get` gibt die
-Katalogdaten ohne Optionen zurück. Die Datei liegt unter `views/` und kommt damit ins npm-Tarball und in `pkg.assets`.
+Einstieg `src/teachers/teachers.ts` (der Name ergibt die Ausgabe `views/teachers.js`), das
+`window.Teachers = { ids(), get(id), frames(id) }` setzt. `get` gibt die Katalogdaten ohne Optionen zurück. Die Datei liegt unter `views/` und kommt damit ins npm-Tarball und in `pkg.assets`.
 Ausgeliefert wird sie wie `avatar.js` über die Route in `lib.ts` (`chat.html|chat.js|chat.css|avatar.js|teachers.js`),
 mit `Cache-Control: no-cache`. `chat.html` lädt sie vor `avatar.js`.
 
@@ -100,11 +102,11 @@ Region mischen, Wünsche des Nutzers beachten, `get_state.teacher` hat Vorrang.
 
 ### `get_state.teacher`
 
-`getState()` liest aus dem Kopfkommentar der aktuellen Kursdatei (der HTML-Kommentar vor der ersten Überschrift) eine
+Das Tool `get_state` in `mcp.ts` (nicht `getState()` in `lib.ts`, das bleibt frei von Kursinhalten) liest aus dem Kopfkommentar der aktuellen Kursdatei (der HTML-Kommentar vor der ersten Überschrift) eine
 Zeile `teacher: <id>` und gibt sie als `teacher` zurück. Eine unbekannte id ergibt `teacher: null` und eine
 `warning`. Die Logik liegt als reine Funktion in `src/sections.ts`, neben der Kopf-Erkennung, die dort schon lebt.
-Die Server-Instruktionen nennen `teacher` in einem Satz, die Einzelheiten stehen in der Beschreibung von
-`find_teacher`.
+Die Server-Instruktionen bleiben unverändert (2045 von 2048 Zeichen). `teacher` steht in der Beschreibung von
+`get_state`, die Regeln zur Auswahl in der von `find_teacher`.
 
 ### Formular `type: "teacher"`
 
@@ -120,13 +122,15 @@ Höchstens sechs ids, jede muss im Katalog stehen. Die Antwort ist `{values: {wh
 - `Avatar.bot(agent, size)`: Hat `agent.persona` eine bekannte id, entsteht statt der SVG ein `<span class="bot
   persona">` mit dem Ruhebild und den Mundbildern als `<img>`. Es hat dasselbe Attribut `data-mouth`, `talk`,
   `babble` und `quiet` funktionieren unverändert. CSS zeigt je nach `data-mouth` das passende Bild (0 = Ruhe,
-  1 = erstes offenes Bild, 2 = letztes offenes Bild). Der Hintergrund kommt aus `background`, der Tooltip aus `title`.
+  1 = erstes offenes Bild, 2 = letztes offenes Bild). Der Hintergrund kommt aus `background`, der Tooltip aus `title` (Name, Urheber, Lizenz). Dass eine KI
+  die Rolle spielt, sagt der Agent bei der Vorstellung (`rules`), nicht der Tooltip.
 - Bühne: Lauflicht und Puls (`stageState()`) werden bei einer Persona ein Leuchtstreifen unter dem Bild, gleiche
   Klassen, eigene CSS-Regeln.
 - `Avatar.voice(agent)`: Bei einer Persona kommt das Geschlecht aus `Teachers.get(id).gender`. Tonhöhe und Tempo
   kommen aus dem Hash des Namens in einem engen Bereich, damit zwei Lehrerinnen sich unterscheiden.
-- Formular `teacher`: Karten mit Ruhebild, Name, Lebensdaten und dem ersten Satz von `teaching`. Ein Klick schickt
-  ab wie `buttons`. In der Historie zeigt `answered()` die gewählte Karte.
+- Formular `teacher`: Karten mit Ruhebild, Name und Lebensdaten (`v. Chr.` übersetzt über `TEXTS`). `teaching` ist eine
+  englische Anweisung an das Modell und erscheint nicht auf der Karte: Was die Personen auszeichnet, schreibt der
+  Agent in der Sprache der Lernenden in den Markdown-Text über dem Formular. Ein Klick schickt ab wie `buttons`. In der Historie zeigt `answered()` die gewählte Karte.
 - Agenten-Menü und Robot-Reihe (`#agents`) zeigen das Gesicht der Persona.
 - Fehlt `window.Teachers`, zum Beispiel bei einem kaputten Build, fällt `Avatar.bot` auf den Roboter zurück.
 
