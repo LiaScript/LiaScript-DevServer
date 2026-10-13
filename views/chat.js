@@ -811,8 +811,8 @@ function stop() {
 // voice of the language where the browser has one, with its own pitch and
 // rate. Without a male voice a female one gets lower and slower, and the
 // other way round. Voices tell their gender only by their name.
-var MALE = /\bmale\b|männlich|stefan|conrad|killian|florian|markus|yannick|hans|klaus|bernd|jonas|felix|daniel|thomas|david|guy|mark|james|george|ryan|eric|christopher|andrew|brian|jorge|diego|paul|luca|jacques|reed|rocko|eddy|fred|ralph|albert|bruce|aaron|arthur|oliver|grandpa/i
-var FEMALE = /female|weiblich|katja|hedda|anna|petra|helena|marlene|vicki|zira|aria|jenny|samantha|karen|moira|tessa|victoria|amelie|sandy|shelley|kathy|nora|ellen|alice|ingrid|grandma|google deutsch|google us english|google français|google italiano|google español/i
+var MALE = /\bmale\b|männlich|thorsten|karlsson|pavoque|alan|joe|norman|kusal|stefan|conrad|killian|florian|markus|yannick|hans|klaus|bernd|jonas|felix|daniel|thomas|david|guy|mark|james|george|ryan|eric|christopher|andrew|brian|jorge|diego|paul|luca|jacques|reed|rocko|eddy|fred|ralph|albert|bruce|aaron|arthur|oliver|grandpa/i
+var FEMALE = /female|weiblich|kerstin|ramona|eva_k|lessac|amy|cori|kathleen|kristin|ljspeech|katja|hedda|anna|petra|helena|marlene|vicki|zira|aria|jenny|samantha|karen|moira|tessa|victoria|amelie|sandy|shelley|kathy|nora|ellen|alice|ingrid|grandma|google deutsch|google us english|google français|google italiano|google español/i
 
 function genderOf(name) {
   if (FEMALE.test(name)) return 'female'
@@ -825,6 +825,11 @@ function genderOf(name) {
 // man for American English rather than an American woman made lower.
 function voiceFor(lang, all, profile) {
   lang = lang.toLowerCase()
+  // the voice the agent chose itself, if the browser has it for this language
+  var own = profile.name && all.filter(function (v) {
+    return v.name == profile.name && v.lang.slice(0, 2).toLowerCase() == lang.slice(0, 2)
+  })[0]
+  if (own) return { voice: own, pitch: profile.pitch, rate: profile.rate }
   var same = all.filter(function (v) {
     return v.lang.toLowerCase() == lang
   })

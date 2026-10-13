@@ -123,7 +123,8 @@ var Avatar = (function () {
       var h = hash(agent.persona)
       v = [person.gender, 0.9 + (h % 5) * 0.05, 0.92 + ((h >> 4) % 4) * 0.04]
     }
-    return { gender: v[0], pitch: v[1], rate: v[2], pick: hash(agent && agent.name ? agent.name : '') }
+    // name: the voice the agent chose itself (set_agent voice)
+    return { gender: v[0], pitch: v[1], rate: v[2], pick: hash(agent && agent.name ? agent.name : ''), name: agent && agent.voice }
   }
 
   function cell(n) {
