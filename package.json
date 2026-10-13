@@ -1,6 +1,6 @@
 {
   "name": "@liascript/devserver",
-  "version": "1.2.17--2.1.2",
+  "version": "1.2.18--2.2.2",
   "description": "Run a development server for LiaScript locally",
   "main": "dist/index.js",
   "scripts": {
@@ -35,7 +35,7 @@
   "author": "André Dietrich",
   "license": "MIT",
   "dependencies": {
-    "@liascript/editor": "^1.1.44--2.1.2",
+    "@liascript/editor": "^1.2.0--2.2.2",
     "body-parser": "^1.20.4",
     "chokidar": "^4.0.3",
     "cors": "^2.8.6",
@@ -66,5 +66,12 @@
       "node_modules/@liascript/editor/dist/**/*",
       "views/**/*"
     ]
+  },
+  "allowScripts": {
+    "msgpackr-extract@3.0.3": true,
+    "@parcel/watcher@2.5.6": true,
+    "lmdb@2.8.5": true,
+    "es5-ext@0.10.64": true,
+    "@swc/core@1.15.11": true
   }
 }
