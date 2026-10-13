@@ -1132,13 +1132,8 @@ export async function start(
       res: express.Response,
       next: express.NextFunction,
     ) {
-      // Skip reload and socket.io paths - let reload package handle them
-      if (
-        req.originalUrl.startsWith('/reload/') ||
-        req.originalUrl.startsWith('/socket.io')
-      ) {
-        return next()
-      }
+      // the client script of reload, its WebSocket runs on a port of its own
+      if (req.originalUrl.startsWith('/reload/')) return next()
       res.sendFile(req.originalUrl, { root: project.path })
     },
   )
