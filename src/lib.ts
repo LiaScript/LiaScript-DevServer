@@ -74,14 +74,16 @@ export function inputCourse() {
 // context of every event. voices: number of speechSynthesis voices, -1 until a
 // browser reported. automated: navigator.webdriver, a browser driven by
 // Playwright or Puppeteer. fallback: responsiveVoice is loaded in the player,
-// which --responsiveVoice only achieves with a valid key.
-const speech = { voices: -1, automated: false, fallback: false }
+// which --responsiveVoice only achieves with a valid key. names: the voices in
+// the language of the course, for an agent to pick its own (set_agent voice).
+const speech = { voices: -1, automated: false, fallback: false, names: [] as string[] }
 
 // Who the user talks to: the agents of a workflow, each with an emoji that the
 // chat shows on its button and under every message. Kept out of state too.
 // label: what the user reads instead of the name, e.g. "Unterrichtsplanung"
 // persona: a historical person of src/teachers/ the chat shows instead of the robot
-export type Agent = { name: string; emoji: string; label?: string; persona?: string }
+// voice: the name of a speech voice of the browser this agent reads aloud with
+export type Agent = { name: string; emoji: string; label?: string; persona?: string; voice?: string }
 // view: author shows every agent of the roster, learner only the current
 // one, with a larger portrait (a teacher persona in front of learners)
 export type View = 'author' | 'learner'
@@ -311,6 +313,7 @@ export function getState() {
     events,
     watched: watchers.length > 0,
     voices: speech.voices,
+    voice_names: speech.names,
     agent: agents.current,
     agents: agents.list,
     view: agents.view,
@@ -384,6 +387,7 @@ const agentScript = `<script>
       title: document.title,
       selection: String(getSelection()).slice(0, 2000),
       voices: voices(),
+      voiceNames: voiceNames(),
       automated: navigator.webdriver === true,
       fallback: typeof responsiveVoice != 'undefined'
     }
@@ -392,6 +396,16 @@ const agentScript = `<script>
   // Chrome loads its voices on the first call and tells when they are there
   function voices() {
     try { return speechSynthesis.getVoices().length } catch (e) { return 0 }
+  }
+
+  // the voices in the language of the course, an agent picks its own of them
+  function voiceNames() {
+    try {
+      var lang = (document.documentElement.lang || '').slice(0, 2).toLowerCase()
+      return speechSynthesis.getVoices().filter(function (v) {
+        return lang && v.lang.slice(0, 2).toLowerCase() == lang
+      }).map(function (v) { return v.name }).slice(0, 50)
+    } catch (e) { return [] }
   }
 
   function post(msg) {
@@ -941,6 +955,12 @@ export async function start(
         state.selection = text(c.selection, 2000)
         if (Number.isInteger(c.voices) && c.voices >= 0) {
           speech.voices = Math.min(c.voices, 9999)
+        }
+        if (Array.isArray(c.voiceNames)) {
+          speech.names = c.voiceNames
+            .filter((n: any) => typeof n === 'string')
+            .slice(0, 50)
+            .map((n: string) => n.slice(0, 100))
         }
         if (typeof c.automated === 'boolean') speech.automated = c.automated
         if (typeof c.fallback === 'boolean') speech.fallback = c.fallback

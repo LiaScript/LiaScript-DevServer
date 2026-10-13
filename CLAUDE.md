@@ -175,7 +175,12 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   quote) per id, typed against the ids of `looks.ts`, `catalog.ts` joins them (`TEACHERS`, `find`, `line`) without
   DiceBear, so `mcp.ts` imports it. `render.ts` (copy of virtual-speaker's `avatar.ts`/`faces.ts`, six styles) makes
   the resting face and the open mouths. The MCP side: `find_teacher` lists them, `set_agent.persona` puts one on a
-  roster agent (label defaults to the person's name, `null` removes it, the result carries `teaching` and `rules`),
+  roster agent (it brings the person's name as label unless the same call gives one, `null` removes it, the result
+  carries `gender`, `teaching` and `rules`), `set_agent.voice` names a speech voice of the browser for one agent:
+  `agentScript` reports the names of the voices in the course language (`voiceNames`, at most 50), `get_state` shows
+  them as `voice_names`, `voiceFor()` in `chat.js` takes that voice if the browser has it for the language of the
+  passage. Firefox on Linux gets its voices from speech-dispatcher (piper: `de_DE-thorsten-high`), whose names tell
+  no gender, so `MALE`/`FEMALE` list the common piper names too,
   the chat form `type: "teacher"` shows 1 to 6 as portraits (the answer bubble shows the name), `get_state.teacher`
   is `teacher: <id>` of the course header (`sections.header()`). Two views (`view`, in memory next to the roster,
   part of `{agents}`): `author` shows every agent, `learner` only the current one with a 96 px stage

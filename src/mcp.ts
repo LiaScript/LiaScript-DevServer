@@ -51,7 +51,7 @@ const TOOLS = [
   {
     name: 'get_state',
     description:
-      'What the user is looking at in the LiaScript preview: course file (relative to root), 1-based slide number, slide title, selected text, and whether a browser (connected) and its chat are open. url is the address of the preview, to open it with browser automation tools. events is the URL of the event stream for a Monitor tool (curl -sN, one JSON line per event), watched whether one reads it. Events that came while nobody read it are replayed to the next reader, up to 10 minutes back. voices is the number of speech voices of the browser, -1 if unknown. session {id, title, updated, count} is the saved chat: read_chat reads it. teacher is the id of find_teacher the course header names (teacher: <id>), null with a warning if unknown. A tts entry appears only when the browser cannot read the course aloud.\n\nCodex persistent browser chat: codex_bridge gives available, command, args and cwd for the installed bridge. When the user requests persistent chat and available is true, run that command with those arguments and cwd in a background PTY, keep its stdin open, wait for "Bridge ready:", then open the printed URL with visible browser automation (or append --open if none is available). Use proper shell quoting for paths; args are an argv array. The devserver chooses the next free port if 3001 is busy. Requires Codex CLI signed in with codex login. Terminal text sent to that process and browser messages share its thread; /stop interrupts, /quit exits, /approve and /reply handle requests only in that terminal. This starts a separate Codex conversation, not this IDE session, and uses a separate preview. Run only one bridge per project. If your tools already have the lia_ prefix, you are inside the bridge: do not launch another. If unavailable, use an npm installation of @liascript/devserver or build the devserver repository first.',
+      'What the user is looking at in the LiaScript preview: course file (relative to root), 1-based slide number, slide title, selected text, and whether a browser (connected) and its chat are open. url is the address of the preview, to open it with browser automation tools. events is the URL of the event stream for a Monitor tool (curl -sN, one JSON line per event), watched whether one reads it. Events that came while nobody read it are replayed to the next reader, up to 10 minutes back. voices is the number of speech voices of the browser, -1 if unknown. session {id, title, updated, count} is the saved chat: read_chat reads it. teacher is the id of find_teacher the course header names (teacher: <id>), null with a warning if unknown. voice_names are its voices in the language of the course, for set_agent voice. A tts entry appears only when the browser cannot read the course aloud.\n\nCodex persistent browser chat: codex_bridge gives available, command, args and cwd for the installed bridge. When the user requests persistent chat and available is true, run that command with those arguments and cwd in a background PTY, keep its stdin open, wait for "Bridge ready:", then open the printed URL with visible browser automation (or append --open if none is available). Use proper shell quoting for paths; args are an argv array. The devserver chooses the next free port if 3001 is busy. Requires Codex CLI signed in with codex login. Terminal text sent to that process and browser messages share its thread; /stop interrupts, /quit exits, /approve and /reply handle requests only in that terminal. This starts a separate Codex conversation, not this IDE session, and uses a separate preview. Run only one bridge per project. If your tools already have the lia_ prefix, you are inside the bridge: do not launch another. If unavailable, use an npm installation of @liascript/devserver or build the devserver repository first.',
     inputSchema: { type: 'object', properties: {} },
   },
   {
@@ -122,6 +122,10 @@ const TOOLS = [
           type: ['string', 'null'],
           description: 'id of find_teacher: this agent shows that historical person instead of a robot and teaches in their style, null removes it',
         },
+        voice: {
+          type: ['string', 'null'],
+          description: 'a name of get_state.voice_names this agent reads aloud with, e.g. a male voice for a male persona; null for the automatic choice',
+        },
         view: {
           type: 'string',
           enum: ['author', 'learner'],
@@ -132,7 +136,7 @@ const TOOLS = [
           maxItems: 10,
           items: {
             type: 'object',
-            properties: { name: { type: 'string' }, emoji: { type: 'string' }, label: { type: 'string' }, persona: { type: 'string' } },
+            properties: { name: { type: 'string' }, emoji: { type: 'string' }, label: { type: 'string' }, persona: { type: 'string' }, voice: { type: 'string' } },
             required: ['name', 'emoji'],
           },
         },
@@ -468,7 +472,7 @@ function isLabel(value: any) {
 }
 
 const RULES =
-  'Teach in this style. You are an AI in the role of this person: say so when you introduce yourself, never invent quotes, do not act out their personal fate.'
+  'Teach in this style. You are an AI in the role of this person: say so when you introduce yourself, never invent quotes, do not act out their personal fate. Pick a voice of get_state.voice_names that fits the gender of the person and pass it to set_agent as voice.'
 
 function findTeacher(args: any) {
   if (args.topic !== undefined && typeof args.topic !== 'string') throw new Error('topic must be a string')
@@ -486,25 +490,40 @@ function isPersona(value: any) {
 // what an agent with a persona needs to take on the role
 function personaOf(agent?: server.Agent) {
   const t = agent && agent.persona ? teachers.TEACHERS[agent.persona] : undefined
-  return t ? { id: t.id, name: t.name, teaching: t.teaching, rules: RULES } : undefined
+  return t ? { id: t.id, name: t.name, gender: t.gender, teaching: t.teaching, rules: RULES } : undefined
 }
 
-// persona given: set it, and the name of the person as label unless the agent
-// has one; null: remove it, and the label it brought
-function withPersona(agent: server.Agent, persona: any): server.Agent {
+// persona given: set it, with the name of the person as label unless the
+// same call gives one; null: remove it, and the label it brought
+function withPersona(agent: server.Agent, persona: any, labelGiven: boolean): server.Agent {
   if (persona === undefined) return agent
-  const before = agent.persona
-  // a label the agent had before any persona, not the name of the last one
-  const own = agent.label !== undefined && !(before && agent.label === teachers.TEACHERS[before].name)
-  const out: server.Agent = { name: agent.name, emoji: agent.emoji }
-  // the keys always in this order: the shell and the tests compare JSON
+  const { persona: before, ...out } = agent
   if (persona === null) {
-    if (own) out.label = agent.label
+    if (before && out.label === teachers.TEACHERS[before].name) delete out.label
     return out
   }
-  out.label = own ? agent.label : teachers.TEACHERS[persona].name
-  out.persona = persona
+  return { ...out, label: labelGiven ? out.label : teachers.TEACHERS[persona].name, persona }
+}
+
+// voice given: set it, null: remove it, the browser chooses again
+function withVoice(agent: server.Agent, voice: any): server.Agent {
+  if (voice === undefined) return agent
+  const out = { ...agent }
+  delete out.voice
+  return voice === null ? out : { ...out, voice }
+}
+
+// the keys always in this order: the shell and the tests compare JSON
+function ordered(a: server.Agent): server.Agent {
+  const out: server.Agent = { name: a.name, emoji: a.emoji }
+  if (a.label !== undefined) out.label = a.label
+  if (a.persona !== undefined) out.persona = a.persona
+  if (a.voice !== undefined) out.voice = a.voice
   return out
+}
+
+function isVoice(value: any) {
+  return typeof value === 'string' && value.trim() !== '' && value.length <= 100
 }
 
 // teacher: <id> in the header of the open course, or of the --input file
@@ -539,6 +558,10 @@ function setAgent(args: any) {
     throw new Error('persona must be an id of find_teacher, or null')
   }
   const view = args.view
+  const voice = args.voice
+  if (voice !== undefined && voice !== null && !isVoice(voice)) {
+    throw new Error('voice must be a name of get_state.voice_names, or null')
+  }
   if (view !== undefined && view !== 'author' && view !== 'learner') throw new Error('view must be author or learner')
 
   let list: server.Agent[] = server.getState().agents
@@ -565,19 +588,22 @@ function setAgent(args: any) {
       if (agent.persona !== undefined && !isPersona(agent.persona)) {
         throw new Error('agents[].persona must be an id of find_teacher')
       }
+      if (agent.voice !== undefined && !isVoice(agent.voice)) {
+        throw new Error('agents[].voice must be a name of get_state.voice_names')
+      }
       const declared: server.Agent = { name: agent.name, emoji: agent.emoji }
       if (agent.label !== undefined) declared.label = agent.label
-      list.push(withPersona(declared, agent.persona))
+      list.push(ordered(withVoice(withPersona(declared, agent.persona, agent.label !== undefined), agent.voice)))
     }
   }
 
   const known = list.filter((a) => a.name === name)[0]
-  if (emoji !== undefined || label !== undefined || persona !== undefined) {
+  if (emoji !== undefined || label !== undefined || persona !== undefined || voice !== undefined) {
     if (!known && emoji === undefined) throw new Error('unknown agent ' + name + ', pass its emoji or declare it in agents')
     if (!known && list.length >= 10) throw new Error('at most 10 agents')
     const agent: server.Agent = { ...known, name, emoji: emoji === undefined ? known.emoji : emoji }
     if (label !== undefined) agent.label = label
-    const updated = withPersona(agent, persona)
+    const updated = ordered(withVoice(withPersona(agent, persona, label !== undefined), voice))
     // in its place, the menu keeps its order
     list = known ? list.map((a) => (a.name === name ? updated : a)) : list.concat(updated)
   } else if (!known) {
