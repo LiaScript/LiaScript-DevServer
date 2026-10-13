@@ -184,6 +184,11 @@ async function main() {
   }
   assert.strictEqual(Teachers.get('nobody'), undefined)
   assert.strictEqual(Teachers.frames('nobody'), undefined)
+  // an answer "toString" in a JavaScript course is no person either
+  for (const key of ['toString', 'constructor', '__proto__', 'hasOwnProperty']) {
+    assert.strictEqual(Teachers.get(key), undefined, key + ' is nobody')
+    assert.strictEqual(Teachers.frames(key), undefined, key + ' has no portrait')
+  }
   assert.strictEqual(Teachers.get('socrates').years, '470–399 BC')
 
   // --- find_teacher: the catalog for the agent, one line per person
@@ -694,6 +699,10 @@ async function main() {
   assert.strictEqual(gone.agents[2].persona, undefined, 'null removes the persona')
   assert.strictEqual(gone.agents[2].label, undefined, 'and the label it brought')
   assert.strictEqual(gone.persona, undefined)
+  await tool('set_agent', { name: 'prof', persona: 'marie-curie' })
+  const swapped = await tool('set_agent', { name: 'prof', persona: 'socrates' })
+  assert.strictEqual(swapped.agents[2].label, 'Socrates', 'another persona brings its own name')
+  assert.strictEqual((await tool('set_agent', { name: 'prof', persona: null })).agents[2].label, undefined, 'and takes it along')
   const listed = await tool('set_agent', { name: 'tutor', agents: [{ ...tutor, persona: 'hypatia' }, examiner] })
   assert.deepStrictEqual(listed.agents, [{ ...tutor, persona: 'hypatia', label: 'Hypatia' }, examiner], 'agents replaces the roster, personas too')
   assert.strictEqual(listed.persona.id, 'hypatia', 'the persona of the current agent')
@@ -880,6 +889,23 @@ async function main() {
   assert.ok(twinUrl.includes(':' + (PORT + 1) + '/'), 'the twin moved to the next port: ' + twinUrl)
   assert.strictEqual((await request('GET', '/liascript/index.html', {})).status, 200, 'the first one still serves')
   twin.stdin.end()
+
+  // --- a course fixes its teacher before any browser reported: the input file
+  const fixed = path.join(PROJECT, 'fixed.md')
+  fs.writeFileSync(fixed, '<!--\nteacher: hypatia\n-->\n# Fixed\n')
+  const solo = spawn(process.execPath, [path.join(ROOT, 'dist/index.js'), '--mcp', '-p', PORT, '-i', fixed], { cwd: PROJECT, stdio: ['pipe', 'pipe', 'ignore'] })
+  let soloOut = ''
+  let soloState = {}
+  solo.stdout.on('data', (chunk) => (soloOut += chunk))
+  for (let i = 1; i <= 50 && soloState.teacher === undefined; i++) {
+    solo.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: i, method: 'tools/call', params: { name: 'get_state', arguments: {} } }) + '\n')
+    await sleep(100)
+    const last = soloOut.trim().split('\n').pop()
+    if (last) soloState = JSON.parse(JSON.parse(last).result.content[0].text)
+  }
+  assert.strictEqual(soloState.file, '', 'no browser reported')
+  assert.strictEqual(soloState.teacher, 'hypatia', 'the header of the input counts before the preview reports')
+  solo.stdin.end()
 
   // --- the agent quits, the server follows
   const exited = new Promise((resolve) => child.on('exit', resolve))
