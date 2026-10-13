@@ -65,6 +65,13 @@ var home = ''
 var player = '/liascript/index.html'
 const state = { root: '', file: '', slide: 1, title: '', selection: '' }
 
+// the course file of --input, relative to root, '' for a folder: what the
+// agent reads before a browser reports which file it shows
+var inputFile = ''
+export function inputCourse() {
+  return inputFile
+}
+
 // What the browser says about text-to-speech, kept out of state, which is the
 // context of every event. voices: number of speechSynthesis voices, -1 until a
 // browser reported. automated: navigator.webdriver, a browser driven by
@@ -646,6 +653,7 @@ export async function start(
     } else if (stats.isFile()) {
       project.path = path.dirname(input)
       project.readme = path.basename(input)
+      inputFile = project.readme
     }
   }
 

@@ -494,23 +494,26 @@ function personaOf(agent?: server.Agent) {
 function withPersona(agent: server.Agent, persona: any): server.Agent {
   if (persona === undefined) return agent
   const before = agent.persona
+  // a label the agent had before any persona, not the name of the last one
+  const own = agent.label !== undefined && !(before && agent.label === teachers.TEACHERS[before].name)
   const out: server.Agent = { name: agent.name, emoji: agent.emoji }
   // the keys always in this order: the shell and the tests compare JSON
   if (persona === null) {
-    if (agent.label !== undefined && !(before && agent.label === teachers.TEACHERS[before].name)) out.label = agent.label
+    if (own) out.label = agent.label
     return out
   }
-  out.label = agent.label !== undefined ? agent.label : teachers.TEACHERS[persona].name
+  out.label = own ? agent.label : teachers.TEACHERS[persona].name
   out.persona = persona
   return out
 }
 
-// teacher: <id> in the header of the open course; a path the browser forged
-// or a file that is gone reads nothing
+// teacher: <id> in the header of the open course, or of the --input file
+// before a browser reported; a path the browser forged or a file that is
+// gone reads nothing
 function courseTeacher(state: any): { teacher?: string | null; warning?: string } {
   let content
   try {
-    content = fs.readFileSync(path.join(state.root, courseFile(state.file)), 'utf8')
+    content = fs.readFileSync(path.join(state.root, courseFile(state.file || server.inputCourse())), 'utf8')
   } catch (e) {
     return {}
   }
