@@ -477,6 +477,26 @@ told which. Commit `.chats/` so that others can continue your conversations, or
 add it to `.gitignore` to keep them to yourself. A message that does not reach
 the server, e.g. while it restarts, is marked and can be sent again.
 
+#### Teacher personas
+
+An agent can teach as a historical person: Marie Curie, Socrates, Hypatia,
+Paulo Freire and nearly 200 more, with a portrait, a voice and their way of
+teaching. The agent suggests a few that fit the course, the learner picks one in
+the chat. Then the chat switches to the learner view, which shows only that
+teacher; ask the agent to go back to the author mode to see all agents again. A
+course can fix its teacher in the header:
+
+```markdown
+<!--
+author: …
+teacher: maria-montessori
+-->
+```
+
+The ids are those of the agent's `find_teacher` tool. The portraits are DiceBear
+avatars of [virtual-speaker](https://github.com/LiaTemplates/virtual-speaker),
+the licenses of their styles are named in the tooltip.
+
 #### Security
 
 What happens in the browser ends up as a prompt for your agent. Therefore, with
