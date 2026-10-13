@@ -154,31 +154,39 @@ var Avatar = (function () {
   // A teacher persona (teachers.js): the portrait of a historical person
   // instead of the robot. The same classes as the robot, so that data-mouth
   // and data-state work alike: m0 resting, m1 and m2 open, a bar below for
-  // the running light and the pulse. null if the person is unknown here,
-  // e.g. teachers.js failed to load: then the robot.
+  // the running light and the pulse; below 40 px (button, row, footer) the
+  // resting face alone, only the stage speaks and works. null if the person
+  // is unknown here or teachers.js is broken or missing: then the robot.
   function portrait(agent, size) {
-    var frames = agent && agent.persona && window.Teachers ? window.Teachers.frames(agent.persona) : null
+    var frames = null
+    try {
+      frames = agent && agent.persona && window.Teachers ? window.Teachers.frames(agent.persona) : null
+    } catch (e) {}
     if (!frames) return null
     var box = document.createElement('span')
     box.className = 'bot persona'
     box.style.width = box.style.height = size + 'px'
     if (frames.background) box.style.background = frames.background
-    ;[frames.rest, frames.mouths[0], frames.mouths[frames.mouths.length - 1]].forEach(function (src, i) {
+    var small = size < 40
+    var shots = small ? [frames.rest] : [frames.rest, frames.mouths[0], frames.mouths[frames.mouths.length - 1]]
+    shots.forEach(function (src, i) {
       var img = document.createElement('img')
       img.className = 'm m' + i
       img.src = src
       img.alt = ''
       box.append(img)
     })
-    for (var i = 0; i < 8; i++) {
+    for (var i = 0; i < (small ? 0 : 8); i++) {
       var tick = document.createElement('i')
       tick.className = 'tick'
       tick.style.animationDelay = (i * 0.12).toFixed(2) + 's'
       box.append(tick)
     }
-    var wait = document.createElement('i')
-    wait.className = 'wait'
-    box.append(wait)
+    if (!small) {
+      var wait = document.createElement('i')
+      wait.className = 'wait'
+      box.append(wait)
+    }
     box.title = frames.title
     box.setAttribute('role', 'img')
     box.setAttribute('aria-label', agent.label || agent.name)
