@@ -153,7 +153,7 @@ async function main() {
 
   msg = await rpc('tools/list')
   const names = msg.result.tools.map((t) => t.name)
-  for (const name of ['get_state', 'goto', 'wait_for_event', 'chat', 'set_agent', 'read_chat', 'outline', 'read_section', 'write_section']) assert.ok(names.includes(name), name)
+  for (const name of ['get_state', 'goto', 'wait_for_event', 'chat', 'set_agent', 'find_teacher', 'read_chat', 'outline', 'read_section', 'write_section']) assert.ok(names.includes(name), name)
   for (const t of msg.result.tools) {
     assert.ok(t.description.length <= LIMIT, 'the description of ' + t.name + ' has ' + t.description.length + ' characters')
   }
@@ -185,6 +185,18 @@ async function main() {
   assert.strictEqual(Teachers.get('nobody'), undefined)
   assert.strictEqual(Teachers.frames('nobody'), undefined)
   assert.strictEqual(Teachers.get('socrates').years, '470–399 BC')
+
+  // --- find_teacher: the catalog for the agent, one line per person
+  const allTeachers = (await tool('find_teacher', {})).teachers
+  assert.strictEqual(allTeachers.length, 196)
+  assert.ok(allTeachers.includes('socrates · Socrates · 470–399 BC · europe · male · ' + Teachers.get('socrates').fields.join(', ') + ' · ' + Teachers.get('socrates').teaching), allTeachers[0])
+  const physics = (await tool('find_teacher', { topic: 'PHYSICS', gender: 'female' })).teachers
+  assert.ok(physics.length >= 1 && physics.every((l) => l.includes(' · female · ') && /physics/.test(l.split(' · ')[5])), 'topic in any case: ' + physics)
+  const africa = (await tool('find_teacher', { region: 'africa' })).teachers
+  assert.ok(africa.length >= 1 && africa.every((l) => l.split(' · ')[3] === 'africa'))
+  assert.deepStrictEqual((await tool('find_teacher', { topic: 'no-such-field-xyz' })).teachers, [])
+  assert.ok((await tool('find_teacher', { region: 'atlantis' })).isError, 'region is one of the list')
+  assert.ok((await tool('find_teacher', { gender: 'x' })).isError, 'gender is female or male')
 
   // --- sections of a Markdown file
   const MD = path.join(ROOT, 'check-sections.md')
@@ -438,6 +450,12 @@ async function main() {
   assert.ok((await tool('chat', { markdown: 'x', inputs: [{ id: 'ask', type: 'radio', options: ['a'] }] })).isError)
   assert.ok((await tool('chat', { markdown: 'x', inputs: [{ id: 'a', type: 'select', options: ['a'] }] })).isError)
   assert.ok((await tool('chat', { markdown: 'x', inputs: [{ id: 'a', type: 'radio', options: [] }] })).isError)
+  assert.ok((await tool('chat', { markdown: 'x', inputs: [{ id: 'who', type: 'teacher', options: ['nobody'] }] })).isError, 'only known teachers')
+  assert.ok((await tool('chat', { markdown: 'x', inputs: [{ id: 'who', type: 'teacher', options: ids.slice(0, 7) }] })).isError, 'at most six teachers')
+  const pick = await tool('chat', { markdown: 'Wer soll dich unterrichten?', inputs: [{ id: 'who', type: 'teacher', options: ['socrates', 'marie-curie'] }], wait: false })
+  assert.ok(pick.ask, 'a teacher form is a form')
+  assert.ok(stream.includes('"inputs":[{"id":"who","type":"teacher","options":["socrates","marie-curie"]}]'), 'the shell gets the ids')
+  await tool('chat', { close: true })
 
   const inputs = [
     { id: 'level', type: 'radio', label: 'Level', options: ['easy', 'hard'] },
@@ -630,6 +648,35 @@ async function main() {
   const declared = await tool('set_agent', { name: 'examiner', agents: [{ ...tutor, label: 'Unterricht' }, examiner] })
   assert.deepStrictEqual(declared.agents, [{ ...tutor, label: 'Unterricht' }, examiner])
 
+  // a teacher persona instead of the robot
+  assert.ok((await tool('set_agent', { name: 'tutor', persona: 'nobody' })).isError, 'only known personas')
+  assert.ok((await tool('set_agent', { name: 'tutor', persona: 5 })).isError, 'persona is an id')
+  const curie = await tool('set_agent', { name: 'tutor', persona: 'marie-curie' })
+  assert.deepStrictEqual(curie.agents[0], { ...tutor, label: 'Unterricht', persona: 'marie-curie' }, 'a label of its own stays')
+  assert.strictEqual(curie.persona.id, 'marie-curie')
+  assert.strictEqual(curie.persona.name, 'Marie Curie')
+  assert.strictEqual(curie.persona.teaching, Teachers.get('marie-curie').teaching)
+  assert.ok(/AI/.test(curie.persona.rules) && /quote/.test(curie.persona.rules), 'the rules of the role: ' + curie.persona.rules)
+  assert.ok(stream.includes('"persona":"marie-curie"'), 'the shell learns the persona')
+  await tool('chat', { markdown: 'Bonjour, je suis une IA dans le rôle de Marie Curie' })
+  assert.ok(stream.includes('"agent":{"name":"tutor","emoji":"🧑‍🏫","label":"Unterricht","persona":"marie-curie"}'), 'a message carries it')
+  const savedEntry = (await tool('read_chat', { last: 1 })).entries[0]
+  assert.strictEqual(savedEntry.agent, 'tutor')
+  assert.strictEqual(savedEntry.persona, 'marie-curie', 'read_chat tells a fresh agent the persona')
+  const plain = (await tool('read_chat', { last: 1000 })).entries.filter((e) => e.type === 'ai' && e.agent === 'examiner')[0]
+  assert.ok(plain && !('persona' in plain), 'a message without persona has none')
+  const profAgent = await tool('set_agent', { name: 'prof', emoji: '🎓', persona: 'socrates' })
+  assert.strictEqual(profAgent.agents[2].label, 'Socrates', 'without a label the name of the person')
+  const gone = await tool('set_agent', { name: 'prof', persona: null })
+  assert.strictEqual(gone.agents[2].persona, undefined, 'null removes the persona')
+  assert.strictEqual(gone.agents[2].label, undefined, 'and the label it brought')
+  assert.strictEqual(gone.persona, undefined)
+  const listed = await tool('set_agent', { name: 'tutor', agents: [{ ...tutor, persona: 'hypatia' }, examiner] })
+  assert.deepStrictEqual(listed.agents, [{ ...tutor, persona: 'hypatia', label: 'Hypatia' }, examiner], 'agents replaces the roster, personas too')
+  assert.strictEqual(listed.persona.id, 'hypatia', 'the persona of the current agent')
+  assert.ok((await tool('set_agent', { name: 'tutor', agents: [{ ...tutor, persona: 'nobody' }] })).isError)
+  await tool('set_agent', { name: 'tutor', agents: [tutor, examiner] })
+
   // --- event stream for agents that watch a command (Claude Code's Monitor)
   state = await tool('get_state', {})
   assert.ok(/^http:\/\/localhost:3999\/agent\/events\/[0-9a-f]{32}$/.test(state.events), 'events: ' + state.events)
@@ -693,7 +740,7 @@ async function main() {
   assert.deepStrictEqual(saved.entries[0], { t: saved.entries[0].t, type: 'ai', markdown: '**hi**' })
   assert.ok(!file.includes('Reading CLAUDE.md') && !file.includes('"status"'), 'the progress line is not saved')
   assert.ok(saved.entries.some((e) => e.type === 'user' && e.text === 'hello'))
-  const firstForm = saved.entries.filter((e) => e.inputs)[0]
+  const firstForm = saved.entries.filter((e) => e.inputs && e.inputs[0].type !== 'teacher')[0]
   assert.strictEqual(firstForm.inputs.length, 2)
   assert.deepStrictEqual(
     saved.entries.filter((e) => e.type === 'answer' && e.ask === firstForm.ask)[0].values,

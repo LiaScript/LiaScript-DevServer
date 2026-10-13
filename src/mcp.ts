@@ -11,6 +11,7 @@ import * as readline from 'readline'
 
 import * as server from './lib'
 import * as sections from './sections'
+import * as teachers from './teachers/catalog'
 
 const open = require('open')
 
@@ -69,7 +70,7 @@ const TOOLS = [
   {
     name: 'chat',
     description:
-      'Post a message into the chat that overlays the course. markdown is LiaScript as in a course: quizzes, surveys, tasks, executable code, $…$ formulas, ASCII art; a header comment (import: of a template, macros) applies to the whole chat. [label](agent:<agent>/<cmd>?<params>) is a link that sends a command event when clicked. A quiz, survey or task in a message reports like one in the course, as an activity event with chat (the message number) instead of slide. Each message shows the emoji of the current agent (see set_agent), pass agent to sign it as another one. Every message has a button that reads it aloud in the language of the course: pass lang if the message is in another language, and wrap a passage in yet another one in <span lang=\"es\">. With inputs the message carries a form and the call BLOCKS until the user answers: it returns {values: {<id>: <option> | [<options>]}}, or {dismissed: true, text} if the user typed a message instead. While a Monitor watches get_state.events it returns at once with {sent, ask} and the answer arrives as an "answer" event. If the chat closes while the call waits, it returns {disconnected: true}. Only the newest form stays open: a new one closes the previous one, and so does close: true, e.g. after the user answered by typing. The user can no longer answer a closed form. Without inputs it returns at once. buttons submit the form on click, radio picks one option, checkbox any number.',
+      'Post a message into the chat that overlays the course. markdown is LiaScript as in a course: quizzes, surveys, tasks, executable code, $…$ formulas, ASCII art; a header comment (import: of a template, macros) applies to the whole chat. [label](agent:<agent>/<cmd>?<params>) is a link that sends a command event when clicked. A quiz, survey or task in a message reports like one in the course, as an activity event with chat (the message number) instead of slide. Each message shows the emoji of the current agent (see set_agent), pass agent to sign it as another one. Every message has a button that reads it aloud in the language of the course: pass lang if the message is in another language, and wrap a passage in yet another one in <span lang=\"es\">. With inputs the message carries a form and the call BLOCKS until the user answers: it returns {values: {<id>: <option> | [<options>]}}, or {dismissed: true, text} if the user typed a message instead. While a Monitor watches get_state.events it returns at once with {sent, ask} and the answer arrives as an "answer" event. If the chat closes while the call waits, it returns {disconnected: true}. Only the newest form stays open: a new one closes the previous one, and so does close: true, e.g. after the user answered by typing. The user can no longer answer a closed form. Without inputs it returns at once. buttons submit the form on click, radio picks one option, checkbox any number, teacher shows 1 to 6 ids of find_teacher as portraits to click.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -97,7 +98,7 @@ const TOOLS = [
             type: 'object',
             properties: {
               id: { type: 'string', description: 'key of the value in the answer, letters digits _ -' },
-              type: { type: 'string', enum: ['buttons', 'radio', 'checkbox'] },
+              type: { type: 'string', enum: ['buttons', 'radio', 'checkbox', 'teacher'] },
               label: { type: 'string' },
               options: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 20 },
             },
@@ -110,24 +111,41 @@ const TOOLS = [
   {
     name: 'set_agent',
     description:
-      'Shows the user who they talk to: a pixel robot (chosen by name, else by emoji) and the label (else the name) of the current agent on the chat button, its robot and the time under each of its messages. Give every agent a label the user understands. Call it before the first message and whenever the agent that talks to the user changes. agents declares all agents of a workflow and replaces the previous list; with two or more the chat offers a menu to pick one. A pick in that menu, or a click on a course link agent:<name>/switch, switches at once and arrives as a command event {agent: <name>, cmd: "switch"}: hand the conversation over to that agent. chat and answer events carry the current agent in their agent field, route them to it. name has to be in the list, unless emoji is given: then it is added or updated. Opens no browser. Returns {agent, agents}.',
+      'Shows the user who they talk to: a pixel robot (chosen by name, else by emoji) and the label (else the name) of the current agent on the chat button, its robot and the time under each of its messages. Give every agent a label the user understands. Call it before the first message and whenever the agent that talks to the user changes. agents declares all agents of a workflow and replaces the previous list; with two or more the chat offers a menu to pick one. A pick in that menu, or a click on a course link agent:<name>/switch, switches at once and arrives as a command event {agent: <name>, cmd: "switch"}: hand the conversation over to that agent. chat and answer events carry the current agent in their agent field, route them to it. name has to be in the list, unless emoji is given: then it is added or updated. persona turns the agent into a teacher persona, the result has its teaching style and rules. Opens no browser. Returns {agent, agents}.',
     inputSchema: {
       type: 'object',
       properties: {
         name: { type: 'string', description: 'the agent that talks to the user now, letters digits _ -' },
         emoji: { type: 'string', description: 'its emoji, e.g. 🧑‍🏫' },
         label: { type: 'string', description: 'what the user reads instead of the name, in their language, e.g. "Unterrichtsplanung"' },
+        persona: {
+          type: ['string', 'null'],
+          description: 'id of find_teacher: this agent shows that historical person instead of a robot and teaches in their style, null removes it',
+        },
         agents: {
           type: 'array',
           maxItems: 10,
           items: {
             type: 'object',
-            properties: { name: { type: 'string' }, emoji: { type: 'string' }, label: { type: 'string' } },
+            properties: { name: { type: 'string' }, emoji: { type: 'string' }, label: { type: 'string' }, persona: { type: 'string' } },
             required: ['name', 'emoji'],
           },
         },
       },
       required: ['name'],
+    },
+  },
+  {
+    name: 'find_teacher',
+    description:
+      'Historical people a teaching agent can take on as persona (set_agent persona): portrait, voice and teaching style. One line per person: id · name · lived · region · gender · fields · teaching. topic matches a part of a field or the name, any case; gender female|male; region europe|asia|africa|north-america|south-america|oceania|polar. Without filters all of them. If get_state.teacher names one, take that one and ask nobody. Otherwise find 3 or 4 that fit the course: read its topic first, match it to fields yourself (try several topics), mix women and men and regions, follow wishes of the user (a woman, someone from Africa). Describe each in one sentence of the language of the course in the markdown, then ask with a chat form {type: "teacher", options: [ids]}; the answer is the id. Then set_agent with that persona, introduce yourself as an AI in the role of that person, and teach in their style until the user asks for someone else.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        topic: { type: 'string', description: 'e.g. physics, music, education' },
+        gender: { type: 'string', enum: ['female', 'male'] },
+        region: { type: 'string', enum: ['europe', 'asia', 'africa', 'north-america', 'south-america', 'oceania', 'polar'] },
+      },
     },
   },
   {
@@ -444,6 +462,44 @@ function isLabel(value: any) {
   return typeof value === 'string' && value.trim() !== '' && value.length <= 40
 }
 
+const RULES =
+  'Teach in this style. You are an AI in the role of this person: say so when you introduce yourself, never invent quotes, do not act out their personal fate.'
+
+function findTeacher(args: any) {
+  if (args.topic !== undefined && typeof args.topic !== 'string') throw new Error('topic must be a string')
+  if (args.gender !== undefined && teachers.GENDERS.indexOf(args.gender) < 0) throw new Error('gender must be female or male')
+  if (args.region !== undefined && teachers.REGIONS.indexOf(args.region) < 0) {
+    throw new Error('region must be one of ' + teachers.REGIONS.join(', '))
+  }
+  return { teachers: teachers.find(args).map(teachers.line) }
+}
+
+function isPersona(value: any) {
+  return typeof value === 'string' && Object.prototype.hasOwnProperty.call(teachers.TEACHERS, value)
+}
+
+// what an agent with a persona needs to take on the role
+function personaOf(agent?: server.Agent) {
+  const t = agent && agent.persona ? teachers.TEACHERS[agent.persona] : undefined
+  return t ? { id: t.id, name: t.name, teaching: t.teaching, rules: RULES } : undefined
+}
+
+// persona given: set it, and the name of the person as label unless the agent
+// has one; null: remove it, and the label it brought
+function withPersona(agent: server.Agent, persona: any): server.Agent {
+  if (persona === undefined) return agent
+  const before = agent.persona
+  const out: server.Agent = { name: agent.name, emoji: agent.emoji }
+  // the keys always in this order: the shell and the tests compare JSON
+  if (persona === null) {
+    if (agent.label !== undefined && !(before && agent.label === teachers.TEACHERS[before].name)) out.label = agent.label
+    return out
+  }
+  out.label = agent.label !== undefined ? agent.label : teachers.TEACHERS[persona].name
+  out.persona = persona
+  return out
+}
+
 function setAgent(args: any) {
   const { name, emoji, label } = args
   if (typeof name !== 'string' || !NAME.test(name)) {
@@ -454,6 +510,10 @@ function setAgent(args: any) {
   }
   if (label !== undefined && !isLabel(label)) {
     throw new Error('label must be a string of at most 40 characters')
+  }
+  const persona = args.persona
+  if (persona !== undefined && persona !== null && !isPersona(persona)) {
+    throw new Error('persona must be an id of find_teacher, or null')
   }
 
   let list: server.Agent[] = server.getState().agents
@@ -477,27 +537,32 @@ function setAgent(args: any) {
       if (agent.label !== undefined && !isLabel(agent.label)) {
         throw new Error('agents[].label must be a string of at most 40 characters')
       }
+      if (agent.persona !== undefined && !isPersona(agent.persona)) {
+        throw new Error('agents[].persona must be an id of find_teacher')
+      }
       const declared: server.Agent = { name: agent.name, emoji: agent.emoji }
       if (agent.label !== undefined) declared.label = agent.label
-      list.push(declared)
+      list.push(withPersona(declared, agent.persona))
     }
   }
 
   const known = list.filter((a) => a.name === name)[0]
-  if (emoji !== undefined || label !== undefined) {
+  if (emoji !== undefined || label !== undefined || persona !== undefined) {
     if (!known && emoji === undefined) throw new Error('unknown agent ' + name + ', pass its emoji or declare it in agents')
     if (!known && list.length >= 10) throw new Error('at most 10 agents')
     const agent: server.Agent = { ...known, name, emoji: emoji === undefined ? known.emoji : emoji }
     if (label !== undefined) agent.label = label
+    const updated = withPersona(agent, persona)
     // in its place, the menu keeps its order
-    list = known ? list.map((a) => (a.name === name ? agent : a)) : list.concat(agent)
+    list = known ? list.map((a) => (a.name === name ? updated : a)) : list.concat(updated)
   } else if (!known) {
     throw new Error('unknown agent ' + name + ', pass its emoji or declare it in agents')
   }
 
   server.setAgent(name, list)
   const { agent, agents } = server.getState()
-  return { agent, agents }
+  const role = personaOf(server.currentAgent())
+  return role ? { agent, agents, persona: role } : { agent, agents }
 }
 
 function readChat(args: any) {
@@ -511,8 +576,11 @@ function readChat(args: any) {
   return {
     ...rest,
     skipped: Math.max(0, entries.length - last),
-    // the name is enough, the emoji is for the user
-    entries: entries.slice(-last).map((e: any) => (e.agent ? { ...e, agent: e.agent.name } : e)),
+    // the name is enough, the emoji is for the user; the persona tells a
+    // fresh agent which role to take on again
+    entries: entries.slice(-last).map((e: any) =>
+      e.agent ? { ...e, agent: e.agent.name, ...(e.agent.persona ? { persona: e.agent.persona } : {}) } : e,
+    ),
   }
 }
 
@@ -565,8 +633,8 @@ async function chat(args: any, request: any) {
       throw new Error('input.id must be a unique name of letters, digits, _ or -, and not "ask"')
     }
     ids.push(id)
-    if (['buttons', 'radio', 'checkbox'].indexOf(input.type) < 0) {
-      throw new Error('input.type must be buttons, radio or checkbox')
+    if (['buttons', 'radio', 'checkbox', 'teacher'].indexOf(input.type) < 0) {
+      throw new Error('input.type must be buttons, radio, checkbox or teacher')
     }
     if (input.label !== undefined && typeof input.label !== 'string') {
       throw new Error('input.label must be a string')
@@ -578,6 +646,9 @@ async function chat(args: any, request: any) {
       !input.options.every((o: any) => typeof o === 'string' && o.length <= 200)
     ) {
       throw new Error('input.options must be 1 to 20 strings of at most 200 characters')
+    }
+    if (input.type === 'teacher' && (input.options.length > 6 || !input.options.every(isPersona))) {
+      throw new Error('a teacher input has 1 to 6 ids of find_teacher')
     }
   }
 
@@ -676,6 +747,7 @@ async function handle(method: string, params: any, request: any) {
       else if (params.name === 'wait_for_event') call = () => waitForEvent(args, request)
       else if (params.name === 'chat') call = () => chat(args, request)
       else if (params.name === 'set_agent') call = () => setAgent(args)
+      else if (params.name === 'find_teacher') call = () => findTeacher(args)
       else if (params.name === 'read_chat') call = () => readChat(args)
       else if (params.name === 'outline') call = () => outline(args)
       else if (params.name === 'read_section') call = () => readSection(args)

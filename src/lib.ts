@@ -73,7 +73,8 @@ const speech = { voices: -1, automated: false, fallback: false }
 // Who the user talks to: the agents of a workflow, each with an emoji that the
 // chat shows on its button and under every message. Kept out of state too.
 // label: what the user reads instead of the name, e.g. "Unterrichtsplanung"
-export type Agent = { name: string; emoji: string; label?: string }
+// persona: a historical person of src/teachers/ the chat shows instead of the robot
+export type Agent = { name: string; emoji: string; label?: string; persona?: string }
 const agents = { current: '', list: [] as Agent[] }
 
 export function currentAgent(): Agent | undefined {
