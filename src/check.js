@@ -718,6 +718,11 @@ async function main() {
   const voiced = await tool('set_agent', { name: 'prof', voice: 'de_DE-thorsten-high' })
   assert.deepStrictEqual(voiced.agents[2], { name: 'prof', emoji: '🎓', label: 'Sokrates', persona: 'socrates', voice: 'de_DE-thorsten-high' })
   assert.ok(stream.includes('"voice":"de_DE-thorsten-high"'), 'the shell learns the voice')
+  // the browser reported 50 voices named v: thorsten is none of them
+  assert.ok(/de_DE-thorsten-high/.test(voiced.warning) && /voice_names/.test(voiced.warning), 'a guessed voice is told: ' + voiced.warning)
+  assert.strictEqual((await tool('set_agent', { name: 'prof', voice: 'v' })).warning, undefined, 'a voice of the browser is not')
+  assert.ok((await tool('set_agent', { name: 'prof', agents: [{ name: 'prof', emoji: '🎓', voice: 'nope' }] })).warning, 'also in agents')
+  await tool('set_agent', { name: 'prof', agents: [{ name: 'tutor', emoji: '🧑‍🏫' }, examiner, { name: 'prof', emoji: '🎓', label: 'Sokrates', persona: 'socrates', voice: 'de_DE-thorsten-high' }] })
   assert.strictEqual((await tool('set_agent', { name: 'prof', persona: 'hypatia' })).agents[2].voice, 'de_DE-thorsten-high', 'a new persona keeps the voice until the agent picks another')
   assert.strictEqual((await tool('set_agent', { name: 'prof', voice: null })).agents[2].voice, undefined, 'null removes it')
   const listed = await tool('set_agent', { name: 'tutor', agents: [{ ...tutor, persona: 'hypatia' }, examiner] })
