@@ -8,6 +8,7 @@ const http = require('http')
 const os = require('os')
 const path = require('path')
 const { spawn } = require('child_process')
+const vm = require('vm')
 
 const PORT = 3999
 const ROOT = path.join(__dirname, '..')
@@ -156,6 +157,34 @@ async function main() {
   for (const t of msg.result.tools) {
     assert.ok(t.description.length <= LIMIT, 'the description of ' + t.name + ' has ' + t.description.length + ' characters')
   }
+
+  // --- teacher personas: the bundle the chat loads, run as the browser would
+  const bundle = await request('GET', '/liascript/teachers.js', {})
+  assert.strictEqual(bundle.status, 200, 'the chat gets teachers.js')
+  assert.strictEqual(bundle.headers['cache-control'], 'no-cache')
+  const sandbox = { window: {} }
+  vm.createContext(sandbox)
+  vm.runInContext(fs.readFileSync(path.join(ROOT, 'views/teachers.js'), 'utf8'), sandbox)
+  const Teachers = sandbox.window.Teachers
+  const ids = Teachers.ids()
+  assert.strictEqual(ids.length, 196, 'all people of virtual-speaker')
+  const REGIONS = ['europe', 'asia', 'africa', 'north-america', 'south-america', 'oceania', 'polar']
+  for (const id of ids) {
+    const t = Teachers.get(id)
+    assert.ok(['female', 'male'].includes(t.gender), id + ' gender')
+    assert.ok(REGIONS.includes(t.region), id + ' region')
+    assert.ok(Number.isInteger(t.lived[0]) && t.lived[0] < t.lived[1], id + ' lived')
+    assert.ok(t.fields.length >= 1 && t.fields.length <= 5 && t.fields.every((f) => /^[a-z]+(-[a-z]+)*$/.test(f)), id + ' fields')
+    assert.ok(t.teaching && t.teaching.length <= 240 && !/["“”„]/.test(t.teaching), id + ' teaching')
+    assert.strictEqual(t.options, undefined, 'get() leaves out the DiceBear options')
+    const f = Teachers.frames(id)
+    assert.ok(f.rest.startsWith('data:image/svg+xml'), id + ' rest')
+    assert.ok(f.mouths.length >= 1 && f.mouths.every((m) => m.startsWith('data:image/svg+xml') && m !== f.rest), id + ' mouths')
+    assert.ok(f.title.includes(t.name) && f.title.includes('licensed under'), id + ' title')
+  }
+  assert.strictEqual(Teachers.get('nobody'), undefined)
+  assert.strictEqual(Teachers.frames('nobody'), undefined)
+  assert.strictEqual(Teachers.get('socrates').years, '470–399 BC')
 
   // --- sections of a Markdown file
   const MD = path.join(ROOT, 'check-sections.md')
