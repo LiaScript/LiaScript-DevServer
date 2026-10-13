@@ -76,6 +76,59 @@
   }
 }
 
+/* a teacher persona: the portrait with three mouths stacked, and a bar
+   below for the running light (.tick) and the pulse (.wait) */
+.bot.persona {
+  position: relative;
+  display: inline-block;
+  overflow: hidden;
+  background: #334155;
+}
+.bot.persona img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.bot.persona .tick,
+.bot.persona .wait {
+  position: absolute;
+  bottom: 0;
+  height: 8%;
+  background: #7dd3fc;
+}
+.bot.persona .tick {
+  width: 12.5%;
+}
+.bot.persona .tick:nth-of-type(1) { left: 0 }
+.bot.persona .tick:nth-of-type(2) { left: 12.5% }
+.bot.persona .tick:nth-of-type(3) { left: 25% }
+.bot.persona .tick:nth-of-type(4) { left: 37.5% }
+.bot.persona .tick:nth-of-type(5) { left: 50% }
+.bot.persona .tick:nth-of-type(6) { left: 62.5% }
+.bot.persona .tick:nth-of-type(7) { left: 75% }
+.bot.persona .tick:nth-of-type(8) { left: 87.5% }
+.bot.persona .wait {
+  left: 0;
+  right: 0;
+}
+/* the portraits of a teacher form */
+.msg fieldset.teacher {
+  border: 0;
+  padding: 0;
+}
+.msg fieldset.teacher button {
+  display: grid;
+  justify-items: center;
+  gap: 0.25em;
+  padding: 0.4em;
+  min-width: 6.5em;
+}
+.msg fieldset.teacher small {
+  color: GrayText;
+}
+
+
 .failed {
   outline: 2px solid red;
 }
