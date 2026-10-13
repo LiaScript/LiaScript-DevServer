@@ -845,11 +845,11 @@ export async function start(
   )
 
   // the chat shell: the player in an iframe, the chat on top of it, so that
-  // a live reload of the course does not take the chat with it, and the
-  // pixel robots of the agents
+  // a live reload of the course does not take the chat with it, the pixel
+  // robots of the agents and the portraits of the teacher personas
   if (agent) {
     app.get(
-      '/liascript/:file(chat.html|chat.js|chat.css|avatar.js)',
+      '/liascript/:file(chat.html|chat.js|chat.css|avatar.js|teachers.js)',
       function (req: express.Request, res: express.Response) {
         res.sendFile(req.params.file, {
           root: path.resolve(path.join(dirname, 'views')),
