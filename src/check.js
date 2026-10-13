@@ -314,6 +314,28 @@ async function main() {
   assert.strictEqual((await tool('get_state', {})).codex_bridge.args[4], ROOT, 'forged browser paths cannot become external launch inputs')
   await post(report)
 
+  // a course can fix its teacher in the header: teacher: <id>
+  const COURSE = path.join(ROOT, 'check-teacher.md')
+  const course = (head, rest) => fs.writeFileSync(COURSE, head + '\n# Course\n\n' + (rest || ''))
+  const at = (file) => post({ type: 'state', context: { ...report.context, file } })
+  try {
+    course('<!--\nauthor: x\nteacher: socrates\n-->')
+    await at('check-teacher.md')
+    assert.strictEqual((await tool('get_state', {})).teacher, 'socrates', 'the header names the teacher')
+    course('<!--\nteacher: nobody\n-->')
+    state = await tool('get_state', {})
+    assert.strictEqual(state.teacher, null, 'an unknown teacher is none')
+    assert.ok(/nobody/.test(state.warning), 'and a warning: ' + state.warning)
+    course('<!--\nauthor: x\n-->', '<!--\nteacher: socrates\n-->\n')
+    assert.strictEqual((await tool('get_state', {})).teacher, undefined, 'only the header counts, not a comment after the first heading')
+    await at('../outside.md')
+    assert.strictEqual((await tool('get_state', {})).teacher, undefined, 'a forged path reads nothing')
+  } finally {
+    fs.rmSync(COURSE, { force: true })
+  }
+  await post(report)
+  assert.strictEqual((await tool('get_state', {})).teacher, undefined, 'README.md has no teacher')
+
   // text-to-speech: the browser reports its speech voices, and without any
   // the state says how to get them
   assert.strictEqual(state.voices, -1, 'voices are unknown until a browser reports them')

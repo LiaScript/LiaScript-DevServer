@@ -51,7 +51,7 @@ const TOOLS = [
   {
     name: 'get_state',
     description:
-      'What the user is looking at in the LiaScript preview: course file (relative to root), 1-based slide number, slide title, selected text, and whether a browser (connected) and its chat are open. url is the address of the preview, to open it with browser automation tools. events is the URL of the event stream for a Monitor tool (curl -sN, one JSON line per event), watched whether one reads it. Events that came while nobody read it are replayed to the next reader, up to 10 minutes back. voices is the number of speech voices of the browser, -1 if unknown. session {id, title, updated, count} is the saved chat: read_chat reads it. A tts entry appears only when the browser cannot read the course aloud.\n\nCodex persistent browser chat: codex_bridge gives available, command, args and cwd for the installed bridge. When the user requests persistent chat and available is true, run that command with those arguments and cwd in a background PTY, keep its stdin open, wait for "Bridge ready:", then open the printed URL with visible browser automation (or append --open if none is available). Use proper shell quoting for paths; args are an argv array. The devserver chooses the next free port if 3001 is busy. Requires Codex CLI signed in with codex login. Terminal text sent to that process and browser messages share its thread; /stop interrupts, /quit exits, /approve and /reply handle requests only in that terminal. This starts a separate Codex conversation, not this IDE session, and uses a separate preview. Run only one bridge per project. If your tools already have the lia_ prefix, you are inside the bridge: do not launch another. If unavailable, use an npm installation of @liascript/devserver or build the devserver repository first.',
+      'What the user is looking at in the LiaScript preview: course file (relative to root), 1-based slide number, slide title, selected text, and whether a browser (connected) and its chat are open. url is the address of the preview, to open it with browser automation tools. events is the URL of the event stream for a Monitor tool (curl -sN, one JSON line per event), watched whether one reads it. Events that came while nobody read it are replayed to the next reader, up to 10 minutes back. voices is the number of speech voices of the browser, -1 if unknown. session {id, title, updated, count} is the saved chat: read_chat reads it. teacher is the id of find_teacher the course header names (teacher: <id>), null with a warning if unknown. A tts entry appears only when the browser cannot read the course aloud.\n\nCodex persistent browser chat: codex_bridge gives available, command, args and cwd for the installed bridge. When the user requests persistent chat and available is true, run that command with those arguments and cwd in a background PTY, keep its stdin open, wait for "Bridge ready:", then open the printed URL with visible browser automation (or append --open if none is available). Use proper shell quoting for paths; args are an argv array. The devserver chooses the next free port if 3001 is busy. Requires Codex CLI signed in with codex login. Terminal text sent to that process and browser messages share its thread; /stop interrupts, /quit exits, /approve and /reply handle requests only in that terminal. This starts a separate Codex conversation, not this IDE session, and uses a separate preview. Run only one bridge per project. If your tools already have the lia_ prefix, you are inside the bridge: do not launch another. If unavailable, use an npm installation of @liascript/devserver or build the devserver repository first.',
     inputSchema: { type: 'object', properties: {} },
   },
   {
@@ -500,6 +500,21 @@ function withPersona(agent: server.Agent, persona: any): server.Agent {
   return out
 }
 
+// teacher: <id> in the header of the open course; a path the browser forged
+// or a file that is gone reads nothing
+function courseTeacher(state: any): { teacher?: string | null; warning?: string } {
+  let content
+  try {
+    content = fs.readFileSync(path.join(state.root, courseFile(state.file)), 'utf8')
+  } catch (e) {
+    return {}
+  }
+  const id = sections.header(content, 'teacher')
+  if (id === undefined) return {}
+  if (isPersona(id)) return { teacher: id }
+  return { teacher: null, warning: 'the course names teacher ' + id + ', which find_teacher does not know' }
+}
+
 function setAgent(args: any) {
   const { name, emoji, label } = args
   if (typeof name !== 'string' || !NAME.test(name)) {
@@ -735,6 +750,7 @@ async function handle(method: string, params: any, request: any) {
         try { input = path.join(state.root, courseFile(state.file)) } catch (e) {}
         return {
           ...state,
+          ...courseTeacher(state),
           codex_bridge: {
             available: !(process as any).pkg && fs.existsSync(bridge),
             command: process.execPath,
