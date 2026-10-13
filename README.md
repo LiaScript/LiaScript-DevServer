@@ -463,11 +463,12 @@ is too short to count.
 
 In this mode a course opens inside a page with a chat on top of it. The course
 lives in a frame of its own, so the chat stays when the course reloads. What
-you type goes to the agent, and its answers are rendered as Markdown, including
-` ```mermaid ` diagrams, `$…$` and `$$…$$` formulas (KaTeX) and code blocks with
-a language, highlighted read-only by Ace. While the agent works on an answer, a
-line below the messages tells what it is doing. These libraries are loaded from
-jsDelivr; without a connection the chat falls back to plain text.
+you type goes to the agent, and its answers are LiaScript, rendered by
+[@liascript/chat](https://www.npmjs.com/package/@liascript/chat) like a course:
+formulas, quizzes, surveys and tasks, executable code, ASCII art, and templates
+imported in a header comment. Your answers to its quizzes reach the agent too, so
+it can help when you are stuck. While the agent works on an answer, a line below
+the messages tells what it is doing.
 
 Every chat is saved as a file in `.chats/` of the folder the agent works in, one
 file per conversation, together with your answers to its forms. A reload of the
