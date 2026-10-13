@@ -39,7 +39,8 @@
   "author": "André Dietrich",
   "license": "MIT",
   "dependencies": {
-    "@liascript/editor": "^1.2.0--2.2.0",
+    "@liascript/chat": "^0.1.1--2.2.2",
+    "@liascript/editor": "^1.2.0--2.2.2",
     "body-parser": "^1.20.4",
     "chokidar": "^4.0.3",
     "cors": "^2.8.6",
@@ -68,6 +69,7 @@
   "pkg": {
     "assets": [
       "node_modules/@liascript/editor/dist/**/*",
+      "node_modules/@liascript/chat/dist/**/*",
       "views/**/*"
     ]
   },
