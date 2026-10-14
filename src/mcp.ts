@@ -35,7 +35,8 @@ Browser events are JSON {type, agent, cmd, params, context}; context is {file, s
 Events reach you one way, the first that works:
 1. <channel> tags in this session. Then do nothing else.
 2. A Monitor tool (Claude Code): run curl -sN <get_state.events> with the longest timeout, restart it when it expires, never two at once (get_state.watched).
-3. Codex: persistent bridge setup in get_state; otherwise poll wait_for_event(timeout_s: 0), chat(wait: false). No idle wakeup.
+3. Codex: persistent bridge in get_state.
+4. Else, to serve the browser chat: loop wait_for_event and answer, chat(wait: false).
 
 Opening the preview, the first that applies:
 1. get_state.connected: use that tab, never a second one.
@@ -43,6 +44,14 @@ Opening the preview, the first that applies:
 3. Otherwise goto opens the user's default browser.
 
 get_state.tts: the browser cannot read aloud. Mention it only if asked, follow it only with consent.`
+
+// a slash command for clients without channel or Monitor, e.g. /mcp.liascript.chat in Copilot
+const PROMPT = {
+  name: 'chat',
+  description: 'Serve the LiaScript browser chat: wait for messages and answer them until stopped',
+}
+const PROMPT_TEXT =
+  'Serve the LiaScript browser chat until I stop it. Call get_state, open the preview as the instructions say unless a tab is connected, and read_chat if the session has entries. Then loop: wait_for_event, handle the event as the instructions say (chat and command: answer with chat, forms with wait: false), and call wait_for_event again, also after a timeout. Stop when I say so or the preview closes (connection with connected false). If events reach you as <channel> tags or through a Monitor, use that instead of the loop.'
 
 const SECTION =
   'heading path as in the specs, e.g. "## Agents → ### Teaching-Agent" or "Sessions → 3": every part is a heading below the one before, a part also matches a heading that starts with it ("3" for "3. First words"), # and backticks are optional'
@@ -172,7 +181,7 @@ const TOOLS = [
   {
     name: 'wait_for_event',
     description:
-      'Returns the next queued browser event, or {timeout: true}. timeout_s: 0 polls immediately without blocking. Otherwise waits for a command, chat, answer, session, connection or activity event. Polling does not wake an idle agent; call between work steps. activity: what the learner did, params.kind quiz|survey|task|code, slide (1-based, as read_section) or chat (0-based number of a chat message) and block (the n-th such element on it). quiz: a wrong check, gave up (resolved), a hint, or solved after failing {trial, hints, solved, input, error}. code: a failed run or the first success after one {ok, runs, error, code if edited}. survey: a submitted answer without a solution {input}, opinions or self-assessment. task: the checklist state {checked}, what the learner says they know or can do. input is the raw state, read_section has the options. Not a request: stay silent, remember surveys and tasks to adapt explanations. Except help: "true", the learner is stuck (3rd failure or resolved, once per task) and the chat shows at once that you look at the answer: send a hint, a different explanation or a smaller sub-question, not the solution, or clear that line with chat({status: ""}).',
+      'Returns the next queued browser event, or {timeout: true}. timeout_s: 0 polls immediately without blocking. Otherwise waits for a command, chat, answer, session, connection or activity event. Polling does not wake an idle agent; call between work steps. Serving the chat without channel or Monitor (Copilot and others): call it again after every answer and every timeout, until the user stops it or closes the preview. activity: what the learner did, params.kind quiz|survey|task|code, slide (1-based, as read_section) or chat (0-based number of a chat message) and block (the n-th such element on it). quiz: a wrong check, gave up (resolved), a hint, or solved after failing {trial, hints, solved, input, error}. code: a failed run or the first success after one {ok, runs, error, code if edited}. survey: a submitted answer without a solution {input}, opinions or self-assessment. task: the checklist state {checked}, what the learner says they know or can do. input is the raw state, read_section has the options. Not a request: stay silent, remember surveys and tasks to adapt explanations. Except help: "true", the learner is stuck (3rd failure or resolved, once per task) and the chat shows at once that you look at the answer: send a hint, a different explanation or a smaller sub-question, not the solution, or clear that line with chat({status: ""}).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -180,7 +189,7 @@ const TOOLS = [
           type: 'integer',
           minimum: 0,
           maximum: 3600,
-          description: 'default 50, stay below the tool timeout of your client',
+          description: 'default 25 (Copilot CLI ends tool calls after 30), stay below the tool timeout of your client',
         },
       },
     },
@@ -437,7 +446,7 @@ function onEvent(event: any) {
 }
 
 function waitForEvent(args: any, request: any) {
-  const seconds = args.timeout_s === undefined ? 50 : args.timeout_s
+  const seconds = args.timeout_s === undefined ? 25 : args.timeout_s
   if (!Number.isInteger(seconds) || seconds < 0 || seconds > 3600) {
     throw new Error('timeout_s must be an integer from 0 to 3600')
   }
@@ -770,7 +779,7 @@ async function handle(method: string, params: any, request: any) {
             : params.protocolVersion,
         // Never add 'claude/channel/permission': it would let browser content
         // approve tool use in the session.
-        capabilities: { tools: {}, experimental: { 'claude/channel': {} } },
+        capabilities: { tools: {}, prompts: {}, experimental: { 'claude/channel': {} } },
         serverInfo: { name: 'liascript-devserver', version: '1' },
         instructions: INSTRUCTIONS,
       }
@@ -780,6 +789,16 @@ async function handle(method: string, params: any, request: any) {
 
     case 'tools/list':
       return { tools: TOOLS }
+
+    case 'prompts/list':
+      return { prompts: [PROMPT] }
+
+    case 'prompts/get':
+      if (params.name !== PROMPT.name) throw fail(-32602, 'unknown prompt: ' + params.name)
+      return {
+        description: PROMPT.description,
+        messages: [{ role: 'user', content: { type: 'text', text: PROMPT_TEXT } }],
+      }
 
     case 'tools/call': {
       const args = params.arguments || {}
