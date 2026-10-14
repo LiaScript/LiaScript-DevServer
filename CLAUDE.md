@@ -152,8 +152,10 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   `<channel>` tag in the running session (research preview, needs
   `claude --dangerously-load-development-channels server:<name>`). It must never negotiate protocol revision
   `2026-07-28` and never declare `claude/channel/permission`. Channels only work in the terminal UI, not in the
-  chat panel of the VS Code extension (checked), so the instructions name three ways in order: channel, Monitor on
-  `get_state.events`, `wait_for_event`. While `watched`, a `chat` form returns at once with its `ask` id instead
+  chat panel of the VS Code extension (checked), so the instructions name four ways in order: channel, Monitor on
+  `get_state.events`, the Codex bridge, a loop of blocking `wait_for_event` (default 25 s, Copilot CLI ends tool
+  calls after 30 s). Nothing wakes an idle Copilot, so the MCP prompt `chat` (`/mcp.liascript.chat` in VS Code)
+  starts that loop. While `watched`, a `chat` form returns at once with its `ask` id instead
   of blocking, otherwise the answer would arrive twice (tool result and stream line). `chat` with only `status`
   sets the progress line below the messages (the SSE message `{status}`, no browser is opened for it); a message
   keeps it only if it carries a `status` itself. Screenshots, console and clicks are deliberately no tools of the
@@ -186,7 +188,7 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   (`body.learner`); a `persona` for the agent that talks now (top-level or in `agents`) switches to `learner` unless `view` is given, the agent
   switches back when the user asks in the chat. `Avatar.bot()` in `views/avatar.js` returns a `span.bot.persona`
   with the same `data-mouth`/`data-state` classes as the robot (below 40 px only the resting face, only the stage
-  speaks and works) and falls back to the robot if `window.Teachers` does not know the id or throws; `Avatar.voice()` takes the gender of the person. The server instructions are at 2045 of
+  speaks and works) and falls back to the robot if `window.Teachers` does not know the id or throws; `Avatar.voice()` takes the gender of the person. The server instructions are at 2046 of
   2048 characters, so the personas live in the tool descriptions only.
 - **`views/chat.html` + `views/chat.js` + `views/chat.css` + `views/avatar.js`** — the chat shell served at `/liascript/chat.html`: the player in a
   same-origin iframe with the chat on top, so a live reload only reloads the iframe. The messages are LiaScript,

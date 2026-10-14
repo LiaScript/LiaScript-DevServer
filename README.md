@@ -382,6 +382,13 @@ Post forms with `chat({ markdown, inputs, wait: false })`; this returns
 Without these options, `wait_for_event` and forms retain their waiting behavior.
 The fallback queue keeps only the latest 20 events, so poll regularly.
 
+GitHub Copilot and other clients cannot be woken up by the server. Start the
+prompt `chat` of the server instead (in VS Code: type `/mcp.liascript.chat` in
+the Copilot chat): the agent then waits with `wait_for_event` (25 s per call),
+answers in the browser and waits again, until you stop it or close the
+preview. VS Code asks to continue after `chat.agent.maxRequests` requests
+(default 50, each wait counts), raise it for long sessions.
+
 #### Persistent Codex bridge
 
 With Codex CLI installed and signed in (`codex login`), run the bridge from
