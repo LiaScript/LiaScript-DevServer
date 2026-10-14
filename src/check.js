@@ -151,6 +151,13 @@ async function main() {
 
   assert.deepStrictEqual((await rpc('ping')).result, {})
 
+  // the start of the wait_for_event loop for clients without channel or Monitor
+  msg = await rpc('prompts/list')
+  assert.deepStrictEqual(msg.result.prompts.map((p) => p.name), ['chat'])
+  msg = await rpc('prompts/get', { name: 'chat' })
+  assert.ok(msg.result.messages[0].content.text.includes('wait_for_event'), 'the chat prompt starts the loop')
+  assert.ok((await rpc('prompts/get', { name: 'nope' })).error, 'an unknown prompt is an error')
+
   msg = await rpc('tools/list')
   const names = msg.result.tools.map((t) => t.name)
   for (const name of ['get_state', 'goto', 'wait_for_event', 'chat', 'set_agent', 'find_teacher', 'read_chat', 'outline', 'read_section', 'write_section']) assert.ok(names.includes(name), name)
