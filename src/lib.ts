@@ -224,8 +224,11 @@ function watchQuiet() {
   if (quiet.unref) quiet.unref()
 }
 
-// the tables of @liascript/chat that the chat file keeps, code is left out
-const STORED = ['quiz', 'survey', 'task']
+// the tables of @liascript/chat that the chat file keeps. Code brings every
+// version and its output: ponytail: a block over the cap is not saved,
+// trim old versions if that happens. bodyParser.json() takes 100 kB.
+const STORED = ['quiz', 'survey', 'task', 'code']
+const STORE_MAX = 90000
 
 // returns the entry as saved, with its time
 function record(entry: { type: string; [key: string]: any }) {
@@ -967,7 +970,7 @@ export async function start(
           entry.type !== 'ai' ||
           STORED.indexOf(p.table) < 0 ||
           !Array.isArray(p.data) ||
-          JSON.stringify(p.data).length > 20000
+          JSON.stringify(p.data).length > STORE_MAX
         ) {
           return res.sendStatus(400)
         }

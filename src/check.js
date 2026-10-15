@@ -849,11 +849,11 @@ async function main() {
   assert.strictEqual((await post({ type: 'store', params: { table: 'quiz', n: 0, data: solved } })).status, 204)
   const userN = saved.entries.findIndex((e) => e.type === 'user')
   for (const params of [
-    { table: 'code', n: 0, data: [] },
+    { table: 'nope', n: 0, data: [] },
     { table: 'quiz', n: userN, data: [] },
     { table: 'quiz', n: 9999, data: [] },
     { table: 'quiz', n: 0, data: {} },
-    { table: 'quiz', n: 0, data: ['x'.repeat(20000)] },
+    { table: 'quiz', n: 0, data: ['x'.repeat(90000)] },
   ]) {
     assert.strictEqual((await post({ type: 'store', params })).status, 400, JSON.stringify(params).slice(0, 60))
   }

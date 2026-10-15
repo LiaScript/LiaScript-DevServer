@@ -1115,10 +1115,11 @@ function readClicked(e) {
 
 // What the learner does with a quiz, survey or task in a message, reported
 // like those of the course (agentScript in lib.ts), chat is the number of the
-// message. The server keeps the states in the chat file, for F5.
+// message. The server keeps the states in the chat file, for F5, code with
+// its versions and output too.
 var seen = {}
 var tasks = {}
-var STORED = ['quiz', 'survey', 'task']
+var STORED = ['quiz', 'survey', 'task', 'code']
 
 function activity(kind, id, block, params) {
   params.kind = kind
