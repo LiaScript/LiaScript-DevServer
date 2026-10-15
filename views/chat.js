@@ -377,6 +377,18 @@ function showSession(session) {
   stop()
   clear()
 
+  // what the learner did with the quizzes, surveys and tasks: the n-th entry
+  // is the n-th message, as long as nothing else is shown in between
+  var db = { quiz: [], survey: [], task: [], code: [] }
+  Object.keys(session.db || {}).forEach(function (table) {
+    if (!db[table]) return
+    Object.keys(session.db[table]).forEach(function (n) {
+      db[table][n] = session.db[table][n]
+      report(table, +n, session.db[table][n], true)
+    })
+  })
+  lia.load({ version: 1, messages: [], db: db })
+
   session.entries.forEach(showEntry)
   forms.forEach(function (el) {
     if (el.dataset.ask != session.open) closed(el)
@@ -394,8 +406,9 @@ function showSession(session) {
   stageState()
 }
 
-// one entry of the saved chat, from the history or as it happens
-function showEntry(entry) {
+// one entry of the saved chat, from the history or as it happens. n: its
+// number in the chat, which the states of its quizzes refer to
+function showEntry(entry, n) {
   if (entry.type == 'ai') {
     showAI(
       {
@@ -404,6 +417,7 @@ function showEntry(entry) {
         inputs: entry.inputs,
         agent: entry.agent,
         lang: entry.lang,
+        n: n,
       },
       entry.t,
     )
@@ -1101,9 +1115,10 @@ function readClicked(e) {
 
 // What the learner does with a quiz, survey or task in a message, reported
 // like those of the course (agentScript in lib.ts), chat is the number of the
-// message. ponytail: the states are not saved, after a reload they are new.
+// message. The server keeps the states in the chat file, for F5.
 var seen = {}
 var tasks = {}
+var STORED = ['quiz', 'survey', 'task']
 
 function activity(kind, id, block, params) {
   params.kind = kind
@@ -1118,11 +1133,23 @@ lia.addEventListener('store', function (e) {
   var data = record.data
   if (typeof id != 'number' || !Array.isArray(data)) return
 
+  var msg = parts[id]
+  if (msg && typeof msg.entry == 'number' && STORED.indexOf(record.table) >= 0) {
+    post({ type: 'store', params: { table: record.table, n: msg.entry, data: data } }).catch(
+      function () {},
+    )
+  }
+  report(record.table, id, data)
+})
+
+// quiet: only remember, for the states of the history
+function report(table, id, data, quiet) {
   data.forEach(function (block, i) {
-    var key = record.table + id + ':' + i
-    if (record.table == 'quiz') {
+    var key = table + id + ':' + i
+    if (table == 'quiz') {
       var old = seen[key] || { trial: 0, solved: 0, hint: 0 }
       seen[key] = block
+      if (quiet) return
       if (block.trial == old.trial && block.solved == old.solved && block.hint == old.hint) return
       // a hit at the first try needs no help
       if (block.solved == 1 && block.trial == 1) return
@@ -1133,22 +1160,25 @@ lia.addEventListener('store', function (e) {
         input: JSON.stringify(block.state),
         error: block.error_msg || '',
       })
-    } else if (record.table == 'survey') {
+    } else if (table == 'survey') {
       var before = seen[key]
       seen[key] = block.submitted
-      if (block.submitted && !before) activity('survey', id, i, { input: JSON.stringify(block.state) })
-    } else if (record.table == 'task') {
+      if (block.submitted && !before && !quiet) {
+        activity('survey', id, i, { input: JSON.stringify(block.state) })
+      }
+    } else if (table == 'task') {
       // every tick is stored: one event with the final state per block
       var now = block.join(',')
       if (seen[key] == now) return
       seen[key] = now
+      if (quiet) return
       clearTimeout(tasks[key])
       tasks[key] = setTimeout(function () {
         activity('task', id, i, { checked: now })
       }, 2000)
     }
   })
-})
+}
 
 // ---------------------------------------------------------------- AI -> user
 
@@ -1341,6 +1371,7 @@ function showAI(chat, t) {
     chat.agent,
     t,
   )
+  msg.entry = chat.n
   if (typeof chat.lang == 'string') {
     msg.lang = chat.lang
     // placed already, place() sets it otherwise

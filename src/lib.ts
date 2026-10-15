@@ -222,6 +222,9 @@ function watchQuiet() {
   if (quiet.unref) quiet.unref()
 }
 
+// the tables of @liascript/chat that the chat file keeps, code is left out
+const STORED = ['quiz', 'survey', 'task']
+
 // returns the entry as saved, with its time
 function record(entry: { type: string; [key: string]: any }) {
   if (!session) return
@@ -238,7 +241,9 @@ function record(entry: { type: string; [key: string]: any }) {
 }
 
 function sessionMessage() {
-  return { session: { id: session!.id, entries: session!.entries, open: openIn(session!) } }
+  return {
+    session: { id: session!.id, entries: session!.entries, open: openIn(session!), db: session!.db },
+  }
 }
 
 export function readChat(id?: string) {
@@ -943,8 +948,33 @@ export async function start(
       }
 
       const body = req.body || {}
-      if (['state', 'command', 'chat', 'answer', 'session', 'activity'].indexOf(body.type) < 0) {
+      if (
+        ['state', 'command', 'chat', 'answer', 'session', 'activity', 'store'].indexOf(body.type) < 0
+      ) {
         return res.sendStatus(400)
+      }
+
+      // the quizzes, surveys or tasks of message n as the chat stores them,
+      // so that F5 shows them solved again. No event, activity tells the
+      // agent what the learner did.
+      if (body.type === 'store') {
+        const p = body.params || {}
+        const entry = session && Number.isInteger(p.n) && session.entries[p.n]
+        if (
+          !entry ||
+          entry.type !== 'ai' ||
+          STORED.indexOf(p.table) < 0 ||
+          !Array.isArray(p.data) ||
+          JSON.stringify(p.data).length > 20000
+        ) {
+          return res.sendStatus(400)
+        }
+        try {
+          chats.store(session!, p.table, p.n, p.data)
+        } catch (e: any) {
+          console.warn('chat state not saved:', e.message)
+        }
+        return res.sendStatus(204)
       }
 
       if (body.context) {
@@ -1296,9 +1326,11 @@ export function send(msg: any) {
       closeForm()
       openAsk = id
     }
-    record(
+    const entry = record(
       inputs && inputs.length ? { type: 'ai', ask: id, inputs, ...rest } : { type: 'ai', ...rest },
     )
+    // its number in the saved chat, for the states of its quizzes
+    if (entry) msg = { ...msg, chat: { ...msg.chat, n: session!.entries.length - 1 } }
   }
   clients.forEach((client) =>
     client.write(`data: ${JSON.stringify(msg)}\n\n`),

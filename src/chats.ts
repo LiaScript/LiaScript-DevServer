@@ -11,7 +11,10 @@ import * as path from 'path'
 // ai: {markdown, ask?, inputs?, agent?, lang?}, user: {text},
 // answer: {ask, values}
 export type Entry = { t: string; type: string; [key: string]: any }
-export type Session = { id: string; created: string; file: string; entries: Entry[] }
+// db: what the learner did with the quizzes, surveys and tasks of a message,
+// per table and entry number, in the format of @liascript/chat
+export type DB = { [table: string]: { [n: string]: any } }
+export type Session = { id: string; created: string; file: string; entries: Entry[]; db?: DB }
 export type Summary = { id: string; title: string; updated: string; count: number }
 
 const ID = /^[\w-]{1,64}$/
@@ -31,6 +34,18 @@ export function create(file: string): Session {
 
 export function append(session: Session, entry: { type: string; [key: string]: any }) {
   session.entries.push({ t: new Date().toISOString(), ...entry })
+  save(session)
+}
+
+// the blocks of one table in entry n, replaced as a whole like the chat does
+export function store(session: Session, table: string, n: number, data: any[]) {
+  const db = session.db || (session.db = {})
+  const rows = db[table] || (db[table] = {})
+  rows[n] = data
+  save(session)
+}
+
+function save(session: Session) {
   fs.mkdirSync(dir, { recursive: true })
   fs.writeFileSync(path.join(dir, session.id + '.json'), serialize(session))
 }
@@ -38,7 +53,8 @@ export function append(session: Session, entry: { type: string; [key: string]: a
 function serialize(session: Session) {
   const head = JSON.stringify({ id: session.id, created: session.created, file: session.file })
   const lines = session.entries.map((entry) => JSON.stringify(entry))
-  return head.slice(0, -1) + ',"entries":[\n' + lines.join(',\n') + '\n]}\n'
+  const db = session.db ? ',\n"db":' + JSON.stringify(session.db) : ''
+  return head.slice(0, -1) + ',"entries":[\n' + lines.join(',\n') + '\n]' + db + '}\n'
 }
 
 export function load(id: string): Session | undefined {

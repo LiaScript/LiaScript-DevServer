@@ -88,7 +88,7 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
     of any MCP knowledge, so another adapter (e.g. an ACP host mode) can sit on the same three exports:
     `getState()` (what the browser last reported: file, 1-based slide, title, selection, `connected`, `chat`, plus
     `events`, `watched` and `session`, see below), `send()`, and `bus` (an `EventEmitter` with `'state'` and
-    `'event'`). The browser reports through `POST /agent` with one envelope `{type: state|command|chat|answer|session,
+    `'event'`). The browser reports through `POST /agent` with one envelope `{type: state|command|chat|answer|session|activity|store,
     agent, cmd, params, context}`; the route validates and caps every field and attaches the cached state as `context`. A fifth type,
     `connection` with `params: {connected, chat}`, comes from the server itself: the SSE handler emits `'state'` on
     every open and close, and a change that lasts 2 s (`SETTLE_MS`, so F5 and live reloads do not count) becomes
@@ -124,7 +124,11 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
     one entry per line, rewritten on every entry: `ai {markdown, ask, inputs, agent, lang}` (recorded in `send()`
     from a `chat` message, `ask`/`inputs` only for a form), `user {text}`, `answer {ask, values}` and `command {agent, cmd, label}` (recorded in
     `POST /agent`, a command only with the link text as `label`, which `agentScript` and `chat.js` send along).
-    Answers and commands also go to every shell as `{entry}`, which shows them as a compact bubble of the user. A session gets its file with the first entry. On start the server continues the session that
+    Answers and commands also go to every shell as `{entry}`, which shows them as a compact bubble of the user.
+    After the entries the file holds `db` (`chats.store()`): the states of the quizzes, surveys and tasks of the
+    chat messages as `@liascript/chat` stores them, per table (`STORED`, no `code`) and entry number. `POST /agent`
+    type `store` `{table, n, data}` replaces one, only for an `ai` entry and up to 20000 characters, and emits no
+    event (the `activity` does). Every `{chat}` carries `n`, its entry number. A session gets its file with the first entry. On start the server continues the session that
     changed last. The progress line and the roster are kept in memory only (quiet diffs, the agent sends them again
     after a restart). Every `?chat` stream first gets `{sessions: list}`, `{session: {id, entries}}`, the agents and
     `{status}`, so F5, a restart and messages sent while no tab was open are covered. `POST /agent` type `session`
@@ -200,7 +204,8 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   ones only after `export()` and one animation frame of the iframe. The iframe's sandbox gets `allow-forms`, else the
   forms of the shell never fire `submit`. LiaScript's `agent` event (href only, the label comes from the click) becomes
   a `command`, its `store` events of quizzes, surveys and tasks become `activity` like those of the course, with
-  `chat` (number of the message) instead of `slide`; their states are not saved. The CSP of `chat.html` does not reach
+  `chat` (number of the message) instead of `slide`; each also goes to the server as `store` with the entry number
+  of its message (`msg.entry`, the iframe numbers its messages differently once the outbox shows one). The CSP of `chat.html` does not reach
   that iframe: like a course it runs the scripts of a message, so a message of the AI is as trusted as the course.
   The scripts are separate files
   because the page's CSP allows no inline scripts. Every agent is a pixel robot (`avatar.js`, inline SVG, no
@@ -242,7 +247,9 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   message into passages by the closest `lang` attribute inside the log (never the one of the page itself), so
   `<span lang="fr">` in the Markdown gets a French voice. The bar above the log holds the session menu
   (`+ New chat` and the saved chats; the current one counts as new until it has a file) and the robots of the agents.
-  `showSession()` clears the log and replays the entries: `answered()` locks a form of the history and shows the
+  `showSession()` clears the log, hands `session.db` to the iframe with `lia.load({messages: [], db})` before the
+  entries (there the n-th entry is the n-th message, so the states land in their quizzes; `report(…, true)` only
+  remembers them, F5 reports nothing again) and replays the entries: `answered()` locks a form of the history and shows the
   choice, `closed()` locks every other form but `session.open` with a note. A message whose `POST` fails goes into a `localStorage` outbox and
   gets a `Send again` button; after a replay it shows up in its chat, or in the current one if its chat was never
   saved. The files of the shell are served with `Cache-Control: no-cache`, a heuristically cached `chat.js` from an older
