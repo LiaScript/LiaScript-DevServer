@@ -204,8 +204,9 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   renders `clear()` with the `add()`s after it in one frame, so `clear()` drops the old parts at once and places new
   ones only after `export()` and one animation frame of the iframe. The iframe's sandbox gets `allow-forms`, else the
   forms of the shell never fire `submit`. LiaScript's `agent` event (href only, the label comes from the click) becomes
-  a `command`, its `store` events of quizzes, surveys and tasks become `activity` like those of the course, with
-  `chat` (number of the message) instead of `slide`; each, and those of code, also goes to the server as `store` with the entry number
+  a `command`, its `store` events of quizzes, surveys, tasks and code become `activity` like those of the course, with
+  `chat` (number of the message) instead of `slide` (a code run is a `store` of its result; the start of a new version,
+  browsing the versions and the same failure twice within 1 s are none, so the 3rd failed run gets `help`); each, and those of code, also goes to the server as `store` with the entry number
   of its message (`msg.entry`, the iframe numbers its messages differently once the outbox shows one). The CSP of `chat.html` does not reach
   that iframe: like a course it runs the scripts of a message, so a message of the AI is as trusted as the course.
   The scripts are separate files
