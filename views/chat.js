@@ -1113,7 +1113,7 @@ function readClicked(e) {
   if (button) button.click()
 }
 
-// What the learner does with a quiz, survey or task in a message, reported
+// What the learner does with a quiz, survey, task or code in a message, reported
 // like those of the course (agentScript in lib.ts), chat is the number of the
 // message. The server keeps the states in the chat file, for F5, code with
 // its versions and output too.
@@ -1177,6 +1177,46 @@ function report(table, id, data, quiet) {
       tasks[key] = setTimeout(function () {
         activity('task', id, i, { checked: now })
       }, 2000)
+    } else if (table == 'code') {
+      // Every run stores its result, reported like the course. A new version
+      // stores an empty log first, browsing the versions stores the one
+      // shown, and a failed run came twice once.
+      var log = block.log || {}
+      var messages = log.messages || []
+      var versions = (block.version || []).length
+      var was = seen[key] || { runs: 0, versions: 0 }
+      var text = JSON.stringify(log)
+      var now = Date.now()
+      var again = messages.length && text == was.log && now - was.t < 1000
+      var browsed = versions == was.versions && block.version_active != was.active
+      var runs = was.runs
+      seen[key] = { log: text, t: now, versions: versions, active: block.version_active, runs: runs }
+      if (quiet || versions > was.versions || again || browsed) return
+      if (log.ok) {
+        // the first success after a failure, then quiet again
+        if (!runs) return
+        seen[key].runs = 0
+      } else {
+        seen[key].runs = ++runs
+      }
+      activity('code', id, i, {
+        ok: String(log.ok),
+        runs: String(runs),
+        // level 1 is warn, 2 error
+        error: messages
+          .filter(function (m) {
+            return m.level == 1 || m.level == 2
+          })
+          .map(function (m) {
+            return m.text
+          })
+          .join('\n'),
+        code: (block.file || [])
+          .map(function (f) {
+            return (f.name.trim() ? '// ' + f.name + '\n' : '') + f.code
+          })
+          .join('\n\n'),
+      })
     }
   })
 }
