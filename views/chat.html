@@ -24,8 +24,12 @@
         margin: 0;
       }
       body {
-        color-scheme: light dark;
+        /* LiaScript's mode, not the system's: chat.js sets the class */
+        color-scheme: light;
         font: 15px/1.45 system-ui, sans-serif;
+      }
+      .lia-variant-dark body {
+        color-scheme: dark;
       }
       #course {
         position: fixed;
