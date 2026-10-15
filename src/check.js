@@ -844,6 +844,21 @@ async function main() {
   assert.ok((await tool('read_chat', { session: '../x' })).isError)
   assert.ok((await tool('read_chat', { last: 0 })).isError)
 
+  // the quizzes, surveys and tasks of a message, so that F5 shows them solved
+  const solved = [{ solved: 1, trial: 2, hint: 0, state: [true, false] }]
+  assert.strictEqual((await post({ type: 'store', params: { table: 'quiz', n: 0, data: solved } })).status, 204)
+  const userN = saved.entries.findIndex((e) => e.type === 'user')
+  for (const params of [
+    { table: 'code', n: 0, data: [] },
+    { table: 'quiz', n: userN, data: [] },
+    { table: 'quiz', n: 9999, data: [] },
+    { table: 'quiz', n: 0, data: {} },
+    { table: 'quiz', n: 0, data: ['x'.repeat(20000)] },
+  ]) {
+    assert.strictEqual((await post({ type: 'store', params })).status, 400, JSON.stringify(params).slice(0, 60))
+  }
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(path.join(CHATS, files()[0]), 'utf8')).db, { quiz: { 0: solved } })
+
   // a reloaded shell gets the menu and the chat before anything else
   let shellStream = ''
   const shell2 = http.get(ORIGIN + '/gotoLine?chat', (res) => res.on('data', (chunk) => (shellStream += chunk)))
@@ -855,6 +870,7 @@ async function main() {
   assert.deepStrictEqual(replayed.map((m) => Object.keys(m)[0]), ['sessions', 'session', 'agents'])
   assert.deepStrictEqual(replayed[0].sessions.map((s) => s.id), [saved.id])
   assert.strictEqual(replayed[1].session.entries.length, saved.entries.length)
+  assert.deepStrictEqual(replayed[1].session.db, { quiz: { 0: solved } }, 'F5 gets the states of the quizzes')
 
   assert.strictEqual((await post({ type: 'session', params: { id: '../etc' } })).status, 400)
   assert.strictEqual((await post({ type: 'session', params: { id: 'nope' } })).status, 400, 'unknown id')
