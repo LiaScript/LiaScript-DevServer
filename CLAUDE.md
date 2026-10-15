@@ -126,8 +126,9 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
     `POST /agent`, a command only with the link text as `label`, which `agentScript` and `chat.js` send along).
     Answers and commands also go to every shell as `{entry}`, which shows them as a compact bubble of the user.
     After the entries the file holds `db` (`chats.store()`): the states of the quizzes, surveys and tasks of the
-    chat messages as `@liascript/chat` stores them, per table (`STORED`, no `code`) and entry number. `POST /agent`
-    type `store` `{table, n, data}` replaces one, only for an `ai` entry and up to 20000 characters, and emits no
+    chat messages, and of their code with every version and its output, as `@liascript/chat` stores them, per table
+    (`STORED`) and entry number. `POST /agent`
+    type `store` `{table, n, data}` replaces one, only for an `ai` entry and up to 90000 characters (`STORE_MAX`, else it is not saved), and emits no
     event (the `activity` does). Every `{chat}` carries `n`, its entry number. A session gets its file with the first entry. On start the server continues the session that
     changed last. The progress line and the roster are kept in memory only (quiet diffs, the agent sends them again
     after a restart). Every `?chat` stream first gets `{sessions: list}`, `{session: {id, entries}}`, the agents and
@@ -204,7 +205,7 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   ones only after `export()` and one animation frame of the iframe. The iframe's sandbox gets `allow-forms`, else the
   forms of the shell never fire `submit`. LiaScript's `agent` event (href only, the label comes from the click) becomes
   a `command`, its `store` events of quizzes, surveys and tasks become `activity` like those of the course, with
-  `chat` (number of the message) instead of `slide`; each also goes to the server as `store` with the entry number
+  `chat` (number of the message) instead of `slide`; each, and those of code, also goes to the server as `store` with the entry number
   of its message (`msg.entry`, the iframe numbers its messages differently once the outbox shows one). The CSP of `chat.html` does not reach
   that iframe: like a course it runs the scripts of a message, so a message of the AI is as trusted as the course.
   The scripts are separate files
