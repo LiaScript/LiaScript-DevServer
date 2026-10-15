@@ -2,6 +2,7 @@ import * as express from 'express'
 
 import * as crypto from 'crypto'
 import * as fs from 'fs'
+import * as http from 'http'
 import * as net from 'net'
 import * as os from 'os'
 import * as path from 'path'
@@ -9,6 +10,7 @@ const packageJson = require('../package.json')
 import { EventEmitter } from 'events'
 
 import * as chats from './chats'
+import * as web from './web'
 
 const cors = require('cors')
 const handlebars = require('express-handlebars')
@@ -64,7 +66,11 @@ var home = ''
 var player = '/liascript/index.html'
 // --test: the course in the player of the LiaScript website
 const ONLINE = 'https://LiaScript.github.io/course/'
-const state = { root: '', file: '', slide: 1, title: '', selection: '' }
+// web: the address of a web page the shell shows instead of a course
+const state = { root: '', file: '', slide: 1, title: '', selection: '', web: '' }
+// the proxy of the web pages, a server and origin of its own (src/web.ts)
+var webOrigin = ''
+var webServer: http.Server | null = null
 
 // the course file of --input, relative to root, '' for a folder: what the
 // agent reads before a browser reports which file it shows
@@ -316,7 +322,7 @@ var settling: any = null
 
 export function getState() {
   return {
-    url: state.file ? playerURL(state.file, state.slide) : home,
+    url: state.web ? webPageURL(state.web) : state.file ? playerURL(state.file, state.slide) : home,
     ...state,
     connected: clients.length > 0,
     chat: clients.some((client) => client.chat),
@@ -343,6 +349,11 @@ export function playerURL(file: string, slide?: number) {
     encodeURI(file) +
     (slide ? '#' + slide : '')
   )
+}
+
+// the chat shell with a web page in its frame
+export function webPageURL(url: string) {
+  return origin + player + '?web=' + encodeURIComponent(url)
 }
 
 const gotoScript = `<script>
@@ -432,6 +443,7 @@ export async function start(
     const wanted = port
     while (
       !(await isFree(port, bind)) ||
+      !(await isFree(webPort(port), bind)) ||
       (liveReload && !(await isFree(reloadPort(port))))
     ) {
       if (++port > wanted + 20) {
@@ -485,6 +497,57 @@ export async function start(
       }
       next()
     })
+
+    // Web pages: another port is another origin, so a page and its scripts
+    // never reach /agent, the chat stream or the course. Only the shell may
+    // frame them.
+    const proxyPort = webPort(port)
+    const proxyHosts = hosts.map((h) => h.replace(/:\d+$/, '') + ':' + proxyPort)
+    // CSP knows no IPv6 addresses
+    const ancestors = hosts
+      .filter((h) => !h.startsWith('['))
+      .map((h) => 'http://' + h)
+      .join(' ')
+    webOrigin = 'http://' + hostname + ':' + proxyPort
+    webServer = http.createServer(function (req, res) {
+      if (!proxyHosts.includes(req.headers.host || '') || req.method !== 'GET') {
+        res.writeHead(403)
+        return res.end()
+      }
+      if (req.url === '/web.js') {
+        return fs.readFile(path.join(dirname, 'views/web.js'), function (err, data) {
+          res.writeHead(err ? 404 : 200, {
+            'Content-Type': 'text/javascript',
+            'Cache-Control': 'no-cache',
+          })
+          res.end(data)
+        })
+      }
+      // /?<address>
+      const address = (req.url || '').slice(2)
+      web
+        .fetchPage(address, req.headers)
+        .then(function (page) {
+          // not a page: the frame takes it from the site
+          if (!page.body.length) {
+            res.writeHead(302, { Location: page.url })
+            return res.end()
+          }
+          // only these headers: the site's CSP, frame options and cookies stay out
+          res.writeHead(200, {
+            'Content-Type': page.type,
+            'Cache-Control': 'no-store',
+            'Content-Security-Policy': 'frame-ancestors ' + ancestors,
+          })
+          res.end(web.inject(page.body, page.url, webOrigin + '/web.js'))
+        })
+        .catch(function (e) {
+          res.writeHead(502, { 'Content-Type': 'text/plain; charset=utf-8' })
+          res.end('Could not load ' + address + '\n\n' + e.message)
+        })
+    })
+    webServer.on('error', (e) => console.error('web proxy:', e.message))
+    webServer.listen(proxyPort, bind)
   }
 
   // Initialize reload BEFORE routes to ensure its routes are registered first
@@ -645,6 +708,14 @@ export async function start(
       },
     )
 
+    // a web page in the frame of the shell: links of the course, goto and
+    // the address field come here and need not know the port of the proxy
+    app.get('/web', function (req: express.Request, res: express.Response) {
+      const url = web.webURL(req.query.url)
+      if (!url) return res.sendStatus(400)
+      res.redirect(webOrigin + '/?' + url.href)
+    })
+
     // the LiaScript chat that renders the messages: element.js and its app
     app.get(
       '/liascript/lia-chat/*',
@@ -699,6 +770,7 @@ export async function start(
         state.slide = c.slide | 0 || 1
         state.title = text(c.title, 200)
         state.selection = text(c.selection, 2000)
+        state.web = text(c.web, 2000)
         if (Number.isInteger(c.voices) && c.voices >= 0) {
           speech.voices = Math.min(c.voices, 9999)
         }
@@ -829,14 +901,13 @@ export async function start(
         }
       }
 
-      const { root, ...context } = state
       emitEvent({
         type: body.type,
         // chat and answer go to the agent the user talks to right now
         agent: command ? agentName : agents.current,
         cmd: command ? body.cmd : '',
         params: checked,
-        context,
+        context: eventContext(),
       })
 
       return res.sendStatus(204)
@@ -952,6 +1023,10 @@ export function stop() {
   if (serverPointer) {
     serverPointer.close()
   }
+  if (webServer) {
+    webServer.close()
+    webServer = null
+  }
   if (watcher) {
     watcher.close()
     watcher = null
@@ -967,6 +1042,11 @@ export function stop() {
 // multiple simultaneously running instances never collide
 function reloadPort(port: number): number {
   return port < 55535 ? port + 10000 : port - 10000
+}
+
+// the proxy of the web pages, as unique as reloadPort
+function webPort(port: number): number {
+  return port < 45535 ? port + 20000 : port - 20000
 }
 
 // chokidar 4 knows no globs: skip hidden files and folders and node_modules
@@ -1004,6 +1084,12 @@ function isFree(port: number, host?: string): Promise<boolean> {
   })
 }
 
+// what the user looks at, web only while it is a web page
+function eventContext() {
+  const { root, web, ...context } = state
+  return web ? { ...context, web } : context
+}
+
 function text(value: any, max: number): string {
   return typeof value === 'string' ? value.slice(0, max) : ''
 }
@@ -1039,13 +1125,12 @@ function connectionChanged() {
     }
     reported.connected = now.connected
     reported.chat = now.chat
-    const { root, ...context } = state
     emitEvent({
       type: 'connection',
       agent: '',
       cmd: '',
       params: { connected: now.connected, chat: now.chat },
-      context,
+      context: eventContext(),
     })
   }, SETTLE_MS)
   // a pending report must not keep a stopped server alive

@@ -6,8 +6,25 @@ var course = document.getElementById('course')
 var log = document.getElementById('log')
 var say = document.getElementById('say')
 
-// ?/home/… is the file listing of the project, else ?<url> the course
-course.src = (/^\?\/home/.test(location.search) ? location.search.slice(1) : 'index.html' + location.search) + location.hash
+// ?/home/… is the file listing of the project, ?web=<url> a web page through
+// the proxy of the server, else ?<url> the course
+var web = new URLSearchParams(location.search).get('web') || ''
+course.src = web
+  ? webPage(web)
+  : (/^\?\/home/.test(location.search) ? location.search.slice(1) : 'index.html' + location.search) + location.hash
+
+function webPage(url) {
+  return '/web?url=' + encodeURIComponent(url)
+}
+
+// the player, not the listing or a web page
+function isPlayer() {
+  try {
+    return course.contentWindow.location.pathname == '/liascript/index.html'
+  } catch (e) {
+    return false
+  }
+}
 
 function post(msg) {
   return fetch('/agent', {
@@ -47,6 +64,8 @@ var TEXTS = {
     'Read everything aloud': 'Alles vorlesen',
     'One moment, I am thinking.': 'Moment, ich denke nach.',
     'Float over the course': 'Über dem Kurs schweben lassen',
+    'Open a web page': 'Webseite öffnen',
+    'Web address': 'Webadresse',
     'This browser cannot read aloud, it has no speech voices. Chrome and Edge bring their own, Firefox on Linux needs speech-dispatcher with a voice. The assistant can help to set it up.':
       'Dieser Browser kann nicht vorlesen, ihm fehlen die Stimmen. Chrome und Edge bringen eigene mit, Firefox unter Linux braucht speech-dispatcher mit einer Stimme. Der Assistent hilft beim Einrichten.',
     'Waiting for the assistant…': 'Wartet auf den Assistenten …',
@@ -142,11 +161,41 @@ course.addEventListener('load', function () {
 course.addEventListener('load', function () {
   try {
     var where = course.contentWindow.location.pathname
+    // this origin again, no web page
+    web = ''
     if (!where.startsWith('/home')) return
     history.replaceState(null, '', location.pathname + '?' + where)
     document.title = course.contentDocument.title
     post({ type: 'state', context: { file: '', title: decodeURIComponent(where) } }).catch(function () {})
   } catch (e) {}
+})
+
+// A web page reports through views/web.js from the origin of the proxy. Its
+// strings are page content, the server caps them.
+addEventListener('message', function (e) {
+  var m = e.data
+  if (e.source != course.contentWindow || !m || typeof m.web != 'string') return
+  web = m.web
+  history.replaceState(null, '', location.pathname + '?web=' + encodeURIComponent(web))
+  document.title = String(m.title)
+  post({ type: 'state', context: { file: '', web: web, title: m.title, selection: m.selection } }).catch(function () {})
+})
+
+// the address field: any web page, read together with the chat
+var address = document.getElementById('address')
+document.getElementById('browse').addEventListener('click', function () {
+  address.hidden = !address.hidden
+  if (address.hidden) return
+  address.url.value = web
+  address.url.select()
+})
+address.addEventListener('submit', function (e) {
+  e.preventDefault()
+  var url = address.url.value.trim()
+  if (!url) return
+  if (!/^https?:\/\//i.test(url)) url = 'https://' + url
+  course.src = webPage(url)
+  address.hidden = true
 })
 
 // LiaScript's light or dark mode, not the system's: the player keeps it in
@@ -1441,14 +1490,14 @@ stream.onmessage = function (event) {
   if (data.sessions) return showSessions(data.sessions)
   if (data.session) return showSession(data.session)
   if (data.entry) return showEntry(data.entry)
-  // the player follows a goto itself, the file listing cannot
+  // the player follows a goto to a course itself, the file listing and a
+  // web page cannot
   if (data.goto) {
-    try {
-      if (data.goto.file && course.contentWindow.location.pathname.startsWith('/home')) {
-        course.src =
-          'index.html?' + location.origin + '/' + encodeURI(data.goto.file) + (data.goto.slide ? '#' + data.goto.slide : '')
-      }
-    } catch (e) {}
+    var go = data.goto
+    if (typeof go.url == 'string') course.src = webPage(go.url)
+    else if (go.file && !isPlayer()) {
+      course.src = 'index.html?' + location.origin + '/' + encodeURI(go.file) + (go.slide ? '#' + go.slide : '')
+    }
     return
   }
 

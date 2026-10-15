@@ -102,7 +102,19 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
     `POST /agent`, and `.md` redirects go to the chat shell instead of the bare player. A folder under `/home` opened
     as a page (`Sec-Fetch-Dest: document`) becomes `chat.html?/home/…`, the listing in the shell's frame; there its
     `.md` links go to the bare player (`Sec-Fetch-Dest: iframe`), `chat.js` reports a listing as `file: ''` with the
-    folder as `title` and turns a `goto` with `file` into a player itself. It also moves to the next
+    folder as `title` and turns a `goto` with `file` into a player itself. Web pages (`src/web.ts`): the shell can
+    show any web page and keep the chat, to read it together with the agent. A proxy on a server and origin of its
+    own (`webPort()` = port + 20000, same `Host` check, no `/agent`, cookies never passed on) fetches only the HTML
+    document, without cookies. It inserts `<base href>` of the real address and `views/web.js`, which reports
+    `{web, title, selection}` by `postMessage` to the shell and keeps links and GET forms in the proxy. Styles,
+    images and the page's scripts load from the site itself. The proxy answers with a whitelist of headers
+    (`frame-ancestors` = the shell), and a non-HTML answer becomes a redirect to the site. `allowed()` lets through
+    public addresses only (SSRF: the page's scripts could otherwise read the LAN through the proxy). It checks the
+    `lookup` of every hop and an IP in the URL itself, which asks no DNS. Ways in: `GET /web?url=` of the main app
+    (redirect to the proxy, used by all of them), external links of a course in the shell (`agent.js`), the 🌐
+    address field of `chat.js` and `goto({url})`. The state gets `web`, `getState().url` becomes
+    `chat.html?web=…`, and the event context carries `web` only while it is set (`eventContext()`). Limit: a
+    relative `pushState` resolves against the `<base>` and throws, so single page apps break. It also moves to the next
     free port when the requested one (or its reload port) is busy: every MCP client spawns its own instance from
     the same config, and VS Code autostarts a workspace `.mcp.json` for Copilot next to Claude Code's spawn, so a
     fixed port meant `EADDRINUSE` and a bare "connection closed" in the client.
