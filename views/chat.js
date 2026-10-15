@@ -106,6 +106,19 @@ function localize() {
     })
   })
   showSessions(sessionList)
+  chatLang()
+}
+
+// LiaScript describes a formula (aria-label, and what is read aloud) in the
+// language of its document, and the chat app sets that once from its header:
+// en. The messages are in the language of the course, so is their document.
+function chatLang() {
+  var doc = frame()
+  if (!doc || !lang || doc.documentElement.lang == lang) return
+  doc.documentElement.lang = lang
+  doc.querySelectorAll('lia-formula').forEach(function (formula) {
+    if (formula.render) formula.render()
+  })
 }
 
 // the player sets its language once the course is parsed, again after a reload
@@ -133,6 +146,12 @@ try {
 // the forms of the shell in the messages submit, their handler stops it
 lia.iframe.sandbox.add('allow-forms')
 log.append(lia)
+lia.iframe.addEventListener('load', function () {
+  chatLang()
+  try {
+    new MutationObserver(chatLang).observe(frame().documentElement, { attributes: true, attributeFilter: ['lang'] })
+  } catch (e) {}
+})
 
 var parts = [] // the part of every message since the last clear(), in order
 var forms = [] // the forms among them
@@ -760,29 +779,60 @@ function idle(button) {
   tr(button, 'Read this message aloud', 'aria-label')
 }
 
-// What is read: the text without code blocks, formulas, tables, diagrams, quizzes
-// and forms, in runs of one language. A message says its language with lang,
-// and so does a passage in it (<span lang="fr">); everything else is in the
-// language of the course.
+// What is read: the visible text without code blocks, diagrams, buttons, forms
+// and effect numbers, in runs of one language. A message says its language
+// with lang, and so does a passage in it (<span lang="fr">); everything else is
+// in the language of the course. An image is read by its alt text, a formula
+// by the description LiaScript gives it (formula() below). Quizzes,
+// surveys and tasks are read with their options, never with their solution.
 var SILENT =
-  'pre, svg, form, table, button, script, style, lia-formula, lia-chart, .lia-code:not(.lia-code--inline), .lia-quiz, .lia-survey, .lia-table'
+  'pre, svg, form, button, input, select, textarea, script, style, lia-chart, [hidden], [aria-hidden="true"], ' +
+  '.lia-code:not(.lia-code--inline), .lia-effect__circle, .lia-effect__circle--inline, ' +
+  'details:not([open]) > :not(summary)'
+
+// LiaScript puts no space between two blocks, so ListOne and ListTwo became
+// one word: a new block gets a pause, a comma between two cells of a row
+var BLOCK = 'p, li, h1, h2, h3, h4, h5, h6, blockquote, figcaption, summary, dt, dd, th, td, label, div'
 
 function runs(content) {
   var course = language()
   if (!content) return []
 
+  // only what the message itself says, not the lang of the chat page
+  function passage(el) {
+    var marked = el.closest('[lang]')
+    return (marked && marked.closest('.lia-chat__msg') && marked.lang) || course
+  }
+
   var out = []
-  var walker = content.ownerDocument.createTreeWalker(content, NodeFilter.SHOW_TEXT)
+  var block
+  function add(text, el, lang) {
+    var last = out[out.length - 1]
+    if (!text.trim()) {
+      if (last) last.text += text
+      return
+    }
+    var here = el.closest(BLOCK)
+    if (last && here != block) last.text = pause(last.text, here, block)
+    block = here
+    lang = lang || passage(el)
+    if (last && last.lang == lang) last.text += text
+    else out.push({ lang: lang, text: text })
+  }
+
+  var walker = content.ownerDocument.createTreeWalker(content, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+    acceptNode: function (node) {
+      return node.nodeType == 1 && node.matches(SILENT) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT
+    },
+  })
   var node
   while ((node = walker.nextNode())) {
-    var el = node.parentElement
-    if (el.closest(SILENT)) continue
-    // only what the message itself says, not the lang of the chat page
-    var marked = el.closest('[lang]')
-    var lang = (marked && marked.closest('.lia-chat__msg') && marked.lang) || course
-    var last = out[out.length - 1]
-    if (last && last.lang == lang) last.text += node.data
-    else out.push({ lang: lang, text: node.data })
+    if (node.nodeType == 3) add(node.data, node.parentElement)
+    else if (node.localName == 'img') add(node.alt || '', node)
+    else if (node.localName == 'lia-formula') {
+      var said = formula(node, passage(node))
+      add(said.text, node, said.lang)
+    }
   }
   return out
     .map(function (run) {
@@ -793,13 +843,29 @@ function runs(content) {
     })
 }
 
+// LiaScript describes a formula in a language it knows (en, de) and falls back
+// to English, or uses the aria-label the author gave
+function formula(node, lang) {
+  if (!node.speech) return { text: node.textContent, lang: node.ownerDocument.documentElement.lang || 'en' }
+  var text = node.speech(lang)
+  var known = node.hasAttribute('aria-label') || /^en/i.test(lang) || text != node.speech('en')
+  return { text: text, lang: known ? lang : 'en' }
+}
+
+function pause(text, here, before) {
+  if (/[.!?:;,]\s*$/.test(text)) return text + ' '
+  var row = here && before && here.matches('th, td') && before.matches('th, td') && here.parentNode == before.parentNode
+  return text.replace(/\s*$/, row ? ', ' : '. ')
+}
+
 // Voices read an emoji by its name ("grinning face"), so it is left out, with
 // its joiners, variation selectors, skin tones and flag letters; the digit of a
-// keycap stays.
+// keycap stays. So does the pause of a block that was only an emoji.
 function unemoji(text) {
   return text
     .replace(/[\p{Extended_Pictographic}\p{Regional_Indicator}\u{1F3FB}-\u{1F3FF}‍️⃣]/gu, '')
     .replace(/\s+/g, ' ')
+    .replace(/(^|[.!?:;,]) ?[.,](?= |$)/g, '$1')
     .trim()
 }
 
@@ -1106,7 +1172,8 @@ function readClicked(e) {
   var bubble = e.target.closest && e.target.closest('.lia-chat__msg')
   var msg = bubble && bubble.querySelector(':scope > .msg.ai')
   if (!msg || !log.classList.contains('can-speak')) return
-  if (e.target.closest('a, button, input, label, select, textarea, form, summary, ' + SILENT)) return
+  var ignored = 'a, button, input, label, select, textarea, form, summary, table, lia-formula, .lia-quiz, '
+  if (e.target.closest(ignored + SILENT)) return
   var selection = e.target.ownerDocument.getSelection()
   if (selection && !selection.isCollapsed) return
   var button = msg.querySelector('.foot .speak')
