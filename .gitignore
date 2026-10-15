@@ -6,9 +6,10 @@ node_modules
 .env
 .playwright-mcp
 views/teachers.js
-# local packs, the demo course and its chats, the MCP config of this checkout
+# local packs, the demo course and its chats, the MCP configs of this checkout
 *.tgz
 .chats/
 test.md
 .mcp.json
+.vibe/config.toml
 .superpowers/
