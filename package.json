@@ -1,6 +1,6 @@
 {
   "name": "@liascript/devserver",
-  "version": "1.2.18--2.2.0",
+  "version": "1.2.18--2.2.2",
   "description": "Run a development server for LiaScript locally",
   "main": "dist/index.js",
   "scripts": {
