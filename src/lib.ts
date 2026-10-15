@@ -3,6 +3,7 @@ import * as express from 'express'
 import * as crypto from 'crypto'
 import * as fs from 'fs'
 import * as net from 'net'
+import * as os from 'os'
 import * as path from 'path'
 const packageJson = require('../package.json')
 import { EventEmitter } from 'events'
@@ -11,14 +12,12 @@ import * as chats from './chats'
 
 const cors = require('cors')
 const handlebars = require('express-handlebars')
-const ip = require('ip')
 const open = require('open')
-const bodyParser = require('body-parser')
 const reload = require('reload')
 const chokidar = require('chokidar')
 
 const app: express.Application = express()
-app.use(bodyParser.json())
+app.use(express.json())
 app.locals.version = packageJson.version
 
 var dirname = ''
@@ -63,6 +62,8 @@ var origin = ''
 var home = ''
 // in agent mode the chat shell, which shows the player in an iframe
 var player = '/liascript/index.html'
+// --test: the course in the player of the LiaScript website
+const ONLINE = 'https://LiaScript.github.io/course/'
 const state = { root: '', file: '', slide: 1, title: '', selection: '' }
 
 // the course file of --input, relative to root, '' for a folder: what the
@@ -92,8 +93,7 @@ export type View = 'author' | 'learner'
 const agents = { current: '', list: [] as Agent[], view: 'author' as View }
 
 export function currentAgent(): Agent | undefined {
-  // not find(): the lib build compiles against ES5
-  return agents.list.filter((a) => a.name === agents.current)[0]
+  return agents.list.find((a) => a.name === agents.current)
 }
 
 // list replaces the roster, name has to be in it (the caller checks that)
@@ -226,7 +226,7 @@ function watchQuiet() {
 
 // the tables of @liascript/chat that the chat file keeps. Code brings every
 // version and its output: ponytail: a block over the cap is not saved,
-// trim old versions if that happens. bodyParser.json() takes 100 kB.
+// trim old versions if that happens. express.json() takes 100 kB.
 const STORED = ['quiz', 'survey', 'task', 'code']
 const STORE_MAX = 90000
 
@@ -381,224 +381,9 @@ events.onmessage = (event) => {
 };
 </script>`
 
-// Injected after gotoScript in agent mode, reuses its filename__ and events.
-// Keep it free of backslashes, backticks and dollar-brace: this is a template
-// literal, an escape like \w would silently turn into w.
-const agentScript = `<script>
-(function () {
-  var file = filename__, timer
-  while (file[0] == '/') file = file.slice(1)
-  try { file = decodeURIComponent(file) } catch (e) {}
-
-  function ctx() {
-    return {
-      file: file,
-      slide: parseInt(location.hash.slice(1)) || 1,
-      title: document.title,
-      selection: String(getSelection()).slice(0, 2000),
-      voices: voices(),
-      voiceNames: voiceNames(),
-      automated: navigator.webdriver === true,
-      fallback: typeof responsiveVoice != 'undefined'
-    }
-  }
-
-  // Chrome loads its voices on the first call and tells when they are there
-  function voices() {
-    try { return speechSynthesis.getVoices().length } catch (e) { return 0 }
-  }
-
-  // the voices in the language of the course, an agent picks its own of them
-  function voiceNames() {
-    try {
-      var lang = (document.documentElement.lang || '').slice(0, 2).toLowerCase()
-      return speechSynthesis.getVoices().filter(function (v) {
-        return lang && v.lang.slice(0, 2).toLowerCase() == lang
-      }).map(function (v) { return v.name }).slice(0, 50)
-    } catch (e) { return [] }
-  }
-
-  function post(msg) {
-    return fetch('/agent', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(msg)
-    })
-  }
-
-  // ponytail: one tab, the last reporter wins. Key the state by client if
-  // several tabs on different courses ever matter.
-  function report() {
-    // inside the chat shell: keep its address and title in step, so that
-    // reloading the shell comes back to this course and slide
-    if (parent != window) {
-      try {
-        parent.history.replaceState(null, '',
-          parent.location.pathname + location.search + location.hash)
-        parent.document.title = document.title
-      } catch (e) {}
-    }
-    clearTimeout(timer)
-    timer = setTimeout(function () { post({type: 'state', context: ctx()}) }, 150)
-  }
-
-  // The player's message handler has an eval command and checks no origin, so
-  // any website could drive this page. Registered first, this one wins.
-  addEventListener('message', function (e) {
-    if (e.origin != location.origin) e.stopImmediatePropagation()
-  }, true)
-
-  // slide changes are history.pushState, which fires no event at all
-  var push = history.pushState
-  history.pushState = function () { push.apply(this, arguments); report() }
-  addEventListener('hashchange', report)
-  addEventListener('popstate', report)
-  addEventListener('load', report)
-  document.addEventListener('selectionchange', report)
-  try { speechSynthesis.addEventListener('voiceschanged', report) } catch (e) {}
-  // the title is set after the slide change
-  var title = document.querySelector('title')
-  if (title) new MutationObserver(report).observe(title, {childList: true})
-
-  // Command links: [text](agent:tutor/explain?level=easy), or the same URI in
-  // a data-agent attribute. One capturing listener, so it does not matter how
-  // the player wires its links. agent://tutor/explain means the same, the
-  // slashes are dropped: new URL() would take tutor as the host otherwise.
-  document.addEventListener('click', function (e) {
-    var el = e.target.closest && e.target.closest('[data-agent],a[href]')
-    if (!el) return
-    var raw = el.getAttribute('data-agent') || el.getAttribute('href') || ''
-    if (raw.indexOf('agent:') != 0) return
-
-    // the player would hand the link to the browser
-    e.preventDefault()
-    e.stopPropagation()
-
-    var uri
-    try { uri = new URL('agent:' + raw.slice(6).replace(/^[/]+/, '')) } catch (x) { return }
-    var slash = uri.pathname.indexOf('/')
-    var params = {}
-    uri.searchParams.forEach(function (value, key) { params[key] = value })
-
-    post({
-      type: 'command',
-      agent: slash < 0 ? '' : uri.pathname.slice(0, slash),
-      cmd: uri.pathname.slice(slash + 1),
-      params: params,
-      // the chat shows it as what the user said
-      label: el.textContent.trim(),
-      context: ctx()
-    })
-  }, true)
-
-  // What the learner does with quizzes, surveys, tasks and code: LiaScript
-  // fires every event it sends to JS as lia:event, only the db stores are
-  // read. Their formats are LiaScript's: Quiz/Json.elm, Survey/Json.elm,
-  // Task/Json.elm, Code/Json.elm and Code/Log.elm.
-  // ponytail: after a reload the old states are unknown here, so the first
-  // store of a slide can report an answer from before. Fine for an agent.
-  var seen = {}, files = {}, failed = {}, tasks = {}
-  var NL = String.fromCharCode(10)
-
-  function activity(kind, sec, block, params) {
-    params.kind = kind
-    params.slide = String(sec + 1)
-    params.block = String(block)
-    post({type: 'activity', params: params, context: ctx()}).catch(function () {})
-  }
-
-  addEventListener('lia:event', function (e) {
-    var ev = e.detail
-    if (!ev || ev.service != 'db') return
-    var p = ev.message.param || {}, sec = p.id, data = p.data
-    if (typeof sec != 'number' || !data) return
-
-    if (ev.message.cmd == 'store' && p.table == 'quiz') {
-      data.forEach(function (q, i) {
-        var key = sec + ':' + i, old = seen[key] || {trial: 0, solved: 0, hint: 0}
-        seen[key] = q
-        if (q.trial == old.trial && q.solved == old.solved && q.hint == old.hint) return
-        // a hit at the first try needs no help
-        if (q.solved == 1 && q.trial == 1) return
-        activity('quiz', sec, i, {
-          trial: String(q.trial),
-          hints: String(q.hint),
-          solved: q.solved == 1 ? 'solved' : q.solved == -1 ? 'resolved' : 'wrong',
-          input: JSON.stringify(q.state),
-          error: q.error_msg || ''
-        })
-      })
-    } else if (ev.message.cmd == 'store' && p.table == 'survey') {
-      data.forEach(function (s, i) {
-        var key = 's' + sec + ':' + i, old = seen[key]
-        seen[key] = s.submitted
-        if (s.submitted && !old) activity('survey', sec, i, {input: JSON.stringify(s.state)})
-      })
-    } else if (ev.message.cmd == 'store' && p.table == 'task') {
-      // every tick is stored: one event with the final state per block
-      // ponytail: debounce fixed at 2s, make it a param if authors need it
-      data.forEach(function (checked, i) {
-        var key = sec + ':' + i, now = checked.join(',')
-        if (seen['t' + key] == now) return
-        seen['t' + key] = now
-        clearTimeout(tasks[key])
-        tasks[key] = setTimeout(function () {
-          activity('task', sec, i, {checked: now})
-        }, 2000)
-      })
-    } else if (p.table == 'code') {
-      if (ev.message.cmd == 'store') {
-        data.forEach(function (project, i) { files[sec + ':' + i] = project.file })
-        return
-      }
-      // append comes when a run starts, with the code; version with its result
-      var key = sec + ':' + data.id, run = data.data || {}
-      if (run.file) files[key] = run.file
-      if (data.cmd != 'version' || !run.log) return
-      var runs = failed[key] || 0
-      if (run.log.ok) {
-        // the first success after a failure, then quiet again
-        if (!runs) return
-        failed[key] = 0
-      } else {
-        failed[key] = ++runs
-      }
-      var params = {
-        ok: String(run.log.ok),
-        runs: String(runs),
-        // level 1 is warn, 2 error
-        error: (run.log.messages || [])
-          .filter(function (m) { return m.level == 1 || m.level == 2 })
-          .map(function (m) { return m.text }).join(NL)
-      }
-      // only stored once edited, the code of the course otherwise
-      if (files[key]) params.code = files[key].map(function (f) {
-        return (f.name.trim() ? '// ' + f.name + NL : '') + f.code
-      }).join(NL + NL)
-      activity('code', sec, data.id, params)
-    }
-  })
-
-  events.addEventListener('message', function (event) {
-    var go
-    try { go = JSON.parse(event.data).goto } catch (e) {}
-    if (!go) return
-
-    // ponytail: file and line in one step is not supported, the line is lost
-    // on the page load. Two goto calls do it; hand it over in sessionStorage
-    // if that gets annoying.
-    if (go.file && go.file != file) {
-      location.href = location.pathname + '?' + location.origin + '/' +
-        encodeURI(go.file) + (go.slide ? '#' + go.slide : '')
-      return
-    }
-    // not LIA.goto: its dedup guard remembers the last requested slide, not
-    // the current one, so asking for the same slide twice does nothing
-    if (go.slide) location.hash = '#' + go.slide
-    if (go.line) window.LIA.gotoLine(go.line)
-  })
-})()
-</script>`
+// in agent mode after gotoScript: reports to the agent, see views/agent.js
+const agentScript =
+  '<script src="/liascript/activity.js"></script><script src="/liascript/agent.js"></script>'
 
 var serverPointer: any
 
@@ -629,11 +414,8 @@ export async function start(
 ) {
   port = port || 3000
   hostname = hostname || 'localhost'
-  openInBrowser = openInBrowser || false
   input = input || '.'
   liveReload = liveReload || !!watch
-  testOnline = testOnline || false
-  agent = agent || false
 
   // the agent bridge is for this machine only
   const bind = agent
@@ -658,25 +440,11 @@ export async function start(
     }
   }
 
-  var project: {
-    path: string
-    readme?: string
-  } = {
-    path: input,
-    readme: undefined,
-  }
-
-  if (input) {
-    const stats = fs.lstatSync(input)
-
-    // Is it a directory?
-    if (stats.isDirectory()) {
-      project.path = input
-    } else if (stats.isFile()) {
-      project.path = path.dirname(input)
-      project.readme = path.basename(input)
-      inputFile = project.readme
-    }
+  // a file: its folder is the project, the file the course
+  const project: { path: string; readme?: string } = { path: input }
+  if (fs.lstatSync(input).isFile()) {
+    project.path = path.dirname(input)
+    project.readme = inputFile = path.basename(input)
   }
 
   app.set('view engine', 'hbs')
@@ -711,7 +479,7 @@ export async function start(
       res: express.Response,
       next: express.NextFunction,
     ) {
-      if (hosts.indexOf(req.headers.host || '') < 0) {
+      if (!hosts.includes(req.headers.host || '')) {
         res.sendStatus(403)
         return
       }
@@ -790,49 +558,20 @@ export async function start(
           .map((file: string) => {
             return {
               name: file,
-              href: `http://${hostname}:${port}/home${req.params[0]}/${file}`,
+              href: `${origin}/home${req.params[0]}/${file}`,
               isDirectory: fs.lstatSync(currentPath + '/' + file).isDirectory(),
             }
           })
-          .sort(
-            (
-              a: {
-                name: string
-                href: string
-                isDirectory: boolean
-              },
-              b: {
-                name: string
-                href: string
-                isDirectory: boolean
-              },
-            ) => {
-              if (a.isDirectory && !b.isDirectory) {
-                return -1
-              } else if (!a.isDirectory && b.isDirectory) {
-                return 1
-              } else {
-                if (a.name.toLocaleLowerCase() < b.name.toLocaleLowerCase()) {
-                  return -1
-                } else {
-                  return 1
-                }
-              }
-              return 0
-            },
+          // folders first, then by name
+          .sort((a, b) =>
+            a.isDirectory !== b.isDirectory
+              ? a.isDirectory ? -1 : 1
+              : a.name.toLocaleLowerCase() < b.name.toLocaleLowerCase() ? -1 : 1,
           ),
       })
     } else if (stats.isFile()) {
       if (req.params[0].toLocaleLowerCase().endsWith('.md')) {
-        if (testOnline) {
-          res.redirect(
-            `https://LiaScript.github.io/course/?http://${hostname}:${port}/${req.params[0]}`,
-          )
-        } else {
-          res.redirect(
-            `${player}?http://${hostname}:${port}/${req.params[0]}`,
-          )
-        }
+        res.redirect((testOnline ? ONLINE : player) + '?' + origin + '/' + req.params[0])
       } else {
         res.sendFile(req.params[0], { root: project.path })
       }
@@ -884,10 +623,11 @@ export async function start(
 
   // the chat shell: the player in an iframe, the chat on top of it, so that
   // a live reload of the course does not take the chat with it, the pixel
-  // robots of the agents and the portraits of the teacher personas
+  // robots of the agents and the portraits of the teacher personas; and the
+  // scripts of agentScript
   if (agent) {
     app.get(
-      '/liascript/:file(chat.html|chat.js|chat.css|avatar.js|teachers.js)',
+      '/liascript/:file(chat.html|chat.js|chat.css|avatar.js|teachers.js|activity.js|agent.js)',
       function (req: express.Request, res: express.Response) {
         res.sendFile(req.params.file, {
           root: path.resolve(path.join(dirname, 'views')),
@@ -907,44 +647,8 @@ export async function start(
         })
       },
     )
-  }
 
-  // load everything from the liascript folder
-  app.get(
-    '/liascript/*',
-    function (req: express.Request, res: express.Response) {
-      res.sendFile(req.params[0], { root: liascriptPath }, (err) => {
-        if (err) {
-          // Extract the file path by removing the '/liascript/' prefix
-          const projectPath = req.params[0]
-          console.log(
-            `File not found in liascriptPath, trying project.path: ${projectPath}`,
-            project.path,
-          )
-          res.sendFile(projectPath, { root: project.path })
-        }
-      })
-    },
-  )
-
-  // react to click-events
-  app.post('/lineGoto', function (req: express.Request, res: express.Response) {
-    if (gotoCallback) {
-      try {
-        const linenumber = req.body.linenumber
-        const filename = req.body.filename
-        gotoCallback(linenumber, filename)
-      } catch (e) {
-        console.warn(
-          "lineGoto event with wrong datatype, you have to provide {'linenumber': int, 'filename': string}",
-        )
-      }
-    }
-    return res.json({})
-  })
-
-  // browser -> agent: {type, agent, cmd, params, context}
-  if (agent) {
+    // browser -> agent: {type, agent, cmd, params, context}
     app.post('/agent', function (req: express.Request, res: express.Response) {
       // checked here, because the catch-all below answers the CORS preflight
       // of every path with *
@@ -954,7 +658,7 @@ export async function start(
 
       const body = req.body || {}
       if (
-        ['state', 'command', 'chat', 'answer', 'session', 'activity', 'store'].indexOf(body.type) < 0
+        !['state', 'command', 'chat', 'answer', 'session', 'activity', 'store'].includes(body.type)
       ) {
         return res.sendStatus(400)
       }
@@ -968,7 +672,7 @@ export async function start(
         if (
           !entry ||
           entry.type !== 'ai' ||
-          STORED.indexOf(p.table) < 0 ||
+          !STORED.includes(p.table) ||
           !Array.isArray(p.data) ||
           JSON.stringify(p.data).length > STORE_MAX
         ) {
@@ -1158,6 +862,40 @@ export async function start(
     )
   }
 
+  // load everything from the liascript folder
+  app.get(
+    '/liascript/*',
+    function (req: express.Request, res: express.Response) {
+      res.sendFile(req.params[0], { root: liascriptPath }, (err) => {
+        if (err) {
+          // Extract the file path by removing the '/liascript/' prefix
+          const projectPath = req.params[0]
+          console.log(
+            `File not found in liascriptPath, trying project.path: ${projectPath}`,
+            project.path,
+          )
+          res.sendFile(projectPath, { root: project.path })
+        }
+      })
+    },
+  )
+
+  // react to click-events
+  app.post('/lineGoto', function (req: express.Request, res: express.Response) {
+    if (gotoCallback) {
+      try {
+        const linenumber = req.body.linenumber
+        const filename = req.body.filename
+        gotoCallback(linenumber, filename)
+      } catch (e) {
+        console.warn(
+          "lineGoto event with wrong datatype, you have to provide {'linenumber': int, 'filename': string}",
+        )
+      }
+    }
+    return res.json({})
+  })
+
   // everything else comes from the current project folder
   app.use(
     '/*',
@@ -1173,30 +911,10 @@ export async function start(
     },
   )
 
-  let localURL = 'http://' + hostname + ':' + port
-
-  if (project.path && project.readme) {
-    localURL +=
-      player +
-      '?http://' +
-      hostname +
-      ':' +
-      port +
-      '/' +
-      project.readme
-  }
-
-  if (testOnline && project.readme) {
-    localURL =
-      'https://LiaScript.github.io/course/?http://' +
-      hostname +
-      ':' +
-      port +
-      '/' +
-      project.readme
-  }
-
-  home = localURL
+  // the course of --input, else the file listing
+  home = project.readme
+    ? (testOnline ? ONLINE : origin + player) + '?' + origin + '/' + project.readme
+    : origin
 
   const server = app.listen(port, bind)
 
@@ -1205,14 +923,14 @@ export async function start(
   })
 
   if (openInBrowser) {
-    open(localURL)
+    open(home)
   }
 
   console.log('📡 starting server')
-  console.log(`   - local:           ${localURL}`)
+  console.log(`   - local:           ${home}`)
   if (!agent) {
     console.log(
-      `   - on your network: ${localURL.replace(hostname, ip.address())}`,
+      `   - on your network: ${home.replace(hostname, lanAddress())}`,
     )
   }
 
@@ -1249,7 +967,7 @@ function reloadPort(port: number): number {
 // types. chokidar asks once without stats and again with them, folders must
 // pass the type check, so it waits for the stats.
 function ignored(root: string, types: string[]) {
-  const all = types.indexOf('*') >= 0
+  const all = types.includes('*')
 
   return function (file: string, stats?: fs.Stats): boolean {
     const hidden = path
@@ -1260,8 +978,15 @@ function ignored(root: string, types: string[]) {
     if (hidden) return true
     if (all || !stats || !stats.isFile()) return false
 
-    return types.indexOf(path.extname(file).slice(1).toLowerCase()) < 0
+    return !types.includes(path.extname(file).slice(1).toLowerCase())
   }
+}
+
+// the first IPv4 address of this machine on a network, else loopback
+function lanAddress() {
+  const all = Object.values(os.networkInterfaces()).flat()
+  const found = all.find((a) => a && a.family === 'IPv4' && !a.internal)
+  return found ? found.address : '127.0.0.1'
 }
 
 function isFree(port: number, host?: string): Promise<boolean> {
@@ -1276,8 +1001,9 @@ function text(value: any, max: number): string {
   return typeof value === 'string' ? value.slice(0, max) : ''
 }
 
-// typeof first: a regex test would stringify undefined and accept it
-function isName(value: any): boolean {
+// letters, digits, _ and -. typeof first: a regex test would stringify
+// undefined and accept it
+export function isName(value: any): boolean {
   return typeof value === 'string' && /^[\w-]{1,64}$/.test(value)
 }
 

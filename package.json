@@ -43,13 +43,12 @@
   "author": "André Dietrich",
   "license": "MIT",
   "dependencies": {
+    "@liascript/chat": "^0.1.2--2.2.2",
     "@liascript/editor": "^1.2.0--2.6.2",
-    "body-parser": "^1.20.4",
     "chokidar": "^4.0.3",
     "cors": "^2.8.6",
     "express": "^4.22.1",
     "express-handlebars": "^5.3.5",
-    "ip": "^2.0.1",
     "minimist": "^1.2.8",
     "open": "^8.4.2",
     "reload": "^3.3.0"
