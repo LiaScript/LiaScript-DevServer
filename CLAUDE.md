@@ -226,7 +226,14 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   from the voice name, `MALE`/`FEMALE` in `chat.js`; the gender counts more than the region, a British male
   voice for `en-US` rather than an American female one made lower), else it shifts the one it has (male: pitch × 0.75, rate ×
   0.94). Chrome on Linux has a single German voice, so there the profiles differ by pitch and rate alone.
-  A click on a message of the AI reads it too (not on links, forms, quizzes, code or a selection; `SILENT` lists what is never read).
+  A click on a message of the AI reads it too (not on links, forms, quizzes, tables, formulas, code or a selection; `SILENT` lists what is never read).
+  `runs()` reads the visible text block by block (`BLOCK`): LiaScript puts no space between two blocks, so a pause
+  goes in, a comma between two cells of a row. Tables and the options of quizzes, surveys and tasks are read, never
+  a solution; an image by its alt text, a formula by `speech(lang)` of `<lia-formula>` in the language of its
+  passage (LiaScript knows `en` and `de`, else an `en` passage, `formula()`); a closed `<details>` and the numbers
+  of effects not. `<lia-formula>` renders its `aria-label` in the `<html lang>` of the chat iframe, which the chat
+  app sets once to `en`, so `chatLang()` sets it to the course language (on load, in `localize()` and whenever the
+  app changes it) and re-renders the formulas. What LiaScript itself should change is in `todo-liascript.md`.
   The box `Read everything aloud` (`localStorage`) queues new messages and the progress lines of the agent; of
   those of the server only `Thinking…` and `Looking at your answer…` (`SPOKEN`), one of them once per request. A waiting progress line
   is dropped when something newer comes, nothing is read during the replay of the first 1.5 s of a stream, and
