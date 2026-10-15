@@ -83,10 +83,10 @@ async function tool(name, args) {
   return result.isError ? { isError: true, text } : JSON.parse(text)
 }
 
-function request(method, url, headers, body) {
+function request(method, url, headers, body, port = PORT) {
   return new Promise((resolve, reject) => {
     const req = http.request(
-      { host: '127.0.0.1', port: PORT, method, path: url, headers },
+      { host: '127.0.0.1', port, method, path: url, headers },
       (res) => {
         let data = ''
         res.on('data', (chunk) => (data += chunk))
@@ -210,6 +210,35 @@ async function main() {
   assert.deepStrictEqual((await tool('find_teacher', { topic: 'no-such-field-xyz' })).teachers, [])
   assert.ok((await tool('find_teacher', { region: 'atlantis' })).isError, 'region is one of the list')
   assert.ok((await tool('find_teacher', { gender: 'x' })).isError, 'gender is female or male')
+
+  // --- web pages: the proxy reaches public addresses only, on its own origin
+  const web = require(path.join(ROOT, 'dist/web.js'))
+  for (const ip of ['127.0.0.1', '10.1.2.3', '172.20.0.1', '192.168.0.1', '169.254.169.254', '100.64.0.1', '0.0.0.0']) {
+    assert.ok(!web.allowed(ip, 4), ip + ' is not public')
+  }
+  for (const ip of ['::1', '::', 'fe80::1', 'fd00::1', '::ffff:127.0.0.1']) assert.ok(!web.allowed(ip, 6), ip + ' is not public')
+  assert.ok(web.allowed('208.80.154.224', 4) && web.allowed('2620:0:861:ed1a::1', 6), 'public addresses pass')
+  assert.ok(!web.allowed('localhost', 4), 'only addresses')
+  const injected = web.inject(Buffer.from('<html><head lang="x"><title>Ä</title>', 'utf8'), 'https://a.org/"x', 'http://p/web.js')
+  assert.strictEqual(injected.toString('utf8'), '<html><head lang="x"><base href="https://a.org/&quot;x"><script src="http://p/web.js"></script><title>Ä</title>')
+  assert.ok(web.inject(Buffer.from('<p>'), 'https://a.org/', 's').toString().startsWith('<base'), 'no head: at the start')
+  assert.strictEqual(web.webURL('javascript:alert(1)'), null)
+  assert.strictEqual((await request('GET', '/web?url=' + encodeURIComponent('file:///etc/passwd'), {})).status, 400)
+  const toProxy = await request('GET', '/web?url=' + encodeURIComponent('https://example.org/a?b=1'), {})
+  assert.strictEqual(toProxy.headers.location, 'http://localhost:' + (PORT + 20000) + '/?https://example.org/a?b=1')
+  const PROXY = '127.0.0.1:' + (PORT + 20000)
+  assert.strictEqual((await request('GET', '/?http://127.0.0.1:' + PORT + '/', { Host: PROXY }, undefined, PORT + 20000)).status, 502, 'no way to this machine')
+  assert.strictEqual((await request('GET', '/?https://example.org/', { Host: 'evil.test' }, undefined, PORT + 20000)).status, 403, 'Host is checked')
+  assert.strictEqual((await request('GET', '/web.js', { Host: PROXY }, undefined, PORT + 20000)).status, 200)
+  assert.strictEqual((await post({ type: 'state', context: { file: '' } }, { Origin: 'http://' + PROXY })).status, 403, 'a page cannot report')
+  assert.ok((await tool('goto', { url: 'ftp://x.org/' })).isError, 'url is http(s)')
+  assert.ok((await tool('goto', { url: 'https://x.org/', slide: 2 })).isError, 'url alone')
+  await post({ type: 'state', context: { file: '', web: 'https://example.org/a', title: 'A' } })
+  const reading = await tool('get_state', {})
+  assert.strictEqual(reading.web, 'https://example.org/a')
+  assert.ok(reading.url.endsWith('/liascript/chat.html?web=' + encodeURIComponent('https://example.org/a')), reading.url)
+  await post({ type: 'state', context: { file: 'README.md' } })
+  assert.strictEqual((await tool('get_state', {})).web, '', 'a course clears it')
 
   // --- sections of a Markdown file
   const MD = path.join(ROOT, 'check-sections.md')

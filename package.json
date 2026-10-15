@@ -67,7 +67,7 @@
     "typescript": "^5.9.3"
   },
   "engines": {
-    "node": ">= 12"
+    "node": ">= 15.0.0"
   },
   "targets": {
     "main": {
