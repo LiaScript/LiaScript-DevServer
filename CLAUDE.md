@@ -96,8 +96,8 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
     also goes as one JSON line (`<` escaped) to the readers of `GET /agent/events/<token>` (`getState().events`,
     `watched` = someone reads it): a stream for agents that watch a command, i.e. Claude Code's Monitor tool running
     `curl -sN`. Events while nobody reads it (at most 20, 10 minutes back, `missed`) go to the next reader first, so
-    restarting an expired Monitor loses nothing. The random token keeps other local users and pages out, a request with an `Origin` is refused. `agentScript` (a second injected snippet next to
-    `gotoScript`) reports slide/title/selection, handles `goto` messages and turns clicks on `agent:` links into
+    restarting an expired Monitor loses nothing. The random token keeps other local users and pages out, a request with an `Origin` is refused. `agentScript` (two script tags injected after
+    `gotoScript`: `views/activity.js` and `views/agent.js`, which reuses its `filename__` and `events`) reports slide/title/selection, handles `goto` messages and turns clicks on `agent:` links into
     `command` events. In agent mode the server binds to loopback, checks `Host` on every route and `Origin` on
     `POST /agent`, and `.md` redirects go to the chat shell instead of the bare player. It also moves to the next
     free port when the requested one (or its reload port) is busy: every MCP client spawns its own instance from
@@ -267,8 +267,9 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
 Things the player does that the bridge works around (verified against the minified bundle of `@liascript/editor`,
 re-check after upgrading it): since 2.1.0 `agent` is in the scheme whitelist of the link parser, so the href
 arrives as written, but still with `target="_blank"`, and the capturing click handler has to stop it (before
-2.1.0 the href became `<base>/agent:…`); `agent://tutor/explain` is accepted as `agent:tutor/explain`, the handlers
-in `agentScript` and `views/chat.js` drop the slashes because `new URL()` would read `tutor` as the host;
+2.1.0 the href became `<base>/agent:…`); `agent://tutor/explain` is accepted as `agent:tutor/explain`, `Activity.link()`
+in `views/activity.js` (used by `agent.js` and `chat.js`, like `Activity.store()` for quizzes, surveys and tasks)
+drops the slashes because `new URL()` would read `tutor` as the host;
 `window.LIA.goto(n)` (0-based)
 ignores a repeated request for the same slide even if the user moved away, so navigation sets `location.hash`
 (1-based) instead; slide changes use `history.pushState` and fire no event, so `agentScript` patches it; the
@@ -278,7 +279,7 @@ the state is stale until the next slide change. `goto` to another file loads a n
 reports while it closes, so `goto` waits (`nextState(ms, arrived)`) for a report of the new file and slide and
 adds a `warning` if none comes within 10 s.
 
-`agentScript` and `gotoScript` are template literals: keep them free of backslashes, backticks and `${`.
+`gotoScript` is a template literal: keep it free of backslashes, backticks and `${`.
 
 Design and the research behind it: `docs/superpowers/specs/2026-09-18-agent-bridge-design.md`.
 

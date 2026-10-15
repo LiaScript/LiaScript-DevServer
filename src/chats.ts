@@ -2,7 +2,6 @@
 // the project the server runs in, so that they can be committed and continued
 // by others. One entry per line, so a new message is a small diff, and unique
 // names (UTC time plus random), so that nobody's session overwrites another's.
-// The lib build compiles this against ES5: no find(), no startsWith().
 
 import * as crypto from 'crypto'
 import * as fs from 'fs'
@@ -99,8 +98,8 @@ export function summary(session: Session): Summary {
 
 // the first question of the user, else the first line of the AI, else the date
 export function title(session: Session) {
-  const user = session.entries.filter((e) => e.type === 'user')[0]
-  const ai = session.entries.filter((e) => e.type === 'ai')[0]
+  const user = session.entries.find((e) => e.type === 'user')
+  const ai = session.entries.find((e) => e.type === 'ai')
   let text = user ? String(user.text) : ''
   if (!text && ai) {
     text = String(ai.markdown)
