@@ -110,6 +110,22 @@
     function (e) {
       var el = e.target.closest && e.target.closest('[data-agent],a[href]')
       if (!el) return
+
+      // A link to another site opens in the chat shell, the chat stays.
+      // With a modifier key it still opens a tab of its own.
+      if (
+        parent != window &&
+        el.tagName == 'A' &&
+        /^https?:$/.test(el.protocol) &&
+        el.origin != location.origin &&
+        !(e.ctrlKey || e.metaKey || e.shiftKey || e.altKey)
+      ) {
+        e.preventDefault()
+        e.stopPropagation()
+        location.href = '/web?url=' + encodeURIComponent(el.href)
+        return
+      }
+
       var raw = el.getAttribute('data-agent') || el.getAttribute('href') || ''
       if (raw.indexOf('agent:') != 0) return
 

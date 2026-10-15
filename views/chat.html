@@ -9,11 +9,12 @@
       this origin that this policy does not cover: like a course it runs the
       scripts of a message, loads templates and images from anywhere and can
       reach this page. So a message of the AI is as trusted as the course.
-      The course in the other iframe has its own policy.
+      The course in the other iframe has its own policy, a web page there
+      comes from the proxy, another origin.
     -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-src 'self' http: https:; base-uri 'none'; form-action 'none'"
     />
     <title>LiaScript</title>
     <link rel="stylesheet" href="chat.css" />
@@ -184,6 +185,7 @@
         cursor: pointer;
       }
       #mute,
+      #browse,
       #dock {
         padding: 0 0.4rem;
         border: 0;
@@ -195,6 +197,17 @@
       }
       #dock[aria-pressed='true'] {
         color: Highlight;
+      }
+      #address:not([hidden]) {
+        display: flex;
+        padding: 0.4rem 0.75rem;
+        border-bottom: 1px solid GrayText;
+      }
+      #address input {
+        flex: 1;
+        font: inherit;
+        padding: 0.2rem 0.4rem;
+        border-radius: 6px;
       }
       #mute-info {
         margin: 0;
@@ -285,8 +298,27 @@
           >
             🔇
           </button>
+          <button
+            id="browse"
+            type="button"
+            title="Open a web page"
+            data-t-title="Open a web page"
+            data-t-aria-label="Open a web page"
+          >
+            🌐
+          </button>
           <button id="dock" type="button" aria-pressed="false" hidden>◨</button>
         </div>
+        <form id="address" hidden>
+          <input
+            name="url"
+            type="text"
+            inputmode="url"
+            aria-label="Web address"
+            data-t-aria-label="Web address"
+            placeholder="https://de.wikipedia.org/wiki/…"
+          />
+        </form>
         <p
           id="mute-info"
           data-t="This browser cannot read aloud, it has no speech voices. Chrome and Edge bring their own, Firefox on Linux needs speech-dispatcher with a voice. The assistant can help to set it up."

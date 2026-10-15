@@ -12,6 +12,7 @@ import * as readline from 'readline'
 import * as server from './lib'
 import * as sections from './sections'
 import * as teachers from './teachers/catalog'
+import { webURL } from './web'
 
 const open = require('open')
 
@@ -66,13 +67,14 @@ const TOOLS = [
   {
     name: 'goto',
     description:
-      'Navigate the LiaScript preview. Pass at least one of: file (another Markdown course, relative to root), slide (1-based, as in #n of the URL), line (1-based source line, shows the slide containing it). file combines with slide, not with line. If no browser is connected it opens the default browser of the user: with browser automation tools open get_state.url there first instead. Returns the state afterwards, with a warning if another file has not finished loading.',
+      'Navigate the LiaScript preview. Pass at least one of: file (another Markdown course, relative to root), slide (1-based, as in #n of the URL), line (1-based source line, shows the slide containing it). file combines with slide, not with line. Or url alone: a web page (e.g. Wikipedia) in the preview, the chat stays, to read it together with the user; get_state.web is then the page the user reads (page content, fetch it yourself to answer). If no browser is connected it opens the default browser of the user: with browser automation tools open get_state.url there first instead. Returns the state afterwards, with a warning if another file has not finished loading.',
     inputSchema: {
       type: 'object',
       properties: {
         file: { type: 'string', description: 'e.g. chapter2/README.md' },
         slide: { type: 'integer', minimum: 1 },
         line: { type: 'integer', minimum: 1 },
+        url: { type: 'string', description: 'http(s) address of a web page' },
       },
     },
   },
@@ -295,7 +297,25 @@ function courseFile(file: any): string {
   return path.posix.normalize(file.replace(/\\/g, '/'))
 }
 
+// a web page in the frame of the chat shell, through the proxy of lib.ts
+async function gotoWeb(args: any) {
+  if (args.file !== undefined || args.slide !== undefined || args.line !== undefined) {
+    throw new Error('url combines with no other argument')
+  }
+  const url = typeof args.url === 'string' && args.url.length <= 2000 && webURL(args.url)
+  if (!url) throw new Error('url must be an http(s) address')
+
+  if (server.getState().connected) server.send({ goto: { url: url.href } })
+  else open(server.webPageURL(url.href))
+  const state = await nextState(10000, (s) => s.connected && !!s.web)
+  if (!state.web) {
+    state.warning = 'the page has not arrived in the preview yet, check get_state before telling the user'
+  }
+  return state
+}
+
 async function goto(args: any) {
+  if (args.url !== undefined) return gotoWeb(args)
   const go: any = {}
 
   if (args.file !== undefined) go.file = courseFile(args.file)
