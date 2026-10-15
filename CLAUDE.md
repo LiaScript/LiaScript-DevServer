@@ -99,7 +99,10 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
     restarting an expired Monitor loses nothing. The random token keeps other local users and pages out, a request with an `Origin` is refused. `agentScript` (two script tags injected after
     `gotoScript`: `views/activity.js` and `views/agent.js`, which reuses its `filename__` and `events`) reports slide/title/selection, handles `goto` messages and turns clicks on `agent:` links into
     `command` events. In agent mode the server binds to loopback, checks `Host` on every route and `Origin` on
-    `POST /agent`, and `.md` redirects go to the chat shell instead of the bare player. It also moves to the next
+    `POST /agent`, and `.md` redirects go to the chat shell instead of the bare player. A folder under `/home` opened
+    as a page (`Sec-Fetch-Dest: document`) becomes `chat.html?/home/…`, the listing in the shell's frame; there its
+    `.md` links go to the bare player (`Sec-Fetch-Dest: iframe`), `chat.js` reports a listing as `file: ''` with the
+    folder as `title` and turns a `goto` with `file` into a player itself. It also moves to the next
     free port when the requested one (or its reload port) is busy: every MCP client spawns its own instance from
     the same config, and VS Code autostarts a workspace `.mcp.json` for Copilot next to Claude Code's spawn, so a
     fixed port meant `EADDRINUSE` and a bare "connection closed" in the client.
@@ -210,7 +213,9 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   of its message (`msg.entry`, the iframe numbers its messages differently once the outbox shows one). The CSP of `chat.html` does not reach
   that iframe: like a course it runs the scripts of a message, so a message of the AI is as trusted as the course.
   The scripts are separate files
-  because the page's CSP allows no inline scripts. Every agent is a pixel robot (`avatar.js`, inline SVG, no
+  because the page's CSP allows no inline scripts. Light or dark is LiaScript's, not the system's: `theme()` reads
+  `light` of `localStorage.settings` (player and chat app share it) and sets `lia-variant-dark/light` on the shell
+  and the messages, again on every `storage` event. Every agent is a pixel robot (`avatar.js`, inline SVG, no
   library): the 12 x 12 LED matrix of DiceBear's CC0 style Pixelbot, its eyes and mouths copied as cell numbers.
   `Avatar.role()` takes the role from the name (`teaching`, `artist`, `learner`, `development`, `reviewer`,
   `translator`, `research`, or a word of the name in `ALIASES`), else from the emoji (`EMOJI`), else LED colour,

@@ -6,7 +6,8 @@ var course = document.getElementById('course')
 var log = document.getElementById('log')
 var say = document.getElementById('say')
 
-course.src = 'index.html' + location.search + location.hash
+// ?/home/… is the file listing of the project, else ?<url> the course
+course.src = (/^\?\/home/.test(location.search) ? location.search.slice(1) : 'index.html' + location.search) + location.hash
 
 function post(msg) {
   return fetch('/agent', {
@@ -136,6 +137,35 @@ course.addEventListener('load', function () {
   } catch (e) {}
 })
 
+// The file listing does not report like the player: no course is open, and
+// F5 comes back to the folder. Its links stay in the frame.
+course.addEventListener('load', function () {
+  try {
+    var where = course.contentWindow.location.pathname
+    if (!where.startsWith('/home')) return
+    history.replaceState(null, '', location.pathname + '?' + where)
+    document.title = course.contentDocument.title
+    post({ type: 'state', context: { file: '', title: decodeURIComponent(where) } }).catch(function () {})
+  } catch (e) {}
+})
+
+// LiaScript's light or dark mode, not the system's: the player keeps it in
+// the settings of localStorage, which this page and the messages share
+function theme() {
+  var dark = false
+  try {
+    dark = JSON.parse(localStorage.getItem('settings')).light === false
+  } catch (e) {}
+  ;[document, frame()].forEach(function (doc) {
+    if (!doc) return
+    doc.documentElement.classList.toggle('lia-variant-dark', dark)
+    doc.documentElement.classList.toggle('lia-variant-light', !dark)
+  })
+}
+window.addEventListener('storage', function (e) {
+  if (e.key == 'settings') theme()
+})
+
 // ---------------------------------------------------------------- messages
 
 // Every message is LiaScript: quizzes, surveys, code, templates. The package
@@ -151,6 +181,7 @@ try {
 lia.iframe.sandbox.add('allow-forms')
 log.append(lia)
 lia.iframe.addEventListener('load', function () {
+  theme()
   chatLang()
   try {
     new MutationObserver(chatLang).observe(frame().documentElement, { attributes: true, attributeFilter: ['lang'] })
@@ -1410,6 +1441,16 @@ stream.onmessage = function (event) {
   if (data.sessions) return showSessions(data.sessions)
   if (data.session) return showSession(data.session)
   if (data.entry) return showEntry(data.entry)
+  // the player follows a goto itself, the file listing cannot
+  if (data.goto) {
+    try {
+      if (data.goto.file && course.contentWindow.location.pathname.startsWith('/home')) {
+        course.src =
+          'index.html?' + location.origin + '/' + encodeURI(data.goto.file) + (data.goto.slide ? '#' + data.goto.slide : '')
+      }
+    } catch (e) {}
+    return
+  }
 
   var chat = data.chat
   if (!chat) return
@@ -1440,4 +1481,5 @@ function showAI(chat, t) {
 // the fixed texts of the page, in the language of the browser until the
 // course says its own
 localize()
+theme()
 showStage()

@@ -531,9 +531,14 @@ export async function start(
     const currentPath = project.path + '/' + req.params[0]
 
     const stats = fs.lstatSync(currentPath)
+    // agent mode: a folder or course opened in the tab gets the chat shell,
+    // in the frame of the shell the listing and the bare player
+    const dest = req.headers['sec-fetch-dest']
 
     // Is it a directory?
-    if (stats.isDirectory()) {
+    if (agent && stats.isDirectory() && dest === 'document') {
+      res.redirect(player + '?' + req.path)
+    } else if (stats.isDirectory()) {
       const files = fs.readdirSync(currentPath).filter((e: string) => {
         return e[0] !== '.'
       })
@@ -569,7 +574,9 @@ export async function start(
       })
     } else if (stats.isFile()) {
       if (req.params[0].toLocaleLowerCase().endsWith('.md')) {
-        res.redirect((testOnline ? ONLINE : player) + '?' + origin + '/' + req.params[0])
+        res.redirect(
+          (testOnline ? ONLINE : agent && dest === 'iframe' ? '/liascript/index.html' : player) + '?' + origin + '/' + req.params[0],
+        )
       } else {
         res.sendFile(req.params[0], { root: project.path })
       }
