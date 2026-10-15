@@ -290,7 +290,12 @@ async function main() {
 
   // --- http guards
   const page = await listening()
-  assert.ok(page.data.includes("fetch('/agent'"), 'agent script is injected')
+  assert.ok(page.data.includes('<script src="/liascript/agent.js">'), 'agent script is injected')
+  for (const file of ['activity.js', 'agent.js']) {
+    const served = await request('GET', '/liascript/' + file, {})
+    assert.strictEqual(served.status, 200, file + ' is served')
+    assert.strictEqual(served.headers['cache-control'], 'no-cache', 'no stale ' + file)
+  }
   assert.strictEqual(page.headers['content-security-policy'], "frame-ancestors 'self'")
 
   // every request gets an answer: a browser has six connections per host, two

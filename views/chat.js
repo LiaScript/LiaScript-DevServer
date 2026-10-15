@@ -75,14 +75,18 @@ function tr(el, text, attr) {
   return el
 }
 
-function clock(time) {
-  var options = { hour: '2-digit', minute: '2-digit' }
+// in the language of the chat
+function when(time, options) {
   try {
-    return new Date(time).toLocaleTimeString(lang || [], options)
+    return new Date(time).toLocaleString(lang || [], options)
   } catch (e) {
     // not a language tag the browser knows
-    return new Date(time).toLocaleTimeString([], options)
+    return new Date(time).toLocaleString([], options)
   }
+}
+
+function clock(time) {
+  return when(time, { hour: '2-digit', minute: '2-digit' })
 }
 
 function localize() {
@@ -191,6 +195,7 @@ function clear() {
   parts = []
   forms = []
   seen = {}
+  Activity.reset()
   synced = false
   var round = ++rounds
   lia.clear()
@@ -361,13 +366,7 @@ function showSessions(list) {
   list.forEach(function (session) {
     var option = document.createElement('option')
     option.value = session.id
-    var date = new Date(session.updated)
-    var options = { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }
-    try {
-      date = date.toLocaleString(lang || [], options)
-    } catch (e) {
-      date = date.toLocaleString([], options)
-    }
+    var date = when(session.updated, { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
     option.textContent = session.title + ' \u00B7 ' + date
     sessions.append(option)
   })
@@ -1083,8 +1082,13 @@ autoread.addEventListener('change', function () {
   if (!autoread.checked) queue = []
 })
 
+// the box is checked, the stream replays nothing old and the browser can speak
+function autoreading() {
+  return autoread.checked && Date.now() >= replay && log.classList.contains('can-speak')
+}
+
 function readNew(msg) {
-  if (!autoread.checked || Date.now() < replay || !log.classList.contains('can-speak')) return
+  if (!autoreading()) return
   msg.placed.then(function () {
     enqueue({ parts: runs(content(msg)), msg: msg, button: msg.querySelector('.speak') })
   })
@@ -1101,7 +1105,7 @@ function readStatus(text) {
   var request = text == 'Waiting for the assistant…' || text == 'Looking at your answer…'
   if (!text || request) said = ''
   if (request) thought = false
-  if (!autoread.checked || Date.now() < replay || !log.classList.contains('can-speak')) return
+  if (!autoreading()) return
   if (!text || text == 'Waiting for the assistant…' || text == said) return
   // once per request: "Looking" and then "Thinking" would say the same twice
   if (SPOKEN.hasOwnProperty(text)) {
@@ -1145,25 +1149,10 @@ var lastLink // the link of the last click in the chat
 lia.addEventListener('agent', function (e) {
   var href = String(e.detail || '')
   var a = lastLink && lastLink.getAttribute('href') == href ? lastLink : null
-  var uri
-  try {
-    // agent://tutor/explain is agent:tutor/explain, as in the course
-    uri = new URL('agent:' + href.slice(6).replace(/^[/]+/, ''))
-  } catch (x) {
-    return
-  }
-  var slash = uri.pathname.indexOf('/')
-  var params = {}
-  uri.searchParams.forEach(function (value, key) {
-    params[key] = value
-  })
-  post({
-    type: 'command',
-    agent: slash < 0 ? '' : uri.pathname.slice(0, slash),
-    cmd: uri.pathname.slice(slash + 1),
-    params: params,
-    label: a ? a.textContent.trim() : '',
-  }).catch(function () {
+  var command = Activity.link(href)
+  if (!command) return
+  command.label = a ? a.textContent.trim() : ''
+  post(command).catch(function () {
     if (a) a.classList.add('failed')
   })
 })
@@ -1181,18 +1170,19 @@ function readClicked(e) {
 }
 
 // What the learner does with a quiz, survey, task or code in a message, reported
-// like those of the course (agentScript in lib.ts), chat is the number of the
+// like those of the course (views/agent.js), chat is the number of the
 // message. The server keeps the states in the chat file, for F5, code with
 // its versions and output too.
-var seen = {}
-var tasks = {}
+var seen = {} // of code, Activity knows the rest
 var STORED = ['quiz', 'survey', 'task', 'code']
 
-function activity(kind, id, block, params) {
-  params.kind = kind
-  params.chat = String(id)
-  params.block = String(block)
-  post({ type: 'activity', params: params }).catch(function () {})
+function activity(id) {
+  return function (kind, block, params) {
+    params.kind = kind
+    params.chat = String(id)
+    params.block = String(block)
+    post({ type: 'activity', params: params }).catch(function () {})
+  }
 }
 
 lia.addEventListener('store', function (e) {
@@ -1212,79 +1202,35 @@ lia.addEventListener('store', function (e) {
 
 // quiet: only remember, for the states of the history
 function report(table, id, data, quiet) {
+  if (table != 'code') return Activity.store(table, id, data, activity(id), quiet)
+  // Every run stores its result, reported like the course. A new version
+  // stores an empty log first, browsing the versions stores the one shown,
+  // and a failed run came twice once.
   data.forEach(function (block, i) {
-    var key = table + id + ':' + i
-    if (table == 'quiz') {
-      var old = seen[key] || { trial: 0, solved: 0, hint: 0 }
-      seen[key] = block
-      if (quiet) return
-      if (block.trial == old.trial && block.solved == old.solved && block.hint == old.hint) return
-      // a hit at the first try needs no help
-      if (block.solved == 1 && block.trial == 1) return
-      activity('quiz', id, i, {
-        trial: String(block.trial),
-        hints: String(block.hint),
-        solved: block.solved == 1 ? 'solved' : block.solved == -1 ? 'resolved' : 'wrong',
-        input: JSON.stringify(block.state),
-        error: block.error_msg || '',
-      })
-    } else if (table == 'survey') {
-      var before = seen[key]
-      seen[key] = block.submitted
-      if (block.submitted && !before && !quiet) {
-        activity('survey', id, i, { input: JSON.stringify(block.state) })
-      }
-    } else if (table == 'task') {
-      // every tick is stored: one event with the final state per block
-      var now = block.join(',')
-      if (seen[key] == now) return
-      seen[key] = now
-      if (quiet) return
-      clearTimeout(tasks[key])
-      tasks[key] = setTimeout(function () {
-        activity('task', id, i, { checked: now })
-      }, 2000)
-    } else if (table == 'code') {
-      // Every run stores its result, reported like the course. A new version
-      // stores an empty log first, browsing the versions stores the one
-      // shown, and a failed run came twice once.
-      var log = block.log || {}
-      var messages = log.messages || []
-      var versions = (block.version || []).length
-      var was = seen[key] || { runs: 0, versions: 0 }
-      var text = JSON.stringify(log)
-      var now = Date.now()
-      var again = messages.length && text == was.log && now - was.t < 1000
-      var browsed = versions == was.versions && block.version_active != was.active
-      var runs = was.runs
-      seen[key] = { log: text, t: now, versions: versions, active: block.version_active, runs: runs }
-      if (quiet || versions > was.versions || again || browsed) return
-      if (log.ok) {
-        // the first success after a failure, then quiet again
-        if (!runs) return
-        seen[key].runs = 0
-      } else {
-        seen[key].runs = ++runs
-      }
-      activity('code', id, i, {
-        ok: String(log.ok),
-        runs: String(runs),
-        // level 1 is warn, 2 error
-        error: messages
-          .filter(function (m) {
-            return m.level == 1 || m.level == 2
-          })
-          .map(function (m) {
-            return m.text
-          })
-          .join('\n'),
-        code: (block.file || [])
-          .map(function (f) {
-            return (f.name.trim() ? '// ' + f.name + '\n' : '') + f.code
-          })
-          .join('\n\n'),
-      })
+    var key = id + ':' + i
+    var log = block.log || {}
+    var versions = (block.version || []).length
+    var was = seen[key] || { runs: 0, versions: 0 }
+    var text = JSON.stringify(log)
+    var now = Date.now()
+    var again = (log.messages || []).length && text == was.log && now - was.t < 1000
+    var browsed = versions == was.versions && block.version_active != was.active
+    var runs = was.runs
+    seen[key] = { log: text, t: now, versions: versions, active: block.version_active, runs: runs }
+    if (quiet || versions > was.versions || again || browsed) return
+    if (log.ok) {
+      // the first success after a failure, then quiet again
+      if (!runs) return
+      seen[key].runs = 0
+    } else {
+      seen[key].runs = ++runs
     }
+    activity(id)('code', i, {
+      ok: String(log.ok),
+      runs: String(runs),
+      error: Activity.errors(log.messages),
+      code: Activity.code(block.file),
+    })
   })
 }
 
@@ -1392,6 +1338,12 @@ function form(ask, inputs) {
   return el
 }
 
+function lock(el) {
+  el.querySelectorAll('fieldset, button').forEach(function (x) {
+    x.disabled = true
+  })
+}
+
 // shows what the user sent, also for a form of the history, and locks it
 function answered(el, values) {
   el.classList.remove('failed')
@@ -1402,9 +1354,7 @@ function answered(el, values) {
     if (x.tagName == 'BUTTON') x.classList.toggle('chosen', chosen)
     else x.checked = chosen
   })
-  el.querySelectorAll('fieldset, button').forEach(function (x) {
-    x.disabled = true
-  })
+  lock(el)
   stageState()
 }
 
@@ -1413,9 +1363,7 @@ function closed(el) {
   if (el.classList.contains('answered') || el.classList.contains('closed')) return
   el.classList.remove('failed')
   el.classList.add('closed')
-  el.querySelectorAll('fieldset, button').forEach(function (x) {
-    x.disabled = true
-  })
+  lock(el)
   var note = document.createElement('p')
   note.className = 'note'
   el.append(tr(note, 'No longer open'))

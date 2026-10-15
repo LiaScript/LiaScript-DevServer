@@ -274,6 +274,13 @@ function nextState(ms: number, arrived = (state: any) => true): Promise<any> {
   })
 }
 
+// an optional argument that has to be an integer >= 1
+function positive(args: any, key: string): number | undefined {
+  const value = args[key]
+  if (value !== undefined && (!Number.isInteger(value) || value < 1)) throw new Error(key + ' must be an integer >= 1')
+  return value
+}
+
 // a Markdown file below root, as a normalized relative path
 function courseFile(file: any): string {
   if (
@@ -281,7 +288,7 @@ function courseFile(file: any): string {
     file.length > 500 ||
     !/\.md$/i.test(file) ||
     path.isAbsolute(file) ||
-    file.split(/[\\/]/).indexOf('..') >= 0
+    file.split(/[\\/]/).includes('..')
   ) {
     throw new Error('file must be a relative path to a .md file below root')
   }
@@ -293,12 +300,7 @@ async function goto(args: any) {
 
   if (args.file !== undefined) go.file = courseFile(args.file)
   for (const key of ['slide', 'line']) {
-    if (args[key] !== undefined) {
-      if (!Number.isInteger(args[key]) || args[key] < 1) {
-        throw new Error(key + ' must be an integer >= 1')
-      }
-      go[key] = args[key]
-    }
+    if (positive(args, key) !== undefined) go[key] = args[key]
   }
   if (!Object.keys(go).length) {
     throw new Error('pass at least one of file, slide, line')
@@ -343,10 +345,7 @@ function section(args: any) {
 
   const at: sections.Address = {}
   for (const key of ['slide', 'line'] as const) {
-    if (args[key] !== undefined) {
-      if (!Number.isInteger(args[key]) || args[key] < 1) throw new Error(key + ' must be an integer >= 1')
-      at[key] = args[key]
-    }
+    if (positive(args, key) !== undefined) at[key] = args[key]
   }
   if (args.section !== undefined) {
     if (typeof args.section !== 'string') throw new Error('section must be a string')
@@ -368,8 +367,7 @@ function here(file: string, at: sections.Address) {
 
 function outline(args: any) {
   const { file, at, content } = section(args)
-  const depth = args.depth === undefined ? 3 : args.depth
-  if (!Number.isInteger(depth) || depth < 1) throw new Error('depth must be an integer >= 1')
+  const depth = positive(args, 'depth') || 3
   const doc = sections.parse(content)
   const k = Object.keys(at).length ? sections.find(doc, at) : undefined
   return file + ': ' + sections.outline(doc, k, depth)
@@ -470,14 +468,9 @@ function waitForEvent(args: any, request: any) {
   })
 }
 
-const NAME = /^[\w-]{1,64}$/
-
-function isEmoji(value: any) {
-  return typeof value === 'string' && value.trim() !== '' && value.length <= 32
-}
-
-function isLabel(value: any) {
-  return typeof value === 'string' && value.trim() !== '' && value.length <= 40
+// emoji (32), label (40) or voice (100)
+function short(value: any, max: number) {
+  return typeof value === 'string' && value.trim() !== '' && value.length <= max
 }
 
 const RULES =
@@ -485,8 +478,8 @@ const RULES =
 
 function findTeacher(args: any) {
   if (args.topic !== undefined && typeof args.topic !== 'string') throw new Error('topic must be a string')
-  if (args.gender !== undefined && teachers.GENDERS.indexOf(args.gender) < 0) throw new Error('gender must be female or male')
-  if (args.region !== undefined && teachers.REGIONS.indexOf(args.region) < 0) {
+  if (args.gender !== undefined && !teachers.GENDERS.includes(args.gender)) throw new Error('gender must be female or male')
+  if (args.region !== undefined && !teachers.REGIONS.includes(args.region)) {
     throw new Error('region must be one of ' + teachers.REGIONS.join(', '))
   }
   return { teachers: teachers.find(args).map(teachers.line) }
@@ -502,37 +495,42 @@ function personaOf(agent?: server.Agent) {
   return t ? { id: t.id, name: t.name, gender: t.gender, teaching: t.teaching, rules: RULES } : undefined
 }
 
-// persona given: set it, with the name of the person as label unless the
-// same call gives one; null: remove it, and the label it brought
-function withPersona(agent: server.Agent, persona: any, labelGiven: boolean): server.Agent {
-  if (persona === undefined) return agent
-  const { persona: before, ...out } = agent
-  if (persona === null) {
-    if (before && out.label === teachers.TEACHERS[before].name) delete out.label
-    return out
+// The fields of one agent. top: those of the call, where emoji is optional
+// and persona and voice may be null; else an entry of agents.
+function checkAgent(a: any, top: boolean) {
+  const p = top ? '' : 'agents[].'
+  const or = top ? ', or null' : ''
+  if ((!top || a.emoji !== undefined) && !short(a.emoji, 32)) throw new Error(p + 'emoji must be a short string, e.g. 🧑‍🏫')
+  if (a.label !== undefined && !short(a.label, 40)) throw new Error(p + 'label must be a string of at most 40 characters')
+  if (a.persona !== undefined && !(top && a.persona === null) && !isPersona(a.persona)) {
+    throw new Error(p + 'persona must be an id of find_teacher' + or)
   }
-  return { ...out, label: labelGiven ? out.label : teachers.TEACHERS[persona].name, persona }
+  if (a.voice !== undefined && !(top && a.voice === null) && !short(a.voice, 100)) {
+    throw new Error(p + 'voice must be a name of get_state.voice_names' + or)
+  }
 }
 
-// voice given: set it, null: remove it, the browser chooses again
-function withVoice(agent: server.Agent, voice: any): server.Agent {
-  if (voice === undefined) return agent
-  const out = { ...agent }
-  delete out.voice
-  return voice === null ? out : { ...out, voice }
-}
+// base with what a call gives. persona: set it, with the name of the person
+// as label unless the call gives one; null removes it, and the label it
+// brought. voice: null removes it, the browser chooses again. The keys always
+// in this order: the shell and the tests compare JSON.
+function changed(base: any, a: any): server.Agent {
+  let { label, persona, voice } = base
+  if (a.label !== undefined) label = a.label
+  if (a.persona === null) {
+    if (persona && label === teachers.TEACHERS[persona].name) label = undefined
+    persona = undefined
+  } else if (a.persona !== undefined) {
+    persona = a.persona
+    if (a.label === undefined) label = teachers.TEACHERS[persona].name
+  }
+  if (a.voice !== undefined) voice = a.voice === null ? undefined : a.voice
 
-// the keys always in this order: the shell and the tests compare JSON
-function ordered(a: server.Agent): server.Agent {
-  const out: server.Agent = { name: a.name, emoji: a.emoji }
-  if (a.label !== undefined) out.label = a.label
-  if (a.persona !== undefined) out.persona = a.persona
-  if (a.voice !== undefined) out.voice = a.voice
+  const out: server.Agent = { name: base.name, emoji: a.emoji === undefined ? base.emoji : a.emoji }
+  if (label !== undefined) out.label = label
+  if (persona !== undefined) out.persona = persona
+  if (voice !== undefined) out.voice = voice
   return out
-}
-
-function isVoice(value: any) {
-  return typeof value === 'string' && value.trim() !== '' && value.length <= 100
 }
 
 // teacher: <id> in the header of the open course, or of the --input file
@@ -552,25 +550,11 @@ function courseTeacher(state: any): { teacher?: string | null; warning?: string 
 }
 
 function setAgent(args: any) {
-  const { name, emoji, label } = args
-  if (typeof name !== 'string' || !NAME.test(name)) {
+  const { name, persona, view } = args
+  if (!server.isName(name)) {
     throw new Error('name must be letters, digits, _ or -')
   }
-  if (emoji !== undefined && !isEmoji(emoji)) {
-    throw new Error('emoji must be a short string, e.g. 🧑‍🏫')
-  }
-  if (label !== undefined && !isLabel(label)) {
-    throw new Error('label must be a string of at most 40 characters')
-  }
-  const persona = args.persona
-  if (persona !== undefined && persona !== null && !isPersona(persona)) {
-    throw new Error('persona must be an id of find_teacher, or null')
-  }
-  const view = args.view
-  const voice = args.voice
-  if (voice !== undefined && voice !== null && !isVoice(voice)) {
-    throw new Error('voice must be a name of get_state.voice_names, or null')
-  }
+  checkAgent(args, true)
   if (view !== undefined && view !== 'author' && view !== 'learner') throw new Error('view must be author or learner')
 
   let list: server.Agent[] = server.getState().agents
@@ -582,37 +566,21 @@ function setAgent(args: any) {
     for (const agent of args.agents) {
       if (
         !agent ||
-        typeof agent.name !== 'string' ||
-        !NAME.test(agent.name) ||
+        !server.isName(agent.name) ||
         list.some((a) => a.name === agent.name)
       ) {
         throw new Error('agents[].name must be a unique name of letters, digits, _ or -')
       }
-      if (!isEmoji(agent.emoji)) {
-        throw new Error('agents[].emoji must be a short string, e.g. 🧑‍🏫')
-      }
-      if (agent.label !== undefined && !isLabel(agent.label)) {
-        throw new Error('agents[].label must be a string of at most 40 characters')
-      }
-      if (agent.persona !== undefined && !isPersona(agent.persona)) {
-        throw new Error('agents[].persona must be an id of find_teacher')
-      }
-      if (agent.voice !== undefined && !isVoice(agent.voice)) {
-        throw new Error('agents[].voice must be a name of get_state.voice_names')
-      }
-      const declared: server.Agent = { name: agent.name, emoji: agent.emoji }
-      if (agent.label !== undefined) declared.label = agent.label
-      list.push(ordered(withVoice(withPersona(declared, agent.persona, agent.label !== undefined), agent.voice)))
+      checkAgent(agent, false)
+      list.push(changed({ name: agent.name, emoji: agent.emoji }, agent))
     }
   }
 
-  const known = list.filter((a) => a.name === name)[0]
-  if (emoji !== undefined || label !== undefined || persona !== undefined || voice !== undefined) {
-    if (!known && emoji === undefined) throw new Error('unknown agent ' + name + ', pass its emoji or declare it in agents')
+  const known = list.find((a) => a.name === name)
+  if (['emoji', 'label', 'persona', 'voice'].some((key) => args[key] !== undefined)) {
+    if (!known && args.emoji === undefined) throw new Error('unknown agent ' + name + ', pass its emoji or declare it in agents')
     if (!known && list.length >= 10) throw new Error('at most 10 agents')
-    const agent: server.Agent = { ...known, name, emoji: emoji === undefined ? known.emoji : emoji }
-    if (label !== undefined) agent.label = label
-    const updated = ordered(withVoice(withPersona(agent, persona, label !== undefined), voice))
+    const updated = changed(known || { name }, args)
     // in its place, the menu keeps its order
     list = known ? list.map((a) => (a.name === name ? updated : a)) : list.concat(updated)
   } else if (!known) {
@@ -627,8 +595,8 @@ function setAgent(args: any) {
   const role = personaOf(server.currentAgent())
   const result: any = role ? { agent, agents, view: shown, persona: role } : { agent, agents, view: shown }
   // set anyway: another browser may have it, but the agent should know it guessed
-  const guessed = [voice].concat((args.agents || []).map((a: any) => a.voice))
-    .filter((v: any) => typeof v === 'string' && names.length && names.indexOf(v) < 0)
+  const guessed = [args.voice].concat((args.agents || []).map((a: any) => a.voice))
+    .filter((v: any) => typeof v === 'string' && names.length && !names.includes(v))
   if (guessed.length) {
     result.warning =
       'voice ' + guessed.join(', ') + ' is not one of get_state.voice_names (' + names.slice(0, 10).join(', ') +
@@ -639,8 +607,7 @@ function setAgent(args: any) {
 
 function readChat(args: any) {
   if (args.session !== undefined && typeof args.session !== 'string') throw new Error('session must be an id')
-  const last = args.last === undefined ? 50 : args.last
-  if (!Number.isInteger(last) || last < 1) throw new Error('last must be an integer >= 1')
+  const last = positive(args, 'last') || 50
 
   const chat = server.readChat(args.session)
   if (!chat) throw new Error('no saved chat ' + args.session)
@@ -697,15 +664,14 @@ async function chat(args: any, request: any) {
   for (const input of inputs) {
     const id = input && input.id
     if (
-      typeof id !== 'string' ||
-      !/^[\w-]{1,64}$/.test(id) ||
+      !server.isName(id) ||
       id === 'ask' ||
-      ids.indexOf(id) >= 0
+      ids.includes(id)
     ) {
       throw new Error('input.id must be a unique name of letters, digits, _ or -, and not "ask"')
     }
     ids.push(id)
-    if (['buttons', 'radio', 'checkbox', 'teacher'].indexOf(input.type) < 0) {
+    if (!['buttons', 'radio', 'checkbox', 'teacher'].includes(input.type)) {
       throw new Error('input.type must be buttons, radio, checkbox or teacher')
     }
     if (input.label !== undefined && typeof input.label !== 'string') {
@@ -769,12 +735,49 @@ function cancel(request: any) {
   if (ask && ask.request === request) ask.done({ cancelled: true })
 }
 
+// the state of the preview, the teacher of the course and the Codex bridge
+function getState() {
+  const state = server.getState()
+  // Parcel rewrites __dirname to src; resolve the actual CLI entry so
+  // this also works after npm installs it behind a bin symlink.
+  const bridge = path.join(path.dirname(fs.realpathSync(process.argv[1])), 'codex-bridge.js')
+  let input = state.root
+  // Browser scripts can forge state.file; never turn traversal into a
+  // launch argument pointing outside the configured course folder.
+  try {
+    input = path.join(state.root, courseFile(state.file))
+  } catch (e) {}
+  return {
+    ...state,
+    ...courseTeacher(state),
+    codex_bridge: {
+      available: !(process as any).pkg && fs.existsSync(bridge),
+      command: process.execPath,
+      args: [bridge, '--', '--live', '-i', input, '-p', '3001'],
+      cwd: process.cwd(),
+    },
+  }
+}
+
+const TOOL_CALLS: { [name: string]: (args: any, request: any) => any } = {
+  get_state: getState,
+  goto,
+  chat,
+  set_agent: setAgent,
+  find_teacher: findTeacher,
+  read_chat: readChat,
+  wait_for_event: waitForEvent,
+  outline,
+  read_section: readSection,
+  write_section: writeSection,
+}
+
 async function handle(method: string, params: any, request: any) {
   switch (method) {
     case 'initialize':
       return {
         protocolVersion:
-          VERSIONS.indexOf(params.protocolVersion) < 0
+          !VERSIONS.includes(params.protocolVersion)
             ? VERSIONS[0]
             : params.protocolVersion,
         // Never add 'claude/channel/permission': it would let browser content
@@ -801,45 +804,13 @@ async function handle(method: string, params: any, request: any) {
       }
 
     case 'tools/call': {
-      const args = params.arguments || {}
-      let call: () => any
       // the agent is there: the chat stops waiting for it
       server.activity()
-
-      if (params.name === 'get_state') call = () => {
-        const state = server.getState()
-        // Parcel rewrites __dirname to src; resolve the actual CLI entry so
-        // this also works after npm installs it behind a bin symlink.
-        const bridge = path.join(path.dirname(fs.realpathSync(process.argv[1])), 'codex-bridge.js')
-        let input = state.root
-        // Browser scripts can forge state.file; never turn traversal into a
-        // launch argument pointing outside the configured course folder.
-        try { input = path.join(state.root, courseFile(state.file)) } catch (e) {}
-        return {
-          ...state,
-          ...courseTeacher(state),
-          codex_bridge: {
-            available: !(process as any).pkg && fs.existsSync(bridge),
-            command: process.execPath,
-            args: [bridge, '--', '--live', '-i', input, '-p', '3001'],
-            cwd: process.cwd(),
-          },
-        }
-      }
-      else if (params.name === 'goto') call = () => goto(args)
-      else if (params.name === 'wait_for_event') call = () => waitForEvent(args, request)
-      else if (params.name === 'chat') call = () => chat(args, request)
-      else if (params.name === 'set_agent') call = () => setAgent(args)
-      else if (params.name === 'find_teacher') call = () => findTeacher(args)
-      else if (params.name === 'read_chat') call = () => readChat(args)
-      else if (params.name === 'outline') call = () => outline(args)
-      else if (params.name === 'read_section') call = () => readSection(args)
-      else if (params.name === 'write_section') call = () => writeSection(args)
-      else throw fail(-32602, 'unknown tool: ' + params.name)
+      if (!Object.prototype.hasOwnProperty.call(TOOL_CALLS, params.name)) throw fail(-32602, 'unknown tool: ' + params.name)
 
       // tool failures go into the result, so the model sees and corrects them
       try {
-        const value = await call()
+        const value = await TOOL_CALLS[params.name](params.arguments || {}, request)
         const text = typeof value === 'string' ? value : JSON.stringify(value)
         return { content: [{ type: 'text', text }] }
       } catch (e: any) {
