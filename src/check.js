@@ -361,6 +361,8 @@ async function main() {
   assert.strictEqual((await post(report, { Origin: 'http://evil.com' })).status, 403, 'foreign origin')
   assert.strictEqual((await post(report, { Host: 'evil.com:' + PORT, Origin: 'http://evil.com:' + PORT })).status, 403, 'rebound host')
   assert.strictEqual((await request('GET', '/', { Host: 'evil.com' })).status, 403, 'rebound host on GET')
+  const start = await request('GET', '/', {})
+  assert.strictEqual(start.headers.location, 'http://localhost:3999/liascript/chat.html?http://localhost:3999/README.md', '/ opens the course')
   assert.strictEqual((await post({ type: 'bogus' })).status, 400)
   assert.strictEqual((await post(report)).status, 204)
 
