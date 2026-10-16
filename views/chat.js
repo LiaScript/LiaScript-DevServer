@@ -102,8 +102,9 @@ var TEXTS = {
 }
 var lang = ''
 
-function t(text) {
-  var table = TEXTS[lang.slice(0, 2).toLowerCase()]
+// in the language of the chat, or in another one if there is a table for it
+function t(text, other) {
+  var table = TEXTS[(other || lang).slice(0, 2).toLowerCase()]
   return (table && table[text]) || text
 }
 
@@ -390,9 +391,15 @@ function add(who, text, extra, agent, t) {
 
   var stamp = document.createElement('span')
   stamp.className = 'stamp'
+  // the name is visible: a tooltip is out of reach on a tablet
+  if (agent) {
+    var name = document.createElement('span')
+    name.className = 'name'
+    name.textContent = agent.label || agent.name
+    stamp.append(name)
+  }
   stamp.append(time)
   if (who == 'ai') stamp.prepend(Avatar.bot(agent, 16))
-  if (agent) stamp.title = agent.label || agent.name
   msg.agent = agent
   var foot = document.createElement('div')
   foot.className = 'foot'
@@ -441,6 +448,7 @@ function showAgents(agents) {
     button.setAttribute('role', 'radio')
     button.setAttribute('aria-checked', String(agent.name == current))
     button.title = agent.label || agent.name
+    button.setAttribute('aria-label', button.title)
     button.append(Avatar.bot(agent, 24))
     button.addEventListener('click', function () {
       if (agent.name != current) choose(agent.name)
@@ -588,27 +596,41 @@ function showEntry(entry, n) {
   } else if (entry.type == 'user') {
     add('me', entry.text, null, null, entry.t)
   } else if (entry.type == 'answer') {
+    var asked
     forms.forEach(function (el) {
-      if (el.dataset.ask == entry.ask) answered(el, entry.values)
+      if (el.dataset.ask != entry.ask) return
+      asked = el
+      answered(el, entry.values)
     })
     // what the user chose, so that it is clear that it arrived
-    add('me act', '✓ ' + choice(entry.values), null, null, entry.t)
+    add('me act', '✓ ' + choice(entry.values, asked), null, null, entry.t)
   } else if (entry.type == 'command') {
-    // a click on an agent: link, in the course or in the chat
-    add('me act', '▶ ' + entry.label, null, null, entry.t)
+    // a click on an agent: link, in the course or in the chat, as a statement:
+    // the ▶ and arrows of the link text made it look like a button
+    var label = entry.label.replace(/^[\p{So}\p{Sm}\s]+|[\p{So}\p{Sm}\s]+$/gu, '') || entry.label
+    add('me act', '✓ ' + label, null, null, entry.t)
   }
 }
 
-// the id of a teacher form reads as the name of the person
-function choice(values) {
+// The id of a teacher form reads as the name of the person. With more than
+// one question each answer follows its question: two similar ones were
+// impossible to tell apart.
+function choice(values, el) {
   var name = function (value) {
     var person = window.Teachers && window.Teachers.get(value)
     return person ? person.name : value
   }
+  var keys = Object.keys(values)
+  var question = function (key) {
+    var field = keys.length > 1 && el && el.querySelector('[name="' + CSS.escape(key) + '"]')
+    var legend = field && field.closest('fieldset').querySelector('legend')
+    return legend ? legend.textContent + ': ' : ''
+  }
   return (
-    Object.keys(values)
+    keys
       .map(function (key) {
-        return [].concat(values[key]).map(name).join(', ')
+        var said = [].concat(values[key]).map(name).join(', ')
+        return said && question(key) + said
       })
       .filter(Boolean)
       .join(' · ') || '–'
@@ -913,7 +935,7 @@ function speaker() {
     var msg = button.closest('.msg')
     queue = []
     stop()
-    if (!mine) read({ parts: runs(content(msg)), msg: msg, button: button })
+    if (!mine) read({ parts: readable(msg), msg: msg, button: button })
   })
   return button
 }
@@ -932,12 +954,34 @@ function idle(button) {
 // surveys and tasks are read with their options, never with their solution.
 var SILENT =
   'pre, svg, form, button, input, select, textarea, script, style, lia-chart, [hidden], [aria-hidden="true"], ' +
-  '.lia-code:not(.lia-code--inline), .lia-effect__circle, .lia-effect__circle--inline, ' +
+  '.lia-code, .lia-effect__circle, .lia-effect__circle--inline, ' +
   'details:not([open]) > :not(summary)'
 
 // LiaScript puts no space between two blocks, so ListOne and ListTwo became
 // one word: a new block gets a pause, a comma between two cells of a row
 var BLOCK = 'p, li, h1, h2, h3, h4, h5, h6, blockquote, figcaption, summary, dt, dd, th, td, label, div'
+
+// a message and the questions of its form with their options: a form that
+// is not read leaves a listener without the question
+function readable(msg) {
+  var out = runs(content(msg))
+  var form = msg.querySelector('form')
+  if (!form || form.classList.contains('closed')) return out
+  var asked = [].map
+    .call(form.querySelectorAll('fieldset'), function (set) {
+      var legend = set.querySelector('legend')
+      var options = [].map.call(set.querySelectorAll('label, button strong, button:not(:has(strong))'), function (el) {
+        return el.textContent.trim()
+      })
+      return (legend ? legend.textContent.trim() + ': ' : '') + options.filter(Boolean).join(', ')
+    })
+    .join('. ')
+  var lang = msg.lang || language()
+  var last = out[out.length - 1]
+  if (last && last.lang == lang) last.text = pause(last.text) + unemoji(asked)
+  else if (asked) out.push({ lang: lang, text: unemoji(asked) })
+  return out
+}
 
 function runs(content) {
   var course = language()
@@ -1008,25 +1052,33 @@ function pause(text, here, before) {
 // keycap stays. So does the pause of a block that was only an emoji.
 function unemoji(text) {
   return text
-    .replace(/[\p{Extended_Pictographic}\p{Regional_Indicator}\u{1F3FB}-\u{1F3FF}‍️⃣]/gu, '')
+    .replace(/[\p{Extended_Pictographic}\p{Regional_Indicator}\u{1F3FB}-\u{1F3FF}‍️⃣✓✔✗✘→←⇒]/gu, '')
+    // a cross that marks something, not 3 × 4
+    .replace(/(^|[^\d\s])\s*×(?!\s*\d)/g, '$1')
     .replace(/\s+/g, ' ')
     .replace(/(^|[.!?:;,]) ?[.,](?= |$)/g, '$1')
+    // "prüfen → ." without its arrow
+    .replace(/ ([.,;:!?])(?= |$)/g, '$1')
     .trim()
 }
 
 // Sentence by sentence: Chrome drops an utterance of its online voices after
 // about 15 seconds, so a long message would stop in the middle.
 function sentences(text) {
-  // at sentence ends, and at a space where a sentence is too long itself
-  var parts = text.match(/[^.!?:;]{1,180}(?:[.!?:;]+\s*|\s+|$)|[^.!?:;]{1,180}/g) || [text]
+  // at sentence ends with their closing quotes, and at a space where a
+  // sentence is too long itself
+  var parts = text.match(/[^.!?:;]{1,180}(?:[.!?:;]+["“”»«’)]*\s*|\s+|$)|[^.!?:;]{1,180}/g) || [text]
   var chunks = []
   parts.forEach(function (part) {
     var last = chunks.length - 1
-    if (last >= 0 && (chunks[last] + part).length <= 180) chunks[last] += part
+    // "ca. | 30 Min." is no end of a sentence, nor "1. | Station"
+    if (last >= 0 && ((chunks[last] + part).length <= 180 || ABBREVIATION.test(chunks[last]))) chunks[last] += part
     else chunks.push(part)
   })
   return chunks
 }
+// single letters for z. B., d. h., e. g.; numbers for 1. and dates
+var ABBREVIATION = /(^|[\s(])(ca|bzw|usw|vgl|Nr|Min|Std|Mio|Mrd|Dr|Prof|etc|evtl|ggf|inkl|Abb|Kap|vs|Fig|No|Mr|Mrs|Ms|\p{L}|\d+)\.\s*$/u
 
 function stop() {
   var item = reading
@@ -1235,7 +1287,7 @@ function autoreading() {
 function readNew(msg) {
   if (!autoreading()) return
   msg.placed.then(function () {
-    enqueue({ parts: runs(content(msg)), msg: msg, button: msg.querySelector('.speak') })
+    enqueue({ parts: readable(msg), msg: msg, button: msg.querySelector('.speak') })
   })
 }
 
@@ -1244,6 +1296,8 @@ var SPOKEN = {
   'Thinking…': 'One moment, I am thinking.',
   'Looking at your answer…': 'One moment, I am looking at your answer.',
 }
+var SPOKEN_TEXTS = new Set(Object.values(SPOKEN))
+var lastLang = '' // of the newest message of the agent, '' for the course's
 
 function readStatus(text) {
   // a new request, or the agent is done: the same line may come again
@@ -1259,8 +1313,12 @@ function readStatus(text) {
     text = SPOKEN[text]
   }
   said = text
-  text = unemoji(t(text))
-  if (text) enqueue({ parts: [{ lang: language(), text: text }], status: true })
+  // in the language the agent writes in: German messages in a course
+  // without a language were followed by an English "One moment"
+  var speak = lastLang || language()
+  var known = t(text, speak) != text || /^en/i.test(speak) || !SPOKEN_TEXTS.has(text)
+  text = unemoji(t(text, speak))
+  if (text) enqueue({ parts: [{ lang: known ? speak : 'en', text: text }], status: true })
 }
 
 // a reload of the shell must not leave the browser talking
@@ -1426,6 +1484,16 @@ function form(ask, inputs) {
       legend.textContent = input.label
       set.append(legend)
     }
+    // With other questions a button only picks its answer and Send sends them
+    // all: a click sent the whole form, the other questions unanswered.
+    var pick = input.type == 'buttons' && inputs.length > 1
+    if (pick) {
+      var picked = document.createElement('input')
+      picked.type = 'hidden'
+      picked.name = input.id
+      set.append(picked)
+      needsSubmit = true
+    }
 
     input.options.forEach(function (option) {
       if (input.type == 'teacher') {
@@ -1448,6 +1516,15 @@ function form(ask, inputs) {
         var button = document.createElement('button')
         button.name = input.id
         button.value = button.textContent = option
+        if (pick) {
+          button.type = 'button'
+          button.addEventListener('click', function () {
+            set.querySelectorAll('button').forEach(function (other) {
+              other.classList.toggle('chosen', other == button)
+            })
+            picked.value = option
+          })
+        }
         set.append(button)
       } else {
         needsSubmit = true
@@ -1465,7 +1542,7 @@ function form(ask, inputs) {
   })
 
   // a button of the form submits it together with its own value
-  if (needsSubmit && !el.querySelector('button')) {
+  if (needsSubmit && (inputs.length > 1 || !el.querySelector('button'))) {
     var send = document.createElement('button')
     tr(send, 'Send answer')
     el.append(send)
@@ -1478,7 +1555,7 @@ function form(ask, inputs) {
 
     inputs.forEach(function (input) {
       if (input.type == 'checkbox') params[input.id] = data.getAll(input.id)
-      if (input.type == 'radio') params[input.id] = data.get(input.id) || ''
+      if (input.type == 'radio' || input.type == 'buttons') params[input.id] = data.get(input.id) || ''
     })
     if (e.submitter && e.submitter.name) {
       params[e.submitter.name] = e.submitter.value
@@ -1641,6 +1718,7 @@ function showAI(chat, t) {
     t,
   )
   msg.entry = chat.n
+  lastLang = typeof chat.lang == 'string' ? chat.lang : ''
   if (typeof chat.lang == 'string') {
     msg.lang = chat.lang
     // placed already, place() sets it otherwise

@@ -270,7 +270,8 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   `translator`, `research`, or a word of the name in `ALIASES`), else from the emoji (`EMOJI`), else LED colour,
   case and eyes come from a hash of the name; a role adds its symbol in the three rows above the eyes. The
   button shows robot and name of the current agent, a row of robots in the bar (`#agents`) appears with two or
-  more agents, and every message ends in a footer with the read-aloud button and `robot HH:MM` (arrival time).
+  more agents, and every message ends in a footer with the read-aloud button and `robot label HH:MM` (arrival time, the label
+  visible because a tooltip is out of reach on a tablet).
   The stage (`#stage`) below the log shows the robot of the current agent next to the progress line: a running
   light in its bottom row while a progress line shows, a pulse while the newest form is open (`stageState()`).
   While a message is read aloud the stage shows the robot of its agent and moves its mouth (`data-mouth`): with
@@ -280,7 +281,7 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   from the voice name, `MALE`/`FEMALE` in `chat.js`; the gender counts more than the region, a British male
   voice for `en-US` rather than an American female one made lower), else it shifts the one it has (male: pitch × 0.75, rate ×
   0.94). Chrome on Linux has a single German voice, so there the profiles differ by pitch and rate alone.
-  A click on a message of the AI reads it too (not on links, forms, quizzes, tables, formulas, code or a selection; `SILENT` lists what is never read).
+  A click on a message of the AI reads it too (not on links, forms, quizzes, tables, formulas, code or a selection; `SILENT` lists what is never read, inline code too; `readable()` adds the questions and options of an open form).
   `runs()` reads the visible text block by block (`BLOCK`): LiaScript puts no space between two blocks, so a pause
   goes in, a comma between two cells of a row. Tables and the options of quizzes, surveys and tasks are read, never
   a solution; an image by its alt text, a formula by `speech(lang)` of `<lia-formula>` in the language of its

@@ -219,6 +219,11 @@
   align-items: center;
   gap: 0.3em;
 }
+.msg .stamp .name {
+  max-width: 12em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 /* read aloud: only in a browser that has a voice */
 .msg .speak {
   display: none;
@@ -241,4 +246,21 @@
 /* a click or a choice needs no reading aloud */
 .can-speak .msg.act .speak {
   display: none;
+}
+
+/* Two rules for LiaScript's own elements, in the messages only. A wide table
+   scrolls sideways, never in a box of its own: @liascript/chat caps it at
+   80vh, which is little of the chat. */
+.lia-chat__msg .lia-table-responsive {
+  max-height: none;
+  overflow-y: hidden;
+  overflow-x: auto;
+}
+/* the command an agent: link stands for, e.g. `:create-session`, is noise
+   for the user next to the link */
+.lia-chat__msg a[href^='agent:'] + .lia-code--inline {
+  border: 0;
+  background: none;
+  opacity: 0.55;
+  font-size: 0.8em;
 }
