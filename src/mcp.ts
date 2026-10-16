@@ -89,6 +89,12 @@ const TOOLS = [
         session: { type: 'string', description: 'Optional id of the visible chat; rejects a delayed message after the user switches chats.' },
         wait: { type: 'boolean', description: 'false returns a form immediately with {sent, ask}; read its answer with wait_for_event. Default true unless an event stream is watched.' },
         close: { type: 'boolean', description: 'true closes the open form, alone or with a message; returns its id as closed' },
+        reason: { type: 'string', description: 'with close: one short sentence under the closed form, why, in the language of the chat, e.g. "Answered by your message"' },
+        reply_to: {
+          type: 'number',
+          description:
+            'entry of the event this message answers (chat, answer and command events carry it): the result gets newer_user_messages if the user wrote, answered or clicked since, then answer that too',
+        },
         agent: {
           type: 'string',
           description: 'name of an agent declared with set_agent: it signs this message and becomes the current one',
@@ -683,9 +689,16 @@ async function chat(args: any, request: any) {
     throw new Error('lang must be a language tag such as fr or pt-BR')
   }
   if (args.close !== undefined && typeof args.close !== 'boolean') throw new Error('close must be a boolean')
+  if (args.reason !== undefined && (typeof args.reason !== 'string' || args.reason.length > 200)) {
+    throw new Error('reason must be a string of at most 200 characters')
+  }
+  if (args.reply_to !== undefined && !Number.isInteger(args.reply_to)) throw new Error('reply_to must be an entry number')
+  // what the user did while this message was written
+  const newer = args.reply_to === undefined ? 0 : server.newerThan(args.reply_to)
+  const late = (result: object) => (newer ? { ...result, newer_user_messages: newer } : result)
   // withdraws the open form, also the one a call of this agent waits on
   const close = () => {
-    const closed = args.close ? server.closeForm() : ''
+    const closed = args.close ? server.closeForm(args.reason) : ''
     if (closed && ask && ask.id === closed) ask.done({ closed: true })
     return closed
   }
@@ -695,7 +708,7 @@ async function chat(args: any, request: any) {
     if (signer !== undefined) server.setAgent(signer)
     if (status !== undefined) server.send({ status })
     const sent = server.getState().chat
-    return args.close ? { sent, closed: closed || null } : { sent }
+    return late(args.close ? { sent, closed: closed || null } : { sent })
   }
   if (typeof args.markdown !== 'string' || args.markdown.length > 50000) {
     throw new Error('markdown must be a string of at most 50000 characters')
@@ -747,9 +760,9 @@ async function chat(args: any, request: any) {
   const id = 'ask-' + crypto.randomBytes(4).toString('hex')
   const agent = server.currentAgent()
   server.send({ chat: { id, markdown: args.markdown, inputs, status, lang, agent } })
-  if (!inputs.length) return closed ? { sent: true, closed } : { sent: true }
+  if (!inputs.length) return late(closed ? { sent: true, closed } : { sent: true })
   // the watcher gets the answer as an event, a blocked call would get it twice
-  if (args.wait === false || server.getState().watched) return { sent: true, ask: id }
+  if (args.wait === false || server.getState().watched) return late({ sent: true, ask: id })
 
   return new Promise((resolve) => {
     // a newer form replaces the one the user has not answered
