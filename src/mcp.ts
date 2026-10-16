@@ -39,12 +39,11 @@ Events reach you one way, the first that works:
 3. Codex: persistent bridge in get_state.
 4. Else, to serve the browser chat: loop wait_for_event and answer, chat(wait: false).
 
-Opening the preview, the first that applies:
-1. get_state.connected: use that tab, never a second one.
-2. Visible browser automation: open get_state.url there before goto or chat to share the tab.
-3. Otherwise goto opens the user's default browser.
+Preview: a connected tab (get_state.connected) stays the only one. Else open get_state.url in visible browser automation before goto or chat. Else goto opens the default browser.
 
-get_state.tts: the browser cannot read aloud. Mention it only if asked, follow it only with consent.`
+get_state.tts: the browser cannot read aloud. Mention it only if asked, act only with consent.
+
+Tutor, companion or learner mode: find_teacher, then set_agent persona.`
 
 // a slash command for clients without channel or Monitor, e.g. /mcp.liascript.chat in Copilot
 const PROMPT = {
@@ -81,7 +80,7 @@ const TOOLS = [
   {
     name: 'chat',
     description:
-      'Post a message into the chat that overlays the course. markdown is LiaScript as in a course: quizzes, surveys, tasks, executable code, $…$ formulas, ASCII art; a header comment (import: of a template, macros) applies to the whole chat. [label](agent:<agent>/<cmd>?<params>) is a link that sends a command event when clicked. A quiz, survey or task in a message reports like one in the course, as an activity event with chat (the message number) instead of slide. Each message shows the emoji of the current agent (see set_agent), pass agent to sign it as another one. Every message has a button that reads it aloud in the language of the course: pass lang if the message is in another language, and wrap a passage in yet another one in <span lang=\"es\">. With inputs the message carries a form and the call BLOCKS until the user answers: it returns {values: {<id>: <option> | [<options>]}}, or {dismissed: true, text} if the user typed a message instead. While a Monitor watches get_state.events it returns at once with {sent, ask} and the answer arrives as an "answer" event. If the chat closes while the call waits, it returns {disconnected: true}. Only the newest form stays open: a new one closes the previous one, and so does close: true, e.g. after the user answered by typing. The user can no longer answer a closed form. Without inputs it returns at once. buttons submit the form on click, radio picks one option, checkbox any number, teacher shows 1 to 6 ids of find_teacher as portraits to click.',
+      'Post a message into the chat that overlays the course. markdown is LiaScript as in a course: quizzes, surveys, tasks, executable code, $…$ formulas, ASCII art; a header comment (import: of a template, macros) applies to the whole chat. [label](agent:<agent>/<cmd>?<params>) is a link that sends a command event when clicked. A quiz, survey or task in a message reports like one in the course, as an activity event with chat (the message number) instead of slide: let the user try a quiz here before you write it into a file. Each message shows the emoji of the current agent (see set_agent), pass agent to sign it as another one. Every message has a button that reads it aloud in the language of the course: pass lang if the message is in another language, and wrap a passage in yet another one in <span lang=\"es\">. With inputs the message carries a form and the call BLOCKS until the user answers: it returns {values: {<id>: <option> | [<options>]}} and the chat shows the choice as a bubble of the user (do not repeat it), or {dismissed: true, text} if the user typed a message instead. While a Monitor watches get_state.events it returns at once with {sent, ask} and the answer arrives as an "answer" event. If the chat closes while the call waits, it returns {disconnected: true}. Only the newest form stays open: a new one closes the previous one, and so does close: true, e.g. after the user answered by typing. The user can no longer answer a closed form. Without inputs it returns at once. buttons submit the form on click, radio picks one option, checkbox any number, teacher shows 1 to 6 ids of find_teacher as portraits to click.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -128,16 +127,16 @@ const TOOLS = [
   {
     name: 'set_agent',
     description:
-      'Shows the user who they talk to: a pixel robot (chosen by name, else by emoji) and the label (else the name) of the current agent on the chat button, its robot and the time under each of its messages. Give every agent a label the user understands. Call it before the first message and whenever the agent that talks to the user changes. agents declares all agents of a workflow and replaces the previous list; with two or more the chat offers a menu to pick one. A pick in that menu, or a click on a course link agent:<name>/switch, switches at once and arrives as a command event {agent: <name>, cmd: "switch"}: hand the conversation over to that agent. chat and answer events carry the current agent in their agent field, route them to it. name has to be in the list, unless emoji is given: then it is added or updated. persona turns the agent into a teacher persona, the result has its teaching style and rules, and the chat switches to the learner view (view). Opens no browser. Returns {agent, agents}.',
+      'Shows the user who they talk to: a pixel robot (chosen by name, else by emoji) and the label (else the name) of the current agent on the chat button, its robot and the time under each of its messages. Give every agent a label the user understands. Call it before the first message and whenever the agent that talks to the user changes. agents declares all agents of a workflow and replaces the previous list; with two or more the chat offers a menu to pick one. A pick in that menu, or a click on a course link agent:<name>/switch, switches at once and arrives as a command event {agent: <name>, cmd: "switch"}: hand the conversation over to that agent. chat and answer events carry the current agent in their agent field, route them to it. name has to be in the list, unless emoji is given: then it is added or updated. persona turns the agent into a teacher persona, the result has its teaching style and rules, and the chat switches to the learner view (view). In the learner view the first message says in one sentence of the language of the learner that an AI plays this role, also for a figure of the course without persona. Opens no browser. Returns {agent, agents}.',
     inputSchema: {
       type: 'object',
       properties: {
         name: { type: 'string', description: 'the agent that talks to the user now, letters digits _ -' },
         emoji: { type: 'string', description: 'its emoji, e.g. 🧑‍🏫' },
-        label: { type: 'string', description: 'what the user reads instead of the name, in their language, e.g. "Unterrichtsplanung"' },
+        label: { type: 'string', description: 'what the user reads instead of the name, in their language, e.g. "Planungsassistent"' },
         persona: {
           type: ['string', 'null'],
-          description: 'id of find_teacher: this agent shows that historical person instead of a robot and teaches in their style, null removes it',
+          description: 'id of find_teacher: this agent shows that historical person instead of a robot and teaches in their style, null removes it. It brings the English name as label: give label in the same call for the name in the language of the course, e.g. "Johann Amos Comenius"',
         },
         voice: {
           type: ['string', 'null'],
@@ -153,7 +152,13 @@ const TOOLS = [
           maxItems: 10,
           items: {
             type: 'object',
-            properties: { name: { type: 'string' }, emoji: { type: 'string' }, label: { type: 'string' }, persona: { type: 'string' }, voice: { type: 'string' } },
+            properties: {
+              name: { type: 'string' },
+              emoji: { type: 'string' },
+              label: { type: 'string' },
+              persona: { type: ['string', 'null'] },
+              voice: { type: ['string', 'null'] },
+            },
             required: ['name', 'emoji'],
           },
         },
@@ -523,7 +528,7 @@ function short(value: any, max: number) {
 }
 
 const RULES =
-  'Teach in this style. You are an AI in the role of this person: say so when you introduce yourself, never invent quotes, do not act out their personal fate. Pick a voice of get_state.voice_names that fits the gender of the person and pass it to set_agent as voice.'
+  'Teach in this style. You are an AI in the role of this person: say so when you introduce yourself, never invent quotes, do not act out their personal fate. If get_state.voice_names has a voice that fits the gender of the person, pass it to set_agent as voice; otherwise the chat makes the voice it has lower or higher, so promise no particular voice.'
 
 function findTeacher(args: any) {
   if (args.topic !== undefined && typeof args.topic !== 'string') throw new Error('topic must be a string')
@@ -544,18 +549,18 @@ function personaOf(agent?: server.Agent) {
   return t ? { id: t.id, name: t.name, gender: t.gender, teaching: t.teaching, rules: RULES } : undefined
 }
 
-// The fields of one agent. top: those of the call, where emoji is optional
-// and persona and voice may be null; else an entry of agents.
+// The fields of one agent. top: those of the call, where emoji is optional;
+// else an entry of agents. persona and voice may be null, which is no persona
+// and the automatic voice.
 function checkAgent(a: any, top: boolean) {
   const p = top ? '' : 'agents[].'
-  const or = top ? ', or null' : ''
   if ((!top || a.emoji !== undefined) && !short(a.emoji, 32)) throw new Error(p + 'emoji must be a short string, e.g. 🧑‍🏫')
   if (a.label !== undefined && !short(a.label, 40)) throw new Error(p + 'label must be a string of at most 40 characters')
-  if (a.persona !== undefined && !(top && a.persona === null) && !isPersona(a.persona)) {
-    throw new Error(p + 'persona must be an id of find_teacher' + or)
+  if (a.persona !== undefined && a.persona !== null && !isPersona(a.persona)) {
+    throw new Error(p + 'persona must be an id of find_teacher, or null')
   }
-  if (a.voice !== undefined && !(top && a.voice === null) && !short(a.voice, 100)) {
-    throw new Error(p + 'voice must be a name of get_state.voice_names' + or)
+  if (a.voice !== undefined && a.voice !== null && !short(a.voice, 100)) {
+    throw new Error(p + 'voice must be a name of get_state.voice_names, or null')
   }
 }
 
