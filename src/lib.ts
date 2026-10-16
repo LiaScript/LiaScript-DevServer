@@ -1248,6 +1248,8 @@ export function send(msg: any) {
       closeForm()
       openAsk = id
     }
+    if (typeof rest.markdown === 'string') rest.markdown = withLanguage(rest.markdown)
+    msg = { ...msg, chat: { ...msg.chat, markdown: rest.markdown } }
     const entry = record(
       inputs && inputs.length ? { type: 'ai', ask: id, inputs, ...rest } : { type: 'ai', ...rest },
     )
@@ -1260,6 +1262,45 @@ export function send(msg: any) {
   if (progress !== before || msg.chat) watchQuiet()
   // the agent is done: what it changed shows now, after a burst settled
   if (before && !progress && changedAt) reloadLater(BURST_MS)
+}
+
+// The chat takes its language from a header comment in any of its messages,
+// for all of them: quiz buttons and feedback (Check, Congratulations…) were
+// English in a German course. So the language of the course goes into the
+// header of a message, unless the chat has it already. Checked in the
+// browser with @liascript/chat 0.1.2--2.2.2: no extra message, F5 keeps it.
+// language: of the header comment a course or a message starts with
+function headerLanguage(markdown: string) {
+  const head = markdown.match(/^\s*<!--((?:(?!-->)[^])*)/)
+  const lang = head && head[1].match(/(?:^|\n)[ \t]*language[ \t]*:[ \t]*(\S+)/)
+  return lang ? lang[1] : ''
+}
+
+function withLanguage(markdown: string) {
+  const lang = courseLanguage()
+  if (!lang || !session) return markdown
+  let said = ''
+  session.entries.forEach((e) => {
+    if (e.type === 'ai' && typeof e.markdown === 'string') said = headerLanguage(e.markdown) || said
+  })
+  // English is the default, unless the chat already says another one
+  if (lang === said || (!said && /^en\b/i.test(lang)) || headerLanguage(markdown)) return markdown
+  // an own header of the message (import:, macros) is the one that counts
+  if (/^\s*<!--/.test(markdown)) return markdown.replace('<!--', '<!--\nlanguage: ' + lang)
+  return '<!--\nlanguage: ' + lang + '\n-->\n\n' + markdown
+}
+
+// language: of the header of the course the user looks at, '' if none
+function courseLanguage() {
+  const file = state.file || inputFile
+  const full = path.resolve(state.root, file)
+  if (!/\.md$/i.test(file) || !full.startsWith(state.root + path.sep)) return ''
+  try {
+    const lang = headerLanguage(fs.readFileSync(full, 'utf8'))
+    return /^[a-z]{2,3}(-[a-z0-9]{2,8})*$/i.test(lang) ? lang : ''
+  } catch (e) {
+    return ''
+  }
 }
 
 const PAGE_MAX = 90000
