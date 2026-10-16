@@ -102,7 +102,9 @@ export function title(session: Session) {
   const ai = session.entries.find((e) => e.type === 'ai')
   let text = user ? String(user.text) : ''
   if (!text && ai) {
+    // without the header comment (language: of the course, import:)
     text = String(ai.markdown)
+      .replace(/^\s*<!--[^]*?-->/, '')
       .split('\n')
       .filter((line) => line.trim())
       .map((line) => line.replace(/[#*_`>]/g, ''))[0] || ''
