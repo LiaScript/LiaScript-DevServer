@@ -264,7 +264,13 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   of its message (`msg.entry`, the iframe numbers its messages differently once the outbox shows one). The CSP of `chat.html` does not reach
   that iframe: like a course it runs the scripts of a message, so a message of the AI is as trusted as the course.
   The scripts are separate files
-  because the page's CSP allows no inline scripts. Light or dark is LiaScript's, not the system's: `theme()` reads
+  because the page's CSP allows no inline scripts. The look: floating, the chat is glass over the course
+  (`backdrop-filter`; the messages' iframe gets `lia-chat-frame`, which makes it transparent with the shell's
+  `color-scheme`, else the browser paints it opaque), docked a solid column. Colors are tokens on `:root` of
+  `chat.html`, `--hl` is the `--color-highlight` of the course (`accent()`). Font and icons are the player's:
+  `lib.ts` serves its hashed files as `/liascript/font/{icon,sans,sans-600}.woff2`, read aloud is `icon-play`/`icon-stop`
+  (``/``), the speaker of the bar is the hidden `#autoread` box; globe, folder, home and dock are inline
+  Lucide SVGs. A green dot marks the current agent. Light or dark is LiaScript's, not the system's: `theme()` reads
   `light` of `localStorage.settings` (player and chat app share it) and sets `lia-variant-dark/light` on the shell
   and the messages, again on every `storage` event. Every agent is a pixel robot (`avatar.js`, inline SVG, no
   library): the 12 x 12 LED matrix of DiceBear's CC0 style Pixelbot, its eyes and mouths copied as cell numbers.

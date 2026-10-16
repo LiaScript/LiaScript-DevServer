@@ -19,6 +19,27 @@
     <title>LiaScript</title>
     <link rel="stylesheet" href="chat.css" />
     <style>
+      /* LiaScript's colors: --hl is the --color-highlight of the course
+         (chat.js), the rest follows LiaScript's mode */
+      :root {
+        --hl: 20, 115, 117;
+        --hl-light: color-mix(in srgb, rgb(var(--hl)) 72%, white);
+        --accent: rgb(var(--hl));
+        --surface: 255, 255, 255;
+        --text: #3d4142;
+        --muted: #7c8486;
+        --line: rgb(0 0 0 / 0.09);
+        --soft: rgb(0 0 0 / 0.05);
+        --live: #3fb950;
+      }
+      .lia-variant-dark {
+        --surface: 28, 32, 34;
+        --text: #e6e8e8;
+        --muted: #8d9698;
+        --line: rgb(255 255 255 / 0.1);
+        --soft: rgb(255 255 255 / 0.07);
+        --accent: var(--hl-light);
+      }
       html,
       body {
         height: 100%;
@@ -27,7 +48,7 @@
       body {
         /* LiaScript's mode, not the system's: chat.js sets the class */
         color-scheme: light;
-        font: 15px/1.45 system-ui, sans-serif;
+        font: 15px/1.45 lia-sans, system-ui, sans-serif;
       }
       .lia-variant-dark body {
         color-scheme: dark;
@@ -39,24 +60,52 @@
         height: 100%;
         border: 0;
       }
+      /* floating it is glass over the course */
       #chat {
         position: fixed;
         right: 1rem;
         bottom: 1rem;
         z-index: 1;
-        background: Canvas;
-        color: CanvasText;
-        border: 1px solid GrayText;
-        border-radius: 12px;
-        box-shadow: 0 6px 24px rgb(0 0 0 / 0.3);
+        background: rgba(var(--surface), 0.72);
+        -webkit-backdrop-filter: blur(18px) saturate(1.5);
+        backdrop-filter: blur(18px) saturate(1.5);
+        color: var(--text);
+        border: 1px solid rgb(255 255 255 / 0.55);
+        border-radius: 18px;
+        box-shadow:
+          inset 0 1px 0 rgb(255 255 255 / 0.6),
+          0 18px 48px -12px rgba(var(--hl), 0.45),
+          0 4px 14px rgb(0 0 0 / 0.08);
+      }
+      .lia-variant-dark #chat {
+        border-color: rgb(255 255 255 / 0.12);
+        box-shadow:
+          inset 0 1px 0 rgb(255 255 255 / 0.08),
+          0 18px 48px -12px rgba(var(--hl), 0.4),
+          0 4px 14px rgb(0 0 0 / 0.3);
       }
       /* the button moves the chat: dragged it does not toggle */
       #chat > summary {
-        padding: 0.5rem 0.9rem;
+        padding: 0.5rem 0.8rem;
         font-weight: 600;
         cursor: pointer;
         touch-action: none;
         user-select: none;
+        list-style: none;
+      }
+      #chat > summary::-webkit-details-marker {
+        display: none;
+      }
+      #chat > summary::after {
+        content: '\ea14';
+        font-family: lia-icon;
+        font-weight: normal;
+        font-size: 0.7em;
+        color: var(--muted);
+        transform: rotate(180deg);
+      }
+      #chat[open] > summary::after {
+        transform: none;
       }
       #chat[open] > summary {
         cursor: move;
@@ -71,16 +120,17 @@
         height: 14px;
         cursor: nwse-resize;
         touch-action: none;
-        border-top: 3px solid GrayText;
-        border-left: 3px solid GrayText;
-        border-top-left-radius: 12px;
+        border-top: 3px solid rgba(var(--hl), 0.45);
+        border-left: 3px solid rgba(var(--hl), 0.45);
+        border-top-left-radius: 18px;
       }
       #chat[open] > #grip {
         display: block;
       }
       /* Docked: a column at the right edge, the course gets the rest and the
          grip becomes the border between them. chat.js sets --dock, the width
-         of the column, and --head, the height of the button. */
+         of the column, and --head, the height of the button. Nothing lies
+         behind it, so no glass. */
       body.docked #course {
         width: calc(100% - var(--dock));
       }
@@ -90,7 +140,11 @@
         bottom: 0 !important;
         width: var(--dock);
         box-sizing: border-box;
+        background: rgb(var(--surface));
+        -webkit-backdrop-filter: none;
+        backdrop-filter: none;
         border-width: 0 0 0 1px;
+        border-color: var(--line);
         border-radius: 0;
         box-shadow: none;
       }
@@ -117,7 +171,7 @@
       }
       body.docked #grip:hover,
       body.docked.dragging #grip {
-        background: color-mix(in srgb, Highlight 50%, transparent);
+        background: rgba(var(--hl), 0.5);
       }
       /* the course must not swallow the pointer while the chat moves */
       body.dragging #course {
@@ -136,86 +190,146 @@
         /* a size from a bigger window must not push the chat off screen */
         max-width: calc(100vw - 2px);
         max-height: calc(100vh - 3rem);
-        border-top: 1px solid GrayText;
+        border-top: 1px solid var(--line);
       }
       /* which chat, and which agent of a workflow */
       #bar {
         display: flex;
         flex-wrap: wrap;
         align-items: center;
-        gap: 0.5rem;
-        padding: 0.4rem 0.75rem;
-        border-bottom: 1px solid GrayText;
+        gap: 0.15rem;
+        padding: 0.35rem 0.5rem;
+        border-bottom: 1px solid var(--line);
       }
       #bar select {
         flex: 1;
         /* the robots and the box wrap to the next line before it gets narrower */
         min-width: 9rem;
+        margin-right: 0.25rem;
         font: inherit;
-        padding: 0.2rem 0.3rem;
-        border-radius: 6px;
+        font-size: 0.9em;
+        padding: 0.3rem 0.5rem;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: rgba(var(--surface), 0.6);
+        color: inherit;
       }
       #bar [hidden] {
         display: none !important;
       }
-      /* the agents of a workflow, a click hands the chat over */
+      /* the agents of a workflow, a click hands the chat over; the green dot
+         marks the one the user talks to */
       #agents {
         display: flex;
         gap: 0.25rem;
+        margin-right: 0.25rem;
       }
       #agents button {
+        position: relative;
         padding: 2px;
-        border: 2px solid transparent;
-        border-radius: 7px;
+        border: 0;
+        border-radius: 8px;
         background: none;
         line-height: 0;
       }
-      #agents button[aria-checked='true'] {
-        border-color: Highlight;
+      #agents button:hover {
+        background: var(--soft);
+      }
+      .face {
+        position: relative;
+        display: inline-flex;
+      }
+      #agents button[aria-checked='true']::after,
+      .face.live::after {
+        content: '';
+        position: absolute;
+        right: -1px;
+        bottom: -1px;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--live);
+        box-shadow:
+          0 0 0 2px rgb(var(--surface)),
+          0 0 6px var(--live);
       }
       #agents.failed {
         outline: 2px solid red;
       }
-      #autoread-box {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.25rem;
-        font-size: 0.85em;
-        white-space: nowrap;
+      /* the buttons of the bar: icons only, the text is the tooltip */
+      .tool {
+        position: relative;
+        display: inline-grid;
+        place-items: center;
+        width: 30px;
+        height: 30px;
+        padding: 0;
+        border: 0;
+        border-radius: 8px;
+        background: none;
+        color: var(--muted);
+        font-size: 16px;
         cursor: pointer;
       }
-      #mute,
-      #browse,
-      #home,
-      #files,
-      #dock {
-        padding: 0 0.4rem;
-        border: 0;
-        background: none;
+      .tool:hover,
+      .tool:focus-visible {
+        background: var(--soft);
+        color: var(--accent);
       }
-      #dock {
-        font-size: 1.3em;
-        line-height: 1;
+      .tool svg {
+        width: 17px;
+        height: 17px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
       }
       #dock[aria-pressed='true'] {
-        color: Highlight;
+        color: var(--accent);
+      }
+      #mute {
+        opacity: 0.6;
+      }
+      /* read everything aloud: the box is invisible, the speaker shows it */
+      #autoread {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        margin: 0;
+        opacity: 0;
+      }
+      #autoread + .icon::before {
+        content: '\ea54';
+      }
+      #autoread:checked + .icon::before {
+        content: '\ea55';
+      }
+      #autoread-box:has(:checked) {
+        color: var(--accent);
+      }
+      #autoread-box:has(:focus-visible) {
+        outline: 2px solid var(--accent);
       }
       #address:not([hidden]) {
         display: flex;
         padding: 0.4rem 0.75rem;
-        border-bottom: 1px solid GrayText;
+        border-bottom: 1px solid var(--line);
       }
       #address input {
         flex: 1;
         font: inherit;
-        padding: 0.2rem 0.4rem;
-        border-radius: 6px;
+        padding: 0.3rem 0.6rem;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: rgba(var(--surface), 0.85);
+        color: inherit;
       }
       #mute-info {
         margin: 0;
         padding: 0.4rem 0.75rem;
         font-size: 0.85em;
-        border-bottom: 1px solid GrayText;
+        border-bottom: 1px solid var(--line);
       }
       /* the messages: @liascript/chat in an iframe of its own (chat.js) */
       #log {
@@ -238,7 +352,7 @@
         align-items: center;
         gap: 0.6rem;
         padding: 0.4rem 0.75rem;
-        border-top: 1px solid color-mix(in srgb, GrayText 40%, transparent);
+        border-top: 1px solid var(--line);
       }
       #stage .lines {
         flex: 1;
@@ -246,33 +360,74 @@
       }
       #status {
         font-size: 0.9em;
-        color: GrayText;
+        color: var(--muted);
+      }
+      /* the progress line shimmers while the agent works */
+      @media (prefers-reduced-motion: no-preference) {
+        #status:not([hidden]) {
+          background: linear-gradient(90deg, var(--muted) 30%, var(--hl-light) 50%, var(--muted) 70%) 0 0 / 250% 100%;
+          -webkit-background-clip: text;
+          background-clip: text;
+          color: transparent;
+          animation: shimmer 2s linear infinite;
+        }
+      }
+      @keyframes shimmer {
+        to {
+          background-position: -250% 0;
+        }
       }
       #hint {
         margin-top: 0.3rem;
         padding-left: 0.5rem;
-        border-left: 3px solid GrayText;
+        border-left: 3px solid rgba(var(--hl), 0.5);
         font-size: 0.85em;
       }
       button {
         font: inherit;
         padding: 0.35rem 0.8rem;
         border-radius: 8px;
-        border: 1px solid GrayText;
+        border: 1px solid var(--line);
+        background: rgba(var(--surface), 0.7);
+        color: inherit;
         cursor: pointer;
       }
       #say {
         display: flex;
+        align-items: flex-end;
         gap: 0.5rem;
         padding: 0.6rem;
-        border-top: 1px solid GrayText;
+        border-top: 1px solid var(--line);
       }
       #say textarea {
         flex: 1;
         font: inherit;
         resize: none;
-        border-radius: 8px;
-        padding: 0.4rem 0.5rem;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 0.45rem 0.75rem;
+        background: rgba(var(--surface), 0.85);
+        color: inherit;
+        outline: none;
+        transition:
+          border-color 0.2s,
+          box-shadow 0.2s;
+      }
+      #say textarea:focus {
+        border-color: rgba(var(--hl), 0.6);
+        box-shadow: 0 0 0 4px rgba(var(--hl), 0.15);
+      }
+      #send {
+        display: grid;
+        place-items: center;
+        width: 38px;
+        height: 38px;
+        padding: 0;
+        border: 0;
+        border-radius: 12px;
+        background: linear-gradient(135deg, rgb(var(--hl)), var(--hl-light));
+        color: #fff;
+        font-size: 15px;
       }
     </style>
   </head>
@@ -284,34 +439,76 @@
       <div id="grip" title="Resize" data-t-title="Resize" aria-hidden="true"></div>
       <div id="panel">
         <div id="bar">
+          <!-- the icons: the icon font of the player (chat.css), and four of
+               Lucide (ISC license, lucide.dev) where it has none -->
           <select id="sessions" aria-label="Chat"></select>
           <div id="agents" role="radiogroup" aria-label="Agent" data-t-aria-label="Agent" hidden></div>
-          <label id="autoread-box" hidden>
-            <input id="autoread" type="checkbox" />
-            <span data-t="Read everything aloud">Read everything aloud</span>
+          <button
+            id="new"
+            class="tool"
+            type="button"
+            title="New chat"
+            data-t-title="New chat"
+            aria-label="New chat"
+            data-t-aria-label="New chat"
+          >
+            <i class="icon" aria-hidden="true">&#xea0f;</i>
+          </button>
+          <label id="autoread-box" class="tool" title="Read everything aloud" data-t-title="Read everything aloud" hidden>
+            <input
+              id="autoread"
+              type="checkbox"
+              aria-label="Read everything aloud"
+              data-t-aria-label="Read everything aloud"
+            />
+            <i class="icon" aria-hidden="true"></i>
           </label>
           <button
             id="mute"
+            class="tool"
             type="button"
             title="Cannot read aloud"
             data-t-title="Cannot read aloud"
             data-t-aria-label="Cannot read aloud"
             hidden
           >
-            🔇
+            <i class="icon" aria-hidden="true">&#xea54;</i>
           </button>
           <button
             id="browse"
+            class="tool"
             type="button"
             title="Open a web page"
             data-t-title="Open a web page"
             data-t-aria-label="Open a web page"
           >
-            🌐
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="10" />
+              <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" />
+              <path d="M2 12h20" />
+            </svg>
           </button>
-          <button id="files" type="button" hidden>📁</button>
-          <button id="home" type="button" hidden>⌂ <span data-t="Start">Start</span></button>
-          <button id="dock" type="button" aria-pressed="false" hidden>◨</button>
+          <button id="files" class="tool" type="button" hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"
+              />
+            </svg>
+          </button>
+          <button id="home" class="tool" type="button" hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8" />
+              <path
+                d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"
+              />
+            </svg>
+          </button>
+          <button id="dock" class="tool" type="button" aria-pressed="false" hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <rect width="18" height="18" x="3" y="3" rx="2" />
+              <path d="M15 3v18" />
+            </svg>
+          </button>
         </div>
         <form id="address" hidden>
           <input
@@ -346,7 +543,9 @@
             placeholder="Ask the AI about this course …"
             data-t-placeholder="Ask the AI about this course …"
           ></textarea>
-          <button data-t="Send">Send</button>
+          <button id="send" title="Send" data-t-title="Send" aria-label="Send" data-t-aria-label="Send">
+            <i class="icon" aria-hidden="true">&#xea4e;</i>
+          </button>
         </form>
       </div>
     </details>
