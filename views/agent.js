@@ -13,7 +13,7 @@
   function ctx() {
     return {
       file: file,
-      slide: parseInt(location.hash.slice(1)) || 1,
+      slide: slide(),
       title: document.title,
       selection: String(getSelection()).slice(0, 2000),
       voices: voices(),
@@ -21,6 +21,15 @@
       automated: navigator.webdriver === true,
       fallback: typeof responsiveVoice != 'undefined',
     }
+  }
+
+  // #3, or after a jump to an anchor (#folie-zwei, which stays in the address)
+  // the entry LiaScript marks in its table of contents (verified in 2.2.2)
+  function slide() {
+    var n = parseInt(location.hash.slice(1))
+    if (n) return n
+    var active = document.getElementById('focusedToc')
+    return (active && parseInt((active.getAttribute('href') || '').slice(1))) || 1
   }
 
   // Chrome loads its voices on the first call and tells when they are there
