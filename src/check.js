@@ -729,6 +729,7 @@ async function main() {
   await sleep(200)
   assert.ok(replay.includes('{"agents":{"current":{"name":"tutor","emoji":"🦉"}'), 'replay: ' + replay)
   assert.ok(replay.includes('{"proxy":"read"}'), 'the shell learns the proxy: ' + replay)
+  assert.ok(replay.includes('{"home":"README.md"}'), 'and the course to go back to')
   reloaded.destroy()
 
   // the menu of the chat, or a course link agent:examiner/switch
@@ -937,7 +938,7 @@ async function main() {
     .split('\n\n')
     .filter((line) => line.startsWith('data: {'))
     .map((line) => JSON.parse(line.slice(6)))
-  assert.deepStrictEqual(replayed.map((m) => Object.keys(m)[0]), ['sessions', 'session', 'agents', 'proxy'])
+  assert.deepStrictEqual(replayed.map((m) => Object.keys(m)[0]), ['sessions', 'session', 'agents', 'proxy', 'home'])
   assert.deepStrictEqual(replayed[0].sessions.map((s) => s.id), [saved.id])
   assert.strictEqual(replayed[1].session.entries.length, saved.entries.length)
   assert.deepStrictEqual(replayed[1].session.db, { quiz: { 0: solved } }, 'F5 gets the states of the quizzes')

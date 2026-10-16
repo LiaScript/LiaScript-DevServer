@@ -86,6 +86,7 @@ var TEXTS = {
     'Float over the course': 'Über dem Kurs schweben lassen',
     'Open a web page': 'Webseite öffnen',
     'Web address': 'Webadresse',
+    'Back to the start of the course': 'Zurück zum Anfang des Kurses',
     'This browser cannot read aloud, it has no speech voices. Chrome and Edge bring their own, Firefox on Linux needs speech-dispatcher with a voice. The assistant can help to set it up.':
       'Dieser Browser kann nicht vorlesen, ihm fehlen die Stimmen. Chrome und Edge bringen eigene mit, Firefox unter Linux braucht speech-dispatcher mit einer Stimme. Der Assistent hilft beim Einrichten.',
     'Waiting for the assistant…': 'Wartet auf den Assistenten …',
@@ -183,6 +184,24 @@ course.addEventListener('load', function () {
       attributeFilter: ['lang'],
     })
   } catch (e) {}
+})
+
+// The course of --input: after a goto to another file there was no way back
+// to it but asking the agent.
+var homeCourse = ''
+var homeButton = document.getElementById('home')
+tr(homeButton, 'Back to the start of the course', 'title')
+
+function showHome() {
+  var away = !!homeCourse
+  try {
+    away = away && !(isPlayer() && new URL(course.contentWindow.location.search.slice(1)).pathname == '/' + encodeURI(homeCourse))
+  } catch (e) {}
+  homeButton.hidden = !away
+}
+course.addEventListener('load', showHome)
+homeButton.addEventListener('click', function () {
+  course.src = 'index.html?' + location.origin + '/' + encodeURI(homeCourse)
 })
 
 // The file listing does not report like the player: no course is open, and
@@ -1568,6 +1587,10 @@ function message(event) {
     document.documentElement.dataset.proxy = data.proxy
     document.getElementById('browse').hidden = data.proxy == 'off'
     return
+  }
+  if (typeof data.home == 'string') {
+    homeCourse = data.home
+    return showHome()
   }
   if (typeof data.status == 'string') return status(data.status)
   if (typeof data.hint == 'string') return hint(data.hint)

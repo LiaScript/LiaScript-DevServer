@@ -305,7 +305,8 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   formatted in that language.
   The `chat` tool takes an optional `lang`, which becomes the `lang` attribute of the message; `runs()` splits a
   message into passages by the closest `lang` attribute inside the log (never the one of the page itself), so
-  `<span lang="fr">` in the Markdown gets a French voice. The bar above the log holds the session menu
+  `<span lang="fr">` in the Markdown gets a French voice. While the frame shows another course than `--input` (or a listing or web page), `⌂ Start` in the bar leads
+  back to it (`{home}` in the replay of every `?chat` stream, `showHome()`). The bar above the log holds the session menu
   (`+ New chat` and the saved chats; the current one counts as new until it has a file) and the robots of the agents.
   `showSession()` clears the log, hands `session.db` to the iframe with `lia.load({messages: [], db})` before the
   entries (there the n-th entry is the n-th message, so the states land in their quizzes; `report(…, true)` only
