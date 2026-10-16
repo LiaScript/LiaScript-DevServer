@@ -368,6 +368,9 @@ export function getState() {
     view: agents.view,
     session: session && chats.summary(session),
     proxy: proxyMode,
+    // a change waits for its reload, held while the agent works: title and
+    // slide are those of the old version
+    ...(changedAt ? { reload_pending: true } : {}),
     // only present when the course cannot be read aloud
     tts: ttsHint(),
   }
