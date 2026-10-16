@@ -1173,10 +1173,13 @@ export function isName(value: any): boolean {
 }
 
 // to the bus, and as one JSON line to every watcher
-function emitEvent(event: object) {
+function emitEvent(event: { params: object; [key: string]: any }) {
   bus.emit('event', event)
-  // escaped like the channel content, the line ends up inside a tag too
-  const line = JSON.stringify(event).replace(/</g, '\\u003c') + '\n'
+  // escaped like the channel content, the line ends up inside a tag too.
+  // params last: Claude Code's Monitor cuts a line at about 500 characters,
+  // then only the end of a long chat text is missing (read_chat has it).
+  const { params, ...rest } = event
+  const line = JSON.stringify({ ...rest, params }).replace(/</g, '\\u003c') + '\n'
   if (watchers.length) {
     watchers.forEach((watcher) => watcher.write(line))
     activity()
