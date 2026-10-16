@@ -1493,7 +1493,8 @@ function answered(el, values) {
 }
 
 // replaced by a newer form, withdrawn by the AI or asked before a restart
-function closed(el) {
+// reason: what the agent says about it, in the language of the chat
+function closed(el, reason) {
   if (el.classList.contains('answered') || el.classList.contains('closed')) return
   el.classList.remove('failed')
   el.classList.add('closed')
@@ -1501,6 +1502,12 @@ function closed(el) {
   var note = document.createElement('p')
   note.className = 'note'
   el.append(tr(note, 'No longer open'))
+  if (reason) {
+    var why = document.createElement('p')
+    why.className = 'note'
+    why.textContent = reason
+    el.append(why)
+  }
   stageState()
 }
 
@@ -1566,7 +1573,7 @@ function message(event) {
   if (typeof data.hint == 'string') return hint(data.hint)
   if (data.closed) {
     return forms.forEach(function (el) {
-      if (el.dataset.ask == data.closed) closed(el)
+      if (el.dataset.ask == data.closed) closed(el, data.reason)
     })
   }
   if (data.agents) return showAgents(data.agents)
