@@ -6,15 +6,35 @@ var course = document.getElementById('course')
 var log = document.getElementById('log')
 var say = document.getElementById('say')
 
-// ?/home/… is the file listing of the project, ?web=<url> a web page through
-// the proxy of the server, else ?<url> the course
+// ?/home/… is the file listing of the project, ?web=<url> a web page, else
+// ?<url> the course
 var web = new URLSearchParams(location.search).get('web') || ''
-course.src = web
-  ? webPage(web)
-  : (/^\?\/home/.test(location.search) ? location.search.slice(1) : 'index.html' + location.search) + location.hash
+if (web) {
+  whenExtension(function () {
+    course.src = webPage(web)
+  })
+} else {
+  course.src =
+    (/^\?\/home/.test(location.search) ? location.search.slice(1) : 'index.html' + location.search) + location.hash
+}
 
+// the extension sets up its tab within moments, else the proxy
+function whenExtension(go) {
+  if (document.documentElement.dataset.liaExtension != 'pending') return go()
+  var done = false
+  function once() {
+    if (!done) go()
+    done = true
+  }
+  setTimeout(once, 1000)
+  document.addEventListener('lia-extension', once)
+}
+
+// The browser extension (extension/) lets the real page into the frame, with
+// the user's logins. Else the proxy of the server (--proxy), which off refuses.
 function webPage(url) {
-  return '/web?url=' + encodeURIComponent(url)
+  var html = document.documentElement.dataset
+  return html.liaExtension == 'ready' && html.proxy != 'off' ? url : '/web?url=' + encodeURIComponent(url)
 }
 
 // the player, not the listing or a web page
@@ -170,8 +190,9 @@ course.addEventListener('load', function () {
   } catch (e) {}
 })
 
-// A web page reports through views/web.js from the origin of the proxy. Its
-// strings are page content, the server caps them.
+// A web page reports through views/web.js from the origin of the proxy, or
+// through the extension from its own. Its strings are page content, the
+// server caps them.
 addEventListener('message', function (e) {
   var m = e.data
   if (e.source != course.contentWindow || !m || typeof m.web != 'string') return
@@ -1477,6 +1498,12 @@ stream.onmessage = function (event) {
   try {
     data = JSON.parse(event.data)
   } catch (e) {
+    return
+  }
+  if (typeof data.proxy == 'string') {
+    // agent.js in the course frame reads it too
+    document.documentElement.dataset.proxy = data.proxy
+    document.getElementById('browse').hidden = data.proxy == 'off'
     return
   }
   if (typeof data.status == 'string') return status(data.status)

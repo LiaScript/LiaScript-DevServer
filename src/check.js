@@ -236,6 +236,7 @@ async function main() {
   await post({ type: 'state', context: { file: '', web: 'https://example.org/a', title: 'A' } })
   const reading = await tool('get_state', {})
   assert.strictEqual(reading.web, 'https://example.org/a')
+  assert.strictEqual(reading.proxy, 'read', 'the default of --proxy')
   assert.ok(reading.url.endsWith('/liascript/chat.html?web=' + encodeURIComponent('https://example.org/a')), reading.url)
   await post({ type: 'state', context: { file: 'README.md' } })
   assert.strictEqual((await tool('get_state', {})).web, '', 'a course clears it')
@@ -696,6 +697,7 @@ async function main() {
   const reloaded = http.get(ORIGIN + '/gotoLine?chat', (res) => res.on('data', (chunk) => (replay += chunk)))
   await sleep(200)
   assert.ok(replay.includes('{"agents":{"current":{"name":"tutor","emoji":"🦉"}'), 'replay: ' + replay)
+  assert.ok(replay.includes('{"proxy":"read"}'), 'the shell learns the proxy: ' + replay)
   reloaded.destroy()
 
   // the menu of the chat, or a course link agent:examiner/switch
@@ -901,7 +903,7 @@ async function main() {
     .split('\n\n')
     .filter((line) => line.startsWith('data: {'))
     .map((line) => JSON.parse(line.slice(6)))
-  assert.deepStrictEqual(replayed.map((m) => Object.keys(m)[0]), ['sessions', 'session', 'agents'])
+  assert.deepStrictEqual(replayed.map((m) => Object.keys(m)[0]), ['sessions', 'session', 'agents', 'proxy'])
   assert.deepStrictEqual(replayed[0].sessions.map((s) => s.id), [saved.id])
   assert.strictEqual(replayed[1].session.entries.length, saved.entries.length)
   assert.deepStrictEqual(replayed[1].session.db, { quiz: { 0: solved } }, 'F5 gets the states of the quizzes')
@@ -988,6 +990,25 @@ async function main() {
   assert.strictEqual(soloState.file, '', 'no browser reported')
   assert.strictEqual(soloState.teacher, 'hypatia', 'the header of the input counts before the preview reports')
   solo.stdin.end()
+
+  // --- --proxy off: no web pages, no browser opened for them
+  const off = spawn(process.execPath, [...ARGS, '--proxy', 'off'], { cwd: PROJECT, stdio: ['pipe', 'pipe', 'ignore'] })
+  let offOut = ''
+  let offState = {}
+  off.stdout.on('data', (chunk) => (offOut += chunk))
+  for (let i = 1; i <= 50 && !offState.url; i++) {
+    off.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: i, method: 'tools/call', params: { name: 'get_state', arguments: {} } }) + '\n')
+    await sleep(100)
+    const last = offOut.trim().split('\n').pop()
+    if (last) offState = JSON.parse(JSON.parse(last).result.content[0].text)
+  }
+  assert.strictEqual(offState.proxy, 'off')
+  const offPort = Number(new URL(offState.url).port)
+  assert.strictEqual((await request('GET', '/web?url=' + encodeURIComponent('https://example.org/'), { Host: '127.0.0.1:' + offPort }, undefined, offPort)).status, 404)
+  off.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 99, method: 'tools/call', params: { name: 'goto', arguments: { url: 'https://example.org/' } } }) + '\n')
+  await sleep(300)
+  assert.ok(offOut.includes('"id":99') && offOut.split('\n').find((l) => l.includes('"id":99')).includes('"isError":true'), 'goto url refused')
+  off.stdin.end()
 
   // --- the agent quits, the server follows
   const exited = new Promise((resolve) => child.on('exit', resolve))

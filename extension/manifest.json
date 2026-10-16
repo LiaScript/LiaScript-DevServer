@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "LiaScript DevServer: web pages in the chat",
+  "version": "1.0.0",
+  "description": "Lets the chat of the LiaScript DevServer show any web page with your logins, instead of its proxy.",
+  "permissions": ["declarativeNetRequest"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js",
+    "scripts": ["background.js"]
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://localhost/*", "http://127.0.0.1/*"],
+      "js": ["shell.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["page.js"],
+      "all_frames": true
+    }
+  ],
+  "browser_specific_settings": {
+    "gecko": { "id": "devserver@liascript.github.io", "strict_min_version": "128.0" }
+  }
+}
