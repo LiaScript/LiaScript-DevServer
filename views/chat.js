@@ -67,7 +67,7 @@ var TEXTS = {
     Resize: 'Größe ändern',
     Agent: 'Assistent',
     'Message to the AI': 'Nachricht an die KI',
-    'Ask the AI about this course …': 'Frag die KI zu diesem Kurs …',
+    'Ask the AI about this course …': 'Frage zum Kurs …',
     Send: 'Senden',
     'Send answer': 'Antwort senden',
     '+ New chat': '+ Neuer Chat',
@@ -90,14 +90,13 @@ var TEXTS = {
       'Dieser Browser kann nicht vorlesen, ihm fehlen die Stimmen. Chrome und Edge bringen eigene mit, Firefox unter Linux braucht speech-dispatcher mit einer Stimme. Der Assistent hilft beim Einrichten.',
     'Waiting for the assistant…': 'Wartet auf den Assistenten …',
     'Thinking…': 'Denkt nach …',
-    'Looking at your answer…': 'Schaut sich deine Antwort an …',
-    'One moment, I am looking at your answer.': 'Moment, ich schaue mir deine Antwort an.',
+    'Looking at your answer…': 'Schaut sich die Antwort an …',
+    'One moment, I am looking at your answer.': 'Moment, ich schaue mir die Antwort an.',
     'The assistant has not reacted yet.': 'Der Assistent hat noch nicht reagiert.',
     'The connection to the server is lost, connecting again…': 'Die Verbindung zum Server ist unterbrochen, verbinde neu …',
-    'The assistant has not reacted yet. Your message is saved and waits for it.':
-      'Der Assistent hat noch nicht reagiert. Deine Nachricht ist gespeichert und wartet auf ihn.',
-    'No sign of the assistant for a minute. It may still be working, or wait for a permission on the computer.':
-      'Seit einer Minute kein Lebenszeichen vom Assistenten. Vielleicht arbeitet er noch, oder er wartet am Rechner auf eine Freigabe.',
+    'The assistant has not reacted yet, maybe it is not connected. The message is saved, it answers once it starts.':
+      'Der Assistent hat noch nicht reagiert, vielleicht ist er nicht verbunden. Die Nachricht ist gespeichert, er antwortet, sobald er startet.',
+    'The assistant is still working, this can take a while.': 'Der Assistent arbeitet noch, das kann eine Weile dauern.',
   },
 }
 var lang = ''
