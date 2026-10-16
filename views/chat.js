@@ -87,6 +87,7 @@ var TEXTS = {
     'Open a web page': 'Webseite öffnen',
     'Web address': 'Webadresse',
     'Back to the start of the course': 'Zurück zum Anfang des Kurses',
+    'Files in this folder': 'Dateien in diesem Ordner',
     'This browser cannot read aloud, it has no speech voices. Chrome and Edge bring their own, Firefox on Linux needs speech-dispatcher with a voice. The assistant can help to set it up.':
       'Dieser Browser kann nicht vorlesen, ihm fehlen die Stimmen. Chrome und Edge bringen eigene mit, Firefox unter Linux braucht speech-dispatcher mit einer Stimme. Der Assistent hilft beim Einrichten.',
     'Waiting for the assistant…': 'Wartet auf den Assistenten …',
@@ -203,6 +204,42 @@ function showHome() {
 course.addEventListener('load', showHome)
 homeButton.addEventListener('click', function () {
   course.src = 'index.html?' + location.origin + '/' + encodeURI(homeCourse)
+})
+
+// The listing of the folder of the course or file (a PDF, a text) in the
+// frame, its own breadcrumbs lead further up. Only for this server, not the web.
+var filesButton = document.getElementById('files')
+tr(filesButton, 'Files in this folder', 'title')
+tr(filesButton, 'Files in this folder', 'aria-label')
+
+function courseFolder() {
+  try {
+    var where = course.contentWindow.location.pathname
+    if (isPlayer()) {
+      var file = new URL(course.contentWindow.location.search.slice(1))
+      if (file.origin != location.origin) return null
+      where = '/home' + file.pathname.replace(/^\/+/, '/')
+    } else if (!where.startsWith('/home/') || isListing()) return null
+    return where.replace(/\/[^/]*$/, '')
+  } catch (e) {
+    return null
+  }
+}
+
+// the listing of views/layouts/index.hbs, a file shows in the frame as it is
+function isListing() {
+  try {
+    return course.contentDocument.body.hasAttribute('data-listing')
+  } catch (e) {
+    return false
+  }
+}
+course.addEventListener('load', function () {
+  filesButton.hidden = courseFolder() == null
+})
+filesButton.addEventListener('click', function () {
+  var folder = courseFolder()
+  if (folder != null) course.src = folder
 })
 
 // The file listing does not report like the player: no course is open, and

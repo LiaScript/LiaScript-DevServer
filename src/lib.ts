@@ -377,6 +377,24 @@ export function getState() {
   }
 }
 
+// The table of express (mime 1) is older than these, both were a download.
+// An .opus file is Ogg, which every browser plays as audio/ogg.
+express.static.mime.define({ 'image/avif': ['avif'], 'audio/ogg': ['opus'] })
+
+// text types a browser shows itself, any other text of the listing is plain
+const SHOWN = ['text/html', 'text/plain', 'application/xhtml+xml', 'image/svg+xml', 'application/json']
+
+// no NUL in the first 8 KB, the test of git and grep
+function isText(file: string) {
+  const buffer = Buffer.alloc(8192)
+  const fd = fs.openSync(file, 'r')
+  try {
+    return !buffer.subarray(0, fs.readSync(fd, buffer, 0, buffer.length, 0)).includes(0)
+  } finally {
+    fs.closeSync(fd)
+  }
+}
+
 export function playerURL(file: string, slide?: number) {
   return (
     origin +
@@ -708,7 +726,12 @@ export async function start(
           (testOnline ? ONLINE : agent && dest === 'iframe' ? '/liascript/index.html' : player) + '?' + origin + '/' + req.params[0],
         )
       } else {
-        res.sendFile(req.params[0], { root: project.path })
+        // the listing is for looking at a file: a LICENSE, .py or .ts was a
+        // download (octet-stream, video/mp2t), every text shows as text. No
+        // ETag: a 304 kept the type of the download in the cache.
+        const plain = !SHOWN.includes(express.static.mime.lookup(currentPath)) && isText(currentPath)
+        if (plain) res.type('text/plain; charset=utf-8')
+        res.sendFile(req.params[0], { root: project.path, etag: !plain, lastModified: !plain })
       }
     } else {
       res.send('ups, something went wrong')
