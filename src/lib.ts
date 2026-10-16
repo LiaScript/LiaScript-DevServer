@@ -130,12 +130,19 @@ function openIn(chat: chats.Session) {
   return openAsk && chat.entries.some((e) => e.ask === openAsk) ? openAsk : undefined
 }
 
-// the agent withdraws the open form, returns its id or ''
-export function closeForm() {
+// the agent withdraws the open form, returns its id or ''. The reason shows
+// under the form: a form closed without one looked like a refusal.
+export function closeForm(reason?: string) {
   const closed = openAsk
   openAsk = ''
-  if (closed) send({ closed })
+  if (closed) send(reason ? { closed, reason } : { closed })
   return closed
+}
+
+// user entries of the chat after entry n: what came while the agent wrote
+export function newerThan(n: number) {
+  if (!session) return 0
+  return session.entries.slice(n + 1).filter((e) => e.type !== 'ai').length
 }
 
 // Is anybody there? A plain "Thinking…" kept users waiting for minutes while
@@ -903,6 +910,7 @@ export async function start(
         setAgent(agentName)
       }
 
+      let entry: chats.Entry | undefined
       if (body.type === 'session') {
         const id = checked.id as string | undefined
         const next = id
@@ -923,12 +931,12 @@ export async function start(
         ;(checked as any).title = chats.title(next)
         ;(checked as any).resumed = next.entries.length > 0
       } else if (body.type === 'chat') {
-        record({ type: 'user', text: checked.text })
+        entry = record({ type: 'user', text: checked.text })
       } else if (body.type === 'answer') {
         const { ask, ...values } = checked
         openAsk = ''
         // every shell shows the choice as what the user said
-        const entry = record({ type: 'answer', ask, values })
+        entry = record({ type: 'answer', ask, values })
         if (entry) send({ entry })
       } else if (command) {
         // a click on a link too, as its text: the user sees that it arrived,
@@ -938,7 +946,7 @@ export async function start(
         const to = body.cmd === 'switch' && agents.list.find((a) => a.name === agentName)
         if (!label && to) label = to.label || to.name
         const params = Object.keys(checked).length ? { params: checked } : {}
-        const entry = label && record({ type: 'command', agent: agentName, cmd: body.cmd, label, ...params })
+        entry = label ? record({ type: 'command', agent: agentName, cmd: body.cmd, label, ...params }) : undefined
         if (entry) send({ entry })
       }
 
@@ -971,6 +979,8 @@ export async function start(
         // chat and answer go to the agent the user talks to right now
         agent: command ? agentName : agents.current,
         cmd: command ? body.cmd : '',
+        // its number in the chat, for chat({reply_to}) and read_chat
+        ...(entry && session ? { entry: session.entries.indexOf(entry) } : {}),
         params: checked,
         context: eventContext(),
       })

@@ -579,8 +579,8 @@ async function main() {
   assert.ok(stream.includes('{"closed":"' + older.ask + '"}'), 'the shell closes the older form')
   assert.strictEqual((await post({ type: 'answer', params: { ask: older.ask, level: 'easy' } })).status, 409, 'a replaced form takes no answer')
   assert.ok((await tool('chat', { close: 'yes' })).isError, 'close is a boolean')
-  assert.deepStrictEqual(await tool('chat', { close: true }), { sent: true, closed: newer.ask })
-  assert.ok(stream.includes('{"closed":"' + newer.ask + '"}'), 'the shell closes the withdrawn form')
+  assert.deepStrictEqual(await tool('chat', { close: true, reason: 'Answered by your message' }), { sent: true, closed: newer.ask })
+  assert.ok(stream.includes('{"closed":"' + newer.ask + '","reason":"Answered by your message"}'), 'the shell closes the withdrawn form and says why')
   assert.strictEqual((await post({ type: 'answer', params: { ask: newer.ask, level: 'easy' } })).status, 409, 'a withdrawn form takes no answer')
   assert.deepStrictEqual(await tool('chat', { close: true }), { sent: true, closed: null })
   // a waiting call learns that its form was withdrawn
@@ -613,10 +613,19 @@ async function main() {
   msg = notifications.pop()
   assert.deepStrictEqual(msg.params.meta, { type: 'chat' })
   assert.strictEqual(JSON.parse(msg.params.content).params.text, 'hello')
+  const hello = JSON.parse(msg.params.content).entry
+  assert.ok(Number.isInteger(hello), 'a chat event has its entry: ' + msg.params.content)
   // nobody took it yet: the chat does not claim that anybody thinks
   assert.ok(stream.endsWith('data: {"status":"Waiting for the assistant…"}\n\n'), 'waiting: ' + stream)
   await tool('wait_for_event', {}) // drain the fallback queue
   assert.ok(stream.endsWith('data: {"status":"Thinking…"}\n\n'), 'a tool call is a sign of the agent: ' + stream)
+
+  // the user wrote again while the agent answered the first message
+  await post({ type: 'chat', params: { text: 'and another thing' } })
+  notifications.pop()
+  await tool('wait_for_event', {})
+  assert.deepStrictEqual(await tool('chat', { markdown: 'about hello', reply_to: hello }), { sent: true, newer_user_messages: 1 })
+  assert.deepStrictEqual(await tool('chat', { markdown: 'about both', reply_to: hello + 1 }), { sent: true })
 
   // a stuck learner gets help: the 3rd wrong check, once per task until solved
   const quiz = (trial, solved, extra) =>
@@ -758,6 +767,7 @@ async function main() {
   assert.strictEqual(curie.persona.name, 'Marie Curie')
   assert.strictEqual(curie.persona.teaching, Teachers.get('marie-curie').teaching)
   assert.ok(/AI/.test(curie.persona.rules) && /quote/.test(curie.persona.rules), 'the rules of the role: ' + curie.persona.rules)
+  await sleep(100) // the tool result can overtake the stream
   assert.ok(stream.includes('"persona":"marie-curie"'), 'the shell learns the persona')
   await tool('chat', { markdown: 'Bonjour, je suis une IA dans le rôle de Marie Curie' })
   assert.ok(stream.includes('"agent":{"name":"tutor","emoji":"🧑‍🏫","label":"Marie Curie","persona":"marie-curie"}'), 'a message carries it')
