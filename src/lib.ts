@@ -324,6 +324,9 @@ var missed: { t: number; line: string }[] = []
 const SETTLE_MS = 2000
 const reported = { connected: false, chat: false }
 var settling: any = null
+// the last shell closed its stream since the last report: F5 or a restart of
+// the browser, the agent learns of it even if the state is the same again
+var shellClosed = false
 
 export function getState() {
   return {
@@ -1165,18 +1168,15 @@ function connectionChanged() {
   clearTimeout(settling)
   settling = setTimeout(() => {
     const now = getState()
-    if (now.connected === reported.connected && now.chat === reported.chat) {
-      return
-    }
+    const same = now.connected === reported.connected && now.chat === reported.chat
+    const reloaded = same && shellClosed && now.chat
+    shellClosed = false
+    if (same && !reloaded) return
     reported.connected = now.connected
     reported.chat = now.chat
-    emitEvent({
-      type: 'connection',
-      agent: '',
-      cmd: '',
-      params: { connected: now.connected, chat: now.chat },
-      context: eventContext(),
-    })
+    const params: any = { connected: now.connected, chat: now.chat }
+    if (reloaded) params.reloaded = true
+    emitEvent({ type: 'connection', agent: '', cmd: '', params, context: eventContext() })
   }, SETTLE_MS)
   // a pending report must not keep a stopped server alive
   if (settling.unref) settling.unref()
@@ -1268,6 +1268,7 @@ function eventsHandler(
 
   request.on('close', () => {
     clients = clients.filter((client) => client !== response)
+    if ((response as any).chat && !clients.some((client: any) => client.chat)) shellClosed = true
     connectionChanged()
   })
 }

@@ -92,7 +92,8 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
     agent, cmd, params, context}`; the route validates and caps every field and attaches the cached state as `context`. A fifth type,
     `connection` with `params: {connected, chat}`, comes from the server itself: the SSE handler emits `'state'` on
     every open and close, and a change that lasts 2 s (`SETTLE_MS`, so F5 and live reloads do not count) becomes
-    this event, so an agent notices a closed tab without polling. Every event
+    this event, so an agent notices a closed tab without polling. Only F5 of the shell (the last `?chat` stream
+    closed and a new one came within that time) is an event despite the same state, `reloaded: true`. Every event
     also goes as one JSON line (`<` escaped) to the readers of `GET /agent/events/<token>` (`getState().events`,
     `watched` = someone reads it): a stream for agents that watch a command, i.e. Claude Code's Monitor tool running
     `curl -sN`. Events while nobody reads it (at most 20, 10 minutes back, `missed`) go to the next reader first, so
