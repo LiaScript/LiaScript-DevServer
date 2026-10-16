@@ -40,15 +40,17 @@ var Activity = (function () {
         seen[key] = block
         if (quiet) return
         if (block.trial == old.trial && block.solved == old.solved && block.hint == old.hint) return
-        // a hit at the first try needs no help
-        if (block.solved == 1 && block.trial == 1) return
-        send('quiz', i, {
+        var params = {
           trial: String(block.trial),
           hints: String(block.hint),
           solved: block.solved == 1 ? 'solved' : block.solved == -1 ? 'resolved' : 'wrong',
           input: JSON.stringify(block.state),
           error: block.error_msg || '',
-        })
+        }
+        // resolved puts the solution into the state, answer is what the
+        // learner had given before
+        if (block.solved == -1 && old.state !== undefined) params.answer = JSON.stringify(old.state)
+        send('quiz', i, params)
       } else if (table == 'survey') {
         var before = seen[key]
         seen[key] = block.submitted
