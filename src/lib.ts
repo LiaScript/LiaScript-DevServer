@@ -331,8 +331,9 @@ var watchers: express.Response[] = []
 const token = crypto.randomBytes(16).toString('hex')
 var events = ''
 // events while nobody watched, for the next watcher. Not for long: an agent
-// that starts tomorrow must not answer the questions of today.
-const MISSED_MS = 10 * 60 * 1000
+// that starts tomorrow must not answer the questions of today. 10 minutes
+// lost a click of a tester while the agent worked without a Monitor.
+const MISSED_MS = 60 * 60 * 1000
 var missed: { t: number; line: string }[] = []
 
 // The browser comes and goes: F5 and a live reload of the bare player close
@@ -936,7 +937,8 @@ export async function start(
         // the agent menu of the chat has no link text: the name it shows
         const to = body.cmd === 'switch' && agents.list.find((a) => a.name === agentName)
         if (!label && to) label = to.label || to.name
-        const entry = label && record({ type: 'command', agent: agentName, cmd: body.cmd, label })
+        const params = Object.keys(checked).length ? { params: checked } : {}
+        const entry = label && record({ type: 'command', agent: agentName, cmd: body.cmd, label, ...params })
         if (entry) send({ entry })
       }
 

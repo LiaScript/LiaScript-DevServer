@@ -100,7 +100,7 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
     closed and a new one came within that time) is an event despite the same state, `reloaded: true`. Every event
     also goes as one JSON line (`<` escaped) to the readers of `GET /agent/events/<token>` (`getState().events`,
     `watched` = someone reads it): a stream for agents that watch a command, i.e. Claude Code's Monitor tool running
-    `curl -sN`. Events while nobody reads it (at most 20, 10 minutes back, `missed`) go to the next reader first, so
+    `curl -sN`. Events while nobody reads it (at most 20, 60 minutes back, `missed`) go to the next reader first, so
     restarting an expired Monitor loses nothing. The random token keeps other local users and pages out, a request with an `Origin` is refused. `agentScript` (two script tags injected after
     `gotoScript`: `views/activity.js` and `views/agent.js`, which reuses its `filename__` and `events`) reports slide/title/selection, handles `goto` messages and turns clicks on `agent:` links into
     `command` events. In agent mode the server binds to loopback, checks `Host` on every route and `Origin` on
@@ -165,7 +165,7 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
     `process.cwd()`, the project the MCP client opened, so it can be committed and continued by someone else. The id
     is UTC time plus random hex (no merge conflicts, no clash between twin instances), the file is valid JSON with
     one entry per line, rewritten on every entry: `ai {markdown, ask, inputs, agent, lang}` (recorded in `send()`
-    from a `chat` message, `ask`/`inputs` only for a form), `user {text}`, `answer {ask, values}` and `command {agent, cmd, label}` (recorded in
+    from a `chat` message, `ask`/`inputs` only for a form), `user {text}`, `answer {ask, values}` and `command {agent, cmd, label, params}` (recorded in
     `POST /agent`, a command only with the link text as `label`, which `agentScript` and `chat.js` send along).
     Answers and commands also go to every shell as `{entry}`, which shows them as a compact bubble of the user.
     After the entries the file holds `db` (`chats.store()`): the states of the quizzes, surveys and tasks of the

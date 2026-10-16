@@ -659,7 +659,7 @@ async function main() {
   await post({ ...command, label: '  Explain\n it ' })
   await sleep(100)
   assert.ok(
-    /"entry":\{"t":"[^"]+","type":"command","agent":"tutor","cmd":"explain","label":"Explain it"\}/.test(stream),
+    /"entry":\{"t":"[^"]+","type":"command","agent":"tutor","cmd":"explain","label":"Explain it","params":\{"level":"easy"\}\}/.test(stream),
     'the shell shows the click: ' + stream,
   )
   notifications.pop()
