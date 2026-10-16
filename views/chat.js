@@ -425,7 +425,6 @@ lia.iframe.addEventListener('load', function () {
     },
     true,
   )
-  doc.addEventListener('click', readClicked)
   new MutationObserver(place).observe(doc.body, { childList: true, subtree: true })
   place()
 })
@@ -931,9 +930,8 @@ drag(document.getElementById('grip'), {
 // ------------------------------------------------------------- read aloud
 
 // Every message has a button that reads it aloud, with a voice of the browser
-// in the language of the course, and so has a click on the message itself. A
-// browser without voices shows no buttons; with --responsiveVoice the service
-// loaded by the player steps in. The robot on the stage moves its mouth.
+// in the language of the course. A browser without voices shows no buttons;
+// with --responsiveVoice the service loaded by the player steps in. The robot on the stage moves its mouth.
 var reading // what is read right now: {parts, msg, button, status}
 var queue = [] // what waits for its turn, with the box "Read everything aloud"
 
@@ -1429,8 +1427,9 @@ say.text.addEventListener('keydown', function (e) {
 })
 
 // agent: links work in the chat like in the course: LiaScript reports the
-// href, its text comes from the click. A click elsewhere on a message of the
-// AI reads it aloud, unless it selects text or works a quiz, code or a form.
+// href, its text comes from the click. A click elsewhere on a message reads
+// nothing, it may turn a 3D model or work a quiz: only the button and the box
+// "Read everything aloud" do.
 var lastLink // the link of the last click in the chat
 
 lia.addEventListener('agent', function (e) {
@@ -1443,18 +1442,6 @@ lia.addEventListener('agent', function (e) {
     if (a) a.classList.add('failed')
   })
 })
-
-function readClicked(e) {
-  var bubble = e.target.closest && e.target.closest('.lia-chat__msg')
-  var msg = bubble && bubble.querySelector(':scope > .msg.ai')
-  if (!msg || !log.classList.contains('can-speak')) return
-  var ignored = 'a, button, input, label, select, textarea, form, summary, table, lia-formula, .lia-quiz, '
-  if (e.target.closest(ignored + SILENT)) return
-  var selection = e.target.ownerDocument.getSelection()
-  if (selection && !selection.isCollapsed) return
-  var button = msg.querySelector('.foot .speak')
-  if (button) button.click()
-}
 
 // What the learner does with a quiz, survey, task or code in a message, reported
 // like those of the course (views/agent.js), chat is the number of the
