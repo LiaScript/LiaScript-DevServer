@@ -932,7 +932,10 @@ export async function start(
       } else if (command) {
         // a click on a link too, as its text: the user sees that it arrived,
         // and the history says what happened
-        const label = text(body.label, 200).replace(/\s+/g, ' ').trim()
+        let label = text(body.label, 200).replace(/\s+/g, ' ').trim()
+        // the agent menu of the chat has no link text: the name it shows
+        const to = body.cmd === 'switch' && agents.list.find((a) => a.name === agentName)
+        if (!label && to) label = to.label || to.name
         const entry = label && record({ type: 'command', agent: agentName, cmd: body.cmd, label })
         if (entry) send({ entry })
       }
