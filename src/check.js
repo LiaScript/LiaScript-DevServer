@@ -268,6 +268,12 @@ async function main() {
       '### 3. First words',
       'text',
       '',
+      '## Dashboard – Übersicht',
+      '',
+      '## Templates',
+      '',
+      '### Dashboard',
+      '',
     ].join('\n'),
   )
   try {
@@ -276,7 +282,7 @@ async function main() {
     const rows = toc.result.content[0].text.split('\n').slice(1)
     assert.deepStrictEqual(
       rows.map((row) => row.split('\t').slice(0, 2).join(' ')),
-      ['1 L4', '2 L6', '3 L8', '4 L16', '5 L18', '6 L20'],
+      ['1 L4', '2 L6', '3 L8', '4 L16', '5 L18', '6 L20', '7 L23', '8 L25', '9 L27'],
       'outline skips comments and code: ' + rows,
     )
 
@@ -289,6 +295,11 @@ async function main() {
     assert.deepStrictEqual(await tool('read_section', { file, line: 13 }), sec)
     assert.strictEqual((await tool('read_section', { file, section: 'Sessions → 3' })).slide, 6)
     assert.ok((await tool('read_section', { file, section: 'Teach' })).isError, 'only whole words match')
+    assert.strictEqual((await tool('read_section', { file, section: '## Dashboard' })).slide, 7, 'the level counts')
+    assert.strictEqual((await tool('read_section', { file, section: '### Dashboard' })).slide, 9)
+    assert.strictEqual((await tool('read_section', { file, section: 'Dashboard' })).slide, 9, 'an exact title wins')
+    assert.ok((await tool('read_section', { file, section: '# Dashboard' })).isError)
+    assert.strictEqual((await tool('read_section', { file, section: '# Journal → Agents' })).slide, 2)
     assert.ok((await tool('read_section', { file: '../x.md', slide: 1 })).isError)
     const agents = await tool('read_section', { file, section: 'Agents', deep: true })
     assert.ok(agents.text.includes('### Artist') && !agents.text.includes('## Sessions'))

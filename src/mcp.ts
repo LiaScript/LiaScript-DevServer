@@ -55,7 +55,7 @@ const PROMPT_TEXT =
   'Serve the LiaScript browser chat until I stop it. Call get_state, open the preview as the instructions say unless a tab is connected, and read_chat if the session has entries. Then loop: wait_for_event, handle the event as the instructions say (chat and command: answer with chat, forms with wait: false), and call wait_for_event again, also after a timeout. Stop when I say so or the preview closes (connection with connected false). If events reach you as <channel> tags or through a Monitor, use that instead of the loop.'
 
 const SECTION =
-  'heading path as in the specs, e.g. "## Agents → ### Teaching-Agent" or "Sessions → 3": every part is a heading below the one before, a part also matches a heading that starts with it ("3" for "3. First words"), # and backticks are optional'
+  'heading path as in the specs, e.g. "## Agents → ### Teaching-Agent" or "Sessions → 3": every part is a heading below the one before, a part also matches a heading that starts with it ("3" for "3. First words"), backticks are optional, #s fix the level of a part'
 
 const TOOLS = [
   {
