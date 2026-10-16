@@ -85,7 +85,9 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
     clients; `POST /lineGoto` receives `{linenumber, filename}` from the browser and forwards to an optional
     `gotoCallback` passed into `start()` — this is the hook a library consumer uses to sync clicks in the rendered
     preview back to their own editor. The SSE stream is generic: `send(msg)` broadcasts any JSON to every client and
-    `gotoLine` is one user of it; each browser script picks the messages it knows (`linenumber`, `goto`, `chat`).
+    `gotoLine` is one user of it; each browser script picks the messages it knows (`linenumber`, `goto`, `chat`). A `?chat` stream gets
+    `{ping: true}` every 20 s (`PING_MS`): the shell opens a stream anew that stayed silent for 50 s (a dead
+    one without error was seen in Firefox) and shows a hint while it reconnects.
   - Agent bridge primitives, active only when `start()` gets `agent = true` (the 9th positional parameter) and free
     of any MCP knowledge, so another adapter (e.g. an ACP host mode) can sit on the same three exports:
     `getState()` (what the browser last reported: file, 1-based slide, title, selection, `connected`, `chat`, plus

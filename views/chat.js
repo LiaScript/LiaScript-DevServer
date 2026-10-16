@@ -93,6 +93,7 @@ var TEXTS = {
     'Looking at your answer…': 'Schaut sich deine Antwort an …',
     'One moment, I am looking at your answer.': 'Moment, ich schaue mir deine Antwort an.',
     'The assistant has not reacted yet.': 'Der Assistent hat noch nicht reagiert.',
+    'The connection to the server is lost, connecting again…': 'Die Verbindung zum Server ist unterbrochen, verbinde neu …',
     'The assistant has not reacted yet. Your message is saved and waits for it.':
       'Der Assistent hat noch nicht reagiert. Deine Nachricht ist gespeichert und wartet auf ihn.',
     'No sign of the assistant for a minute. It may still be working, or wait for a permission on the computer.':
@@ -1258,10 +1259,13 @@ say.addEventListener('submit', function (e) {
   e.preventDefault()
   var text = say.text.value.trim()
   if (!text) return
-  say.reset()
 
+  // the field empties only once the bubble shows: a message that could not
+  // be shown was gone, and nothing was sent either
   var unsent = { session: chatId, text: text, t: new Date().toISOString() }
-  deliver(add('me', text, null, null, unsent.t), unsent)
+  var msg = add('me', text, null, null, unsent.t)
+  say.reset()
+  deliver(msg, unsent)
 })
 
 // Enter sends, Shift+Enter breaks the line
@@ -1518,12 +1522,35 @@ function hint(text) {
   line.hidden = !text
 }
 
-var stream = new EventSource('/gotoLine?chat')
-// every (re)connect first replays the chat, the agents and the progress line
-stream.onopen = function () {
-  replay = Date.now() + 1500
+// The server pings every PING_MS. A stream that stays silent much longer is
+// dead without an error (seen in Firefox: messages of the agent never came),
+// so it is opened anew; the browser retries a broken one itself.
+var PING_MS = 20000
+var stream
+var lastHeard = 0
+
+function connect() {
+  if (stream) stream.close()
+  stream = new EventSource('/gotoLine?chat')
+  lastHeard = Date.now()
+  // every (re)connect first replays the chat, the agents and the progress
+  // line, also the hint of the server if there is one
+  stream.onopen = function () {
+    replay = Date.now() + 1500
+    hint('')
+  }
+  stream.onerror = function () {
+    hint('The connection to the server is lost, connecting again…')
+  }
+  stream.onmessage = message
 }
-stream.onmessage = function (event) {
+connect()
+setInterval(function () {
+  if (Date.now() - lastHeard > 2.5 * PING_MS) connect()
+}, PING_MS / 2)
+
+function message(event) {
+  lastHeard = Date.now()
   var data
   try {
     data = JSON.parse(event.data)
