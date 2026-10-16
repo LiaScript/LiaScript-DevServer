@@ -134,23 +134,32 @@ function localize() {
   if (now == lang) return
   lang = now
   document.documentElement.lang = lang
-  // the shell, and its parts in the messages
-  ;[document, frame()].forEach(function (doc) {
-    if (!doc) return
-    doc.querySelectorAll('[data-t]').forEach(function (el) {
-      el.textContent = t(el.getAttribute('data-t'))
-    })
-    ;['title', 'placeholder', 'aria-label'].forEach(function (attr) {
-      doc.querySelectorAll('[data-t-' + attr + ']').forEach(function (el) {
-        el.setAttribute(attr, t(el.getAttribute('data-t-' + attr)))
-      })
-    })
-    doc.querySelectorAll('.msg time').forEach(function (el) {
-      el.textContent = clock(el.dateTime)
-    })
-  })
+  // the shell, its parts in the messages, and the parts of a replay that
+  // wait for their message: built before the course told its language
+  ;[document, frame()]
+    .concat(
+      parts.filter(function (msg) {
+        return !msg.isConnected
+      }),
+    )
+    .forEach(translate)
   showSessions(sessionList)
   chatLang()
+}
+
+function translate(root) {
+  if (!root) return
+  root.querySelectorAll('[data-t]').forEach(function (el) {
+    el.textContent = t(el.getAttribute('data-t'))
+  })
+  ;['title', 'placeholder', 'aria-label'].forEach(function (attr) {
+    root.querySelectorAll('[data-t-' + attr + ']').forEach(function (el) {
+      el.setAttribute(attr, t(el.getAttribute('data-t-' + attr)))
+    })
+  })
+  root.querySelectorAll('.msg time').forEach(function (el) {
+    el.textContent = clock(el.dateTime)
+  })
 }
 
 // LiaScript describes a formula (aria-label, and what is read aloud) in the
@@ -387,6 +396,11 @@ var currentAgent // {name, emoji, label} of the current agent, if there is one
 
 function showAgents(agents) {
   var now = agents.current
+  // the old agent stops talking, what it still had to say too
+  if ((now ? now.name : '') != current) {
+    queue = []
+    stop()
+  }
   current = now ? now.name : ''
   currentAgent = now
   // the learner view: only the agent who teaches, larger on the stage
@@ -1125,11 +1139,10 @@ function read(item) {
       if (voice) utterance.voice = voice
       utterance.pitch = chosen.pitch
       utterance.rate = chosen.rate
-      // cancel() ends an utterance with an error, which is no reason to reset
-      // the button of the message that was started instead
-      utterance.onerror = function (e) {
-        if (e.error != 'interrupted' && e.error != 'canceled') done()
-      }
+      // Also a cancel() that is not ours (Chrome drops the queue): else the
+      // button kept ■ and reading blocked the queue for good. After our
+      // stop() reading is another item or none, done() then does nothing.
+      utterance.onerror = done
       // The mouth follows the words where the voice tells them, Chrome's
       // online voices do not: then it moves in a beat estimated from the text.
       var heard = false
@@ -1226,6 +1239,18 @@ function readStatus(text) {
 
 // a reload of the shell must not leave the browser talking
 addEventListener('pagehide', stop)
+
+// The browser went silent without end or error, seen twice in a row: the
+// item is done. Not for responsiveVoice, which tells nothing like it.
+var silent = 0
+setInterval(function () {
+  var quiet = reading && voices().length && !speechSynthesis.speaking && !speechSynthesis.pending
+  silent = quiet ? silent + 1 : 0
+  if (silent < 2) return
+  silent = 0
+  stop()
+  next()
+}, 1000)
 
 // ---------------------------------------------------------------- user -> AI
 
