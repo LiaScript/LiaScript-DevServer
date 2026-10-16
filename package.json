@@ -51,7 +51,8 @@
     "express-handlebars": "^5.3.5",
     "minimist": "^1.2.8",
     "open": "^8.4.2",
-    "reload": "^3.3.0"
+    "reload": "^3.3.0",
+    "testcafe-hammerhead": "^31.7.8"
   },
   "devDependencies": {
     "@dicebear/avataaars": "^9.4.2",
@@ -67,7 +68,7 @@
     "typescript": "^5.9.3"
   },
   "engines": {
-    "node": ">= 15.0.0"
+    "node": ">= 20.0.0"
   },
   "targets": {
     "main": {
@@ -88,6 +89,7 @@
     "assets": [
       "node_modules/@liascript/editor/dist/**/*",
       "node_modules/@liascript/chat/dist/**/*",
+      "node_modules/testcafe-hammerhead/lib/client/**/*",
       "views/**/*"
     ]
   },

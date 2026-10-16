@@ -6,7 +6,7 @@
 // ponytail: the page's scripts run on the proxy origin. A relative
 // history.pushState resolves against the <base> and throws, so single page
 // apps break; articles read fine. All sites share that one origin and its
-// localStorage. A rewriting proxy if that ever matters.
+// localStorage. For more: --proxy full (src/full.ts) or the extension.
 
 import * as dns from 'dns'
 import * as http from 'http'
@@ -49,7 +49,7 @@ export function allowed(address: string, family: number | string): boolean {
 
 // every answer of the DNS, also the one a rebinding name gives on connect.
 // Node asks with all: true since it tries IPv4 and IPv6 side by side.
-function lookup(host: string, options: any, callback: any) {
+export function lookup(host: string, options: any, callback: any) {
   dns.lookup(host, options, (err: any, address: any, family?: number) => {
     const all = Array.isArray(address) ? address : [{ address, family }]
     if (!err && !all.every((a: any) => allowed(a.address, a.family))) {

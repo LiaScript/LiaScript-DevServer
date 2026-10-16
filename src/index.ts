@@ -40,6 +40,10 @@ if (argv.h || argv.help) {
   console.log('-t  --test       test online on https://LiaScript.github.io')
   console.log('    --mcp        serve as MCP server on stdio for AI agents,')
   console.log('                 to be started from the MCP config of the agent')
+  console.log('    --proxy      web pages in the chat of --mcp: off, read (default:')
+  console.log('                 the document only, no logins) or full (experimental:')
+  console.log('                 everything, cookies, forms, single page apps; some')
+  console.log('                 sites hang Firefox, the browser extension is safer)')
   console.log()
   console.log('-r  --responsiveVoice  add optional responsiveVoice support,')
   console.log('                       or pass your own responsiveVoice key.')
@@ -82,6 +86,7 @@ server
     undefined,
     argv.mcp,
     watch,
+    argv.proxy,
   )
   .catch((e: any) => {
     console.error('Error: ', e.message)

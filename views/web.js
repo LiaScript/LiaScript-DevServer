@@ -1,11 +1,15 @@
 // Loaded into a web page that the proxy of lib.ts hands to the chat shell
 // (src/web.ts). The page's <base> is its real address. Tells the shell what
-// the user reads, and keeps links and searches inside the proxy.
+// the user reads, and keeps links and searches inside the proxy. hammerhead
+// (--proxy full, src/full.ts) injects it unprocessed: its document.baseURI is
+// the real address too, and it rewrites links and forms itself.
 
 ;(function () {
-  if (parent == window) return
+  // the page in the shell, not its iframes
+  if (parent == window || parent != top) return
   var proxy = location.origin + '/?'
   var timer
+  var reported = ''
 
   // the real address: the <base>, with the #part of this document
   function address() {
@@ -16,6 +20,7 @@
   function report() {
     clearTimeout(timer)
     timer = setTimeout(function () {
+      reported = address() + '\n' + document.title
       parent.postMessage(
         { web: address(), title: document.title, selection: String(getSelection()).slice(0, 2000) },
         '*',
@@ -30,6 +35,12 @@
     if (title) new MutationObserver(report).observe(title, { childList: true })
     report()
   })
+  // pushState and a new <title> fire no event
+  setInterval(function () {
+    if (address() + '\n' + document.title != reported) report()
+  }, 1000)
+
+  if (window['%hammerhead%']) return
 
   function go(url) {
     var here = document.baseURI.split('#')[0]

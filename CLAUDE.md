@@ -114,7 +114,28 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
     (redirect to the proxy, used by all of them), external links of a course in the shell (`agent.js`), the 🌐
     address field of `chat.js` and `goto({url})`. The state gets `web`, `getState().url` becomes
     `chat.html?web=…`, and the event context carries `web` only while it is set (`eventContext()`). Limit: a
-    relative `pushState` resolves against the `<base>` and throws, so single page apps break. It also moves to the next
+    relative `pushState` resolves against the `<base>` and throws, so single page apps break. `views/web.js` polls
+    address and title every second, `pushState` and a replaced `<title>` fire no event. `--proxy off|read|full` (11th
+    parameter of `start()`, `getState().proxy`, replayed as `{proxy}` to every `?chat` stream after the chat, which sets
+    `data-proxy` on the shell's `<html>`) picks the level: `off` starts no proxy, `/web` answers 404, the 🌐 button
+    hides, `agent.js` leaves external links to a new tab and `goto({url})` fails. `read` is the proxy above. `full`
+    is experimental (`src/full.ts`, runs under the other loopback name than the shell: x.com in a frame of the same
+    site hung Firefox, see its header; `testcafe-hammerhead`, required only then, Node ≥ 20, its `lib/client` in
+    `pkg.assets`) rewrites every request of the page through its two servers (`webPort()` and `webPort2()` =
+    port + 30000) under
+    `/<session id>/<url>`: cookies (one jar per server, in memory), POST, WebSockets, single page apps. hammerhead
+    listens on every interface and checks no `Host`, so `startFull()` wraps its `createServer` (bind + `Host`
+    check) and replaces the 9-character session id by 32 hex characters, the token of the proxy. A request hook
+    blocks an IP in the URL and sets `requestOptions.lookup` to `web.lookup` (http2 off, it would ignore it), and
+    drops `x-frame-options`; hammerhead drops every CSP itself and cannot add `frame-ancestors`. It injects
+    `views/web.js` unprocessed: there `document.baseURI` is the real address and `parent.postMessage` native, the
+    link and form handling is skipped (`%hammerhead%`). The browser extension (`extension/`, MV3, not in the npm
+    package, loaded unpacked) is the way to pages with the user's own logins: `shell.js` marks the shell
+    (`data-lia-extension` `pending`, then `ready` and the event `lia-extension` once `background.js` has added a
+    session rule for that tab: `x-frame-options` and CSP removed for its `sub_frame`s, not those of localhost).
+    `chat.js` `webPage()` then loads the real URL (the first `?web=` waits up to 1 s, `whenExtension()`), `agent.js`
+    uses the shell's `webPage()`. `page.js` in the direct child frame of a shell tab reports like `web.js`, to the
+    shell's origin only (asked from `background.js`, which reads `sender.tab.url`, no state of its own). It also moves to the next
     free port when the requested one (or its reload port) is busy: every MCP client spawns its own instance from
     the same config, and VS Code autostarts a workspace `.mcp.json` for Copilot next to Claude Code's spawn, so a
     fixed port meant `EADDRINUSE` and a bare "connection closed" in the client.
