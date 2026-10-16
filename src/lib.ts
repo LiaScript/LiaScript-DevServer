@@ -798,6 +798,23 @@ export async function start(
       },
     )
 
+    // the icons and the text font of the player for the shell, under names
+    // of their own: the files carry a hash that changes with every version
+    // of the editor
+    const FONTS: { [name: string]: RegExp } = {
+      icon: /^icon\.[0-9a-f]+\.woff2$/,
+      sans: /^source-sans-pro-v\d+-latin-regular\.[0-9a-f]+\.woff2$/,
+      'sans-600': /^source-sans-pro-v\d+-latin-600\.[0-9a-f]+\.woff2$/,
+    }
+    app.get(
+      '/liascript/font/:name(icon|sans|sans-600).woff2',
+      function (req: express.Request, res: express.Response) {
+        const file = fs.readdirSync(liascriptPath).find((f) => FONTS[req.params.name].test(f))
+        if (!file) return res.sendStatus(404)
+        res.sendFile(file, { root: liascriptPath })
+      },
+    )
+
     // a web page in the frame of the shell: links of the course, goto and
     // the address field come here and need not know the port of the proxy
     app.get('/web', function (req: express.Request, res: express.Response) {
