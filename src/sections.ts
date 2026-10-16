@@ -80,25 +80,32 @@ export function find(doc: Doc, at: Address): number {
     throw new Error('line ' + at.line + ' is in the header before the first heading')
   }
 
-  // the notation of the specs: "## Agents → ### Teaching-Agent"
+  // the notation of the specs: "## Agents → ### Teaching-Agent", a part with
+  // #s matches only a heading of that level
   const parts = (at.section || '')
     .split('→')
-    .map((part) => part.replace(/`/g, '').trim().replace(/^#+\s*/, '').toLowerCase())
-    .filter(Boolean)
+    .map((part) => {
+      const m = part.replace(/`/g, '').trim().match(/^(#*)\s*(.*)$/) as RegExpMatchArray
+      return { level: m[1].length, text: m[2].toLowerCase() }
+    })
+    .filter((part) => part.text)
   if (!parts.length) throw new Error('section is empty')
+  const fits = (h: Heading, part: { level: number; text: string }) =>
+    (!part.level || h.level === part.level) && matches(h.title, part.text)
+  const last = parts[parts.length - 1]
 
   let found = list
     .map((_, k) => k)
     .filter((k) => {
-      if (!matches(list[k].title, parts[parts.length - 1])) return false
+      if (!fits(list[k], last)) return false
       let i = parts.length - 2
       for (let a = list[k].parent; a >= 0 && i >= 0; a = list[a].parent) {
-        if (matches(list[a].title, parts[i])) i--
+        if (fits(list[a], parts[i])) i--
       }
       return i < 0
     })
   if (found.length > 1) {
-    const exact = found.filter((k) => list[k].title.toLowerCase() === parts[parts.length - 1])
+    const exact = found.filter((k) => list[k].title.toLowerCase() === last.text)
     if (exact.length === 1) found = exact
   }
   if (found.length === 1) return found[0]
