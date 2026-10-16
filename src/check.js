@@ -211,6 +211,11 @@ async function main() {
   assert.ok((await tool('find_teacher', { region: 'atlantis' })).isError, 'region is one of the list')
   assert.ok((await tool('find_teacher', { gender: 'x' })).isError, 'gender is female or male')
 
+  // --- the title of a chat that starts with the AI: not its header comment
+  const chats = require(path.join(ROOT, 'dist/chats.js'))
+  const opening = { created: '2026-10-16T12:00:00Z', entries: [{ type: 'ai', markdown: '<!--\nlanguage: de\n-->\n\n**Hallo**' }] }
+  assert.strictEqual(chats.title(opening), 'Hallo')
+
   // --- web pages: the proxy reaches public addresses only, on its own origin
   const web = require(path.join(ROOT, 'dist/web.js'))
   for (const ip of ['127.0.0.1', '10.1.2.3', '172.20.0.1', '192.168.0.1', '169.254.169.254', '100.64.0.1', '0.0.0.0']) {
