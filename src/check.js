@@ -160,7 +160,7 @@ async function main() {
 
   msg = await rpc('tools/list')
   const names = msg.result.tools.map((t) => t.name)
-  for (const name of ['get_state', 'goto', 'wait_for_event', 'chat', 'set_agent', 'find_teacher', 'read_chat', 'outline', 'read_section', 'write_section']) assert.ok(names.includes(name), name)
+  for (const name of ['get_state', 'goto', 'wait_for_event', 'chat', 'set_agent', 'find_teacher', 'read_chat', 'outline', 'read_section', 'write_section', 'run_in_page']) assert.ok(names.includes(name), name)
   assert.ok(/persona/.test(msg.result.tools.filter((t) => t.name === 'read_chat')[0].description), 'read_chat tells about the persona')
   for (const t of msg.result.tools) {
     assert.ok(t.description.length <= LIMIT, 'the description of ' + t.name + ' has ' + t.description.length + ' characters')
@@ -907,6 +907,24 @@ async function main() {
   assert.deepStrictEqual(replayed[0].sessions.map((s) => s.id), [saved.id])
   assert.strictEqual(replayed[1].session.entries.length, saved.entries.length)
   assert.deepStrictEqual(replayed[1].session.db, { quiz: { 0: solved } }, 'F5 gets the states of the quizzes')
+
+  // run_in_page: the shell hands the code to the page and its answer back
+  assert.ok((await tool('run_in_page', { code: '1' })).isError, 'no web page yet')
+  await post({ type: 'state', context: { file: '', web: 'https://example.org/', title: 'E', selection: '' } })
+  const ran = tool('run_in_page', { code: 'document.title' })
+  await sleep(200)
+  const sent = shellStream.match(/"page":\{"id":"([0-9a-f]{16})","code":"document.title"\}/)
+  assert.ok(sent, 'the code reaches the shell: ' + shellStream.slice(-200))
+  assert.strictEqual((await post({ type: 'page', params: { id: '../x', result: '1' } })).status, 400)
+  await post({ type: 'page', params: { id: 'ffffffffffffffff', result: '"forged"' } })
+  await post({ type: 'page', params: { id: sent[1], result: '"E"' } })
+  assert.strictEqual(await ran, 'E', 'the result of the page, not the forged one')
+  const thrown = tool('run_in_page', { code: 'x(' })
+  await sleep(200)
+  const sent2 = shellStream.match(/"page":\{"id":"([0-9a-f]{16})","code":"x\("\}/)
+  await post({ type: 'page', params: { id: sent2[1], error: 'SyntaxError' } })
+  assert.deepStrictEqual(await thrown, { isError: true, text: 'SyntaxError' })
+  await post({ type: 'state', context: { file: '', title: '', selection: '' } })
 
   assert.strictEqual((await post({ type: 'session', params: { id: '../etc' } })).status, 400)
   assert.strictEqual((await post({ type: 'session', params: { id: 'nope' } })).status, 400, 'unknown id')

@@ -764,7 +764,7 @@ export async function start(
 
       const body = req.body || {}
       if (
-        !['state', 'command', 'chat', 'answer', 'session', 'activity', 'store'].includes(body.type)
+        !['state', 'command', 'chat', 'answer', 'session', 'activity', 'store', 'page'].includes(body.type)
       ) {
         return res.sendStatus(400)
       }
@@ -789,6 +789,14 @@ export async function start(
         } catch (e: any) {
           console.warn('chat state not saved:', e.message)
         }
+        return res.sendStatus(204)
+      }
+
+      // what run_in_page's code returned in the web page, page content
+      if (body.type === 'page') {
+        const p = body.params || {}
+        if (!isName(p.id)) return res.sendStatus(400)
+        bus.emit('page', { id: p.id, result: text(p.result, PAGE_MAX), error: text(p.error, 2000) })
         return res.sendStatus(204)
       }
 
@@ -1198,6 +1206,29 @@ export function send(msg: any) {
   if (progress !== before || msg.chat) watchQuiet()
   // the agent is done: what it changed shows now, after a burst settled
   if (before && !progress && changedAt) reloadLater(BURST_MS)
+}
+
+const PAGE_MAX = 90000
+
+// Runs code in the web page of the shell (views/web.js, behind the proxy) and
+// resolves with what it returned as JSON, or with its error.
+// ponytail: every connected shell runs it, the first answer wins
+export function runInPage(code: string, ms = 10000): Promise<{ result?: string; error?: string }> {
+  const id = crypto.randomBytes(8).toString('hex')
+  return new Promise((resolve) => {
+    const done = (answer: { id: string; result?: string; error?: string }) => {
+      if (answer.id !== id) return
+      clearTimeout(limit)
+      bus.removeListener('page', done)
+      resolve(answer.error ? { error: answer.error } : { result: answer.result })
+    }
+    const limit = setTimeout(
+      () => done({ id, error: 'no answer from the page within ' + ms / 1000 + ' s: is it shown through the proxy?' }),
+      ms,
+    )
+    bus.on('page', done)
+    send({ page: { id, code } })
+  })
 }
 
 export function gotoLine(linenumber: number, filename: string) {

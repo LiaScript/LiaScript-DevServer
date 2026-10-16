@@ -40,6 +40,33 @@
     if (address() + '\n' + document.title != reported) report()
   }, 1000)
 
+  // run_in_page: code of the agent, sent by the shell. No CSP comes through
+  // the proxy, so eval works. hammerhead hands listeners only messages in its
+  // own format and makes e.data their .message, its native methods do not
+  var hammerhead = window['%hammerhead%']
+  var native = hammerhead && hammerhead.nativeMethods
+  ;(native ? native.windowAddEventListener : addEventListener).call(window, 'message', function (e) {
+    var m = native ? native.messageEventDataGetter.call(e) : e.data
+    if (e.source != parent || !m || !m.page || typeof m.page.code != 'string') return
+    var id = m.page.id
+    Promise.resolve()
+      .then(function () {
+        return (0, eval)(m.page.code)
+      })
+      // a circular value throws here and becomes the error
+      .then(function (value) {
+        return String(JSON.stringify(value)).slice(0, 90000)
+      })
+      .then(
+        function (result) {
+          parent.postMessage({ page: id, result: result }, '*')
+        },
+        function (error) {
+          parent.postMessage({ page: id, error: String(error) || 'error' }, '*')
+        },
+      )
+  })
+
   if (window['%hammerhead%']) return
 
   function go(url) {
