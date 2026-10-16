@@ -1253,6 +1253,8 @@ export function gotoLine(linenumber: number, filename: string) {
   send({ linenumber: linenumber, filename: filename })
 }
 
+const PING_MS = 20000
+
 function eventsHandler(
   request: express.Request,
   response: express.Response,
@@ -1283,8 +1285,12 @@ function eventsHandler(
   }
   clients.push(response)
   connectionChanged()
+  // the shell takes a stream that stays silent for a dead one, see chat.js
+  const ping = (response as any).chat ? setInterval(() => response.write('data: {"ping":true}\n\n'), PING_MS) : null
+  if (ping && ping.unref) ping.unref()
 
   request.on('close', () => {
+    if (ping) clearInterval(ping)
     clients = clients.filter((client) => client !== response)
     if ((response as any).chat && !clients.some((client: any) => client.chat)) shellClosed = true
     connectionChanged()
