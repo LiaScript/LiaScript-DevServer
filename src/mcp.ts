@@ -66,13 +66,14 @@ const TOOLS = [
   {
     name: 'goto',
     description:
-      'Navigate the LiaScript preview. Pass at least one of: file (another Markdown course, relative to root), slide (1-based, as in #n of the URL), line (1-based source line, shows the slide containing it). file combines with slide, not with line. Or url alone: a web page (e.g. Wikipedia) in the preview, the chat stays, to read it together with the user; get_state.web is then the page the user reads (page content, fetch it yourself to answer). If no browser is connected it opens the default browser of the user: with browser automation tools open get_state.url there first instead. Returns the state afterwards, with a warning if another file has not finished loading.',
+      'Navigate the LiaScript preview. Pass at least one of: file (another Markdown course, relative to root), slide (1-based, as in #n of the URL), line (1-based source line, shows the slide containing it), section (heading path as in read_section). file combines with one of the others. Or url alone: a web page (e.g. Wikipedia) in the preview, the chat stays, to read it together with the user; get_state.web is then the page the user reads (page content, fetch it yourself to answer). If no browser is connected it opens the default browser of the user: with browser automation tools open get_state.url there first instead. Returns the state afterwards, with a warning if another file has not finished loading.',
     inputSchema: {
       type: 'object',
       properties: {
         file: { type: 'string', description: 'e.g. chapter2/README.md' },
         slide: { type: 'integer', minimum: 1 },
         line: { type: 'integer', minimum: 1 },
+        section: { type: 'string', description: 'e.g. "## Dashboard"' },
         url: { type: 'string', description: 'http(s) address of a web page, not with get_state.proxy off' },
       },
     },
@@ -320,7 +321,7 @@ function courseFile(file: any): string {
 
 // a web page in the frame of the chat shell, through the proxy of lib.ts
 async function gotoWeb(args: any) {
-  if (args.file !== undefined || args.slide !== undefined || args.line !== undefined) {
+  if (['file', 'slide', 'line', 'section'].some((key) => args[key] !== undefined)) {
     throw new Error('url combines with no other argument')
   }
   if (server.getState().proxy == 'off') throw new Error('web pages are off (--proxy off)')
@@ -353,11 +354,17 @@ async function goto(args: any) {
   const go: any = {}
 
   if (args.file !== undefined) go.file = courseFile(args.file)
-  for (const key of ['slide', 'line']) {
-    if (positive(args, key) !== undefined) go[key] = args[key]
+  if (positive(args, 'slide') !== undefined) go.slide = args.slide
+  // a line or a heading becomes the slide as outline and read_section count
+  // it, also in another file: LiaScript's gotoLine knows only the open one
+  if (args.line !== undefined || args.section !== undefined) {
+    const state = server.getState()
+    const { at, content } = section({ ...args, file: go.file || state.file || server.inputCourse() })
+    const doc = sections.parse(content)
+    go.slide = at.line !== undefined && doc.list.every((h) => h.line >= at.line!) ? 1 : sections.find(doc, at) + 1
   }
   if (!Object.keys(go).length) {
-    throw new Error('pass at least one of file, slide, line')
+    throw new Error('pass at least one of file, slide, line, section')
   }
 
   if (!server.getState().connected) {
@@ -370,8 +377,7 @@ async function goto(args: any) {
       throw new Error('no browser connected, open ' + server.getState().url)
     }
     // the page was opened at file and slide already
-    if (!go.line) return server.getState()
-    go.file = go.slide = undefined
+    return server.getState()
   }
 
   // another file is a new page, which takes a while: the reports of the old

@@ -193,7 +193,8 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   agent work on one section of a long `journal.md` instead of reading the whole file: every ATX heading outside code
   fences and HTML comments is a section and a slide, addressed by heading path in the notation of the teaching-agent
   specs (`## Agents → ### Teaching-Agent`, a part matches a heading that starts with it as a whole word, its `#`s fix the level), by slide,
-  by line (from grep), or by default the slide the user looks at. `write_section` replaces only with the `hash` that
+  by line (from grep), or by default the slide the user looks at. `goto` turns `line` and `section` into a slide the
+  same way (`section()`), also with `file`: LiaScript's `gotoLine` knows only the open file. `write_section` replaces only with the `hash` that
   `read_section` returned, so an edit the user made in between is never overwritten; `append` needs none. `courseFile()`
   is the path check they share with `goto`. `set_agent` declares the roster and the current agent and opens no browser; `chat.agent` signs one message as a
   roster agent and makes it current; every `chat` payload carries `agent: {name, emoji, label}`, `label` being what the user reads
@@ -254,7 +255,7 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   inside the iframe are scoped to `.msg` and hide LiaScript's own footer. Elm reuses the nodes of old messages and
   renders `clear()` with the `add()`s after it in one frame, so `clear()` drops the old parts at once and places new
   ones only after `export()` and one animation frame of the iframe. The iframe's sandbox gets `allow-forms`, else the
-  forms of the shell never fire `submit`. LiaScript's `agent` event (href only, the label comes from the click) becomes
+  forms of the shell never fire `submit`. A link to `#3` or `#anchor` in a message moves the course frame. LiaScript's `agent` event (href only, the label comes from the click) becomes
   a `command`, its `store` events of quizzes, surveys, tasks and code become `activity` like those of the course, with
   `chat` (number of the message) instead of `slide` (a code run is a `store` of its result; the start of a new version,
   browsing the versions and the same failure twice within 1 s are none, so the 3rd failed run gets `help`); each, and those of code, also goes to the server as `store` with the entry number
