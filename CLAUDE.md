@@ -312,7 +312,11 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   The `chat` tool takes an optional `lang`, which becomes the `lang` attribute of the message; `runs()` splits a
   message into passages by the closest `lang` attribute inside the log (never the one of the page itself), so
   `<span lang="fr">` in the Markdown gets a French voice. While the frame shows another course than `--input` (or a listing or web page), `⌂ Start` in the bar leads
-  back to it (`{home}` in the replay of every `?chat` stream, `showHome()`). The bar above the log holds the session menu
+  back to it (`{home}` in the replay of every `?chat` stream, `showHome()`). 📁 next to it opens the listing of the folder of
+  the course or file in the frame (`courseFolder()`, only for this server, hidden in a listing, `data-listing` of
+  `views/layouts/index.hbs`, or a web page). The listing shows a file of another text type (a `LICENSE`, `.py`, `.ts`)
+  as `text/plain` without ETag (`SHOWN`, `isText()`), it was a download before. `.avif` and `.opus` are added to the
+  mime 1 table of express (`mime.define`), it had neither. The bar above the log holds the session menu
   (`+ New chat` and the saved chats; the current one counts as new until it has a file) and the robots of the agents.
   `showSession()` clears the log, hands `session.db` to the iframe with `lia.load({messages: [], db})` before the
   entries (there the n-th entry is the n-th message, so the states land in their quizzes; `report(…, true)` only
