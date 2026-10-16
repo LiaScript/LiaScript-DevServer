@@ -217,6 +217,22 @@ function reloadNow() {
   reloadInstance.reload()
 }
 
+// Does the preview show this file? Another Markdown file changes nothing in
+// it, and a reload reset the quizzes the user was answering: an agent writes
+// journal.md while the user tries README.md. A file the shown one names
+// (import:) counts as shown, so does everything that is no Markdown.
+function shows(filePath: string) {
+  if (!filePath.endsWith('.md')) return true
+  if (!state.file) return false
+  const file = path.join(state.root, state.file)
+  if (path.resolve(filePath) === file) return true
+  try {
+    return fs.readFileSync(file, 'utf8').includes(path.basename(filePath))
+  } catch (e) {
+    return true
+  }
+}
+
 // restarts the clock whenever something happens while a progress line shows
 function watchQuiet() {
   clearTimeout(quiet)
@@ -602,7 +618,9 @@ export async function start(
 
       watcher.on('change', (filePath: string) => {
         // which one: a reload nobody expected is easier to explain
-        console.log('📝 ' + path.relative(watchPath, filePath) + ' changed')
+        const name = path.relative(watchPath, filePath)
+        if (agent && !shows(filePath)) return console.log('📝 ' + name + ' changed, not shown')
+        console.log('📝 ' + name + ' changed')
         changed()
       })
 
