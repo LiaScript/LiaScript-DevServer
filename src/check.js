@@ -505,7 +505,7 @@ async function main() {
 
   // a fake chat shell. Never call chat without one: it would open a browser.
   stream = ''
-  const chatSse = http.get(ORIGIN + '/gotoLine?chat', (res) => res.on('data', (chunk) => (stream += chunk)))
+  let chatSse = http.get(ORIGIN + '/gotoLine?chat', (res) => res.on('data', (chunk) => (stream += chunk)))
   await sleep(200)
   assert.strictEqual((await tool('get_state', {})).chat, true)
 
@@ -517,6 +517,15 @@ async function main() {
   assert.deepStrictEqual(msg.params.meta, { type: 'connection' })
   assert.deepStrictEqual(JSON.parse(msg.params.content).params, { connected: true, chat: true })
   assert.deepStrictEqual((await tool('wait_for_event', {})).params, { connected: true, chat: true }, 'the fallback gets it too')
+
+  // F5: the shell goes and comes back at once, the agent hears of it anyway
+  chatSse.destroy()
+  await sleep(100)
+  chatSse = http.get(ORIGIN + '/gotoLine?chat', (res) => res.on('data', (chunk) => (stream += chunk)))
+  await sleep(2300)
+  const reload = { connected: true, chat: true, reloaded: true }
+  assert.deepStrictEqual(JSON.parse(notifications.pop().params.content).params, reload, 'a reload is an event')
+  assert.deepStrictEqual((await tool('wait_for_event', {})).params, reload)
 
   assert.deepStrictEqual(await tool('chat', { markdown: '**hi**' }), { sent: true })
   assert.ok(stream.includes('"markdown":"**hi**"'), 'the message reaches the shell')
