@@ -74,7 +74,7 @@ const TOOLS = [
         file: { type: 'string', description: 'e.g. chapter2/README.md' },
         slide: { type: 'integer', minimum: 1 },
         line: { type: 'integer', minimum: 1 },
-        url: { type: 'string', description: 'http(s) address of a web page' },
+        url: { type: 'string', description: 'http(s) address of a web page, not with get_state.proxy off' },
       },
     },
   },
@@ -302,6 +302,7 @@ async function gotoWeb(args: any) {
   if (args.file !== undefined || args.slide !== undefined || args.line !== undefined) {
     throw new Error('url combines with no other argument')
   }
+  if (server.getState().proxy == 'off') throw new Error('web pages are off (--proxy off)')
   const url = typeof args.url === 'string' && args.url.length <= 2000 && webURL(args.url)
   if (!url) throw new Error('url must be an http(s) address')
 

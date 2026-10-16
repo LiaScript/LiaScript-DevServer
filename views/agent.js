@@ -102,6 +102,14 @@
   var title = document.querySelector('title')
   if (title) new MutationObserver(report).observe(title, { childList: true })
 
+  // webPage() of the chat shell (same origin), none in a bare player or with
+  // --proxy off: the extension or the proxy
+  function webPage() {
+    try {
+      return parent != window && parent.document.documentElement.dataset.proxy != 'off' && parent.webPage
+    } catch (e) {}
+  }
+
   // Command links: [text](agent:tutor/explain?level=easy), or the same URI in
   // a data-agent attribute. One capturing listener, so it does not matter how
   // the player wires its links.
@@ -113,8 +121,9 @@
 
       // A link to another site opens in the chat shell, the chat stays.
       // With a modifier key it still opens a tab of its own.
+      var page = webPage()
       if (
-        parent != window &&
+        page &&
         el.tagName == 'A' &&
         /^https?:$/.test(el.protocol) &&
         el.origin != location.origin &&
@@ -122,7 +131,7 @@
       ) {
         e.preventDefault()
         e.stopPropagation()
-        location.href = '/web?url=' + encodeURIComponent(el.href)
+        location.href = page(el.href)
         return
       }
 

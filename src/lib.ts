@@ -10,6 +10,7 @@ import { EventEmitter } from 'events'
 
 import * as chats from './chats'
 import * as web from './web'
+import { startFull, Full } from './full'
 
 const cors = require('cors')
 const handlebars = require('express-handlebars')
@@ -66,9 +67,13 @@ var player = '/liascript/index.html'
 const ONLINE = 'https://LiaScript.github.io/course/'
 // web: the address of a web page the shell shows instead of a course
 const state = { root: '', file: '', slide: 1, title: '', selection: '', web: '' }
-// the proxy of the web pages, a server and origin of its own (src/web.ts)
+// the proxy of the web pages, a server and origin of its own (src/web.ts),
+// or hammerhead's with --proxy full (src/full.ts)
+export const PROXY = ['off', 'read', 'full']
+var proxyMode = 'read'
 var webOrigin = ''
 var webServer: http.Server | null = null
+var fullProxy: Full | null = null
 
 // the course file of --input, relative to root, '' for a folder: what the
 // agent reads before a browser reports which file it shows
@@ -332,6 +337,7 @@ export function getState() {
     agents: agents.list,
     view: agents.view,
     session: session && chats.summary(session),
+    proxy: proxyMode,
     // only present when the course cannot be read aloud
     tts: ttsHint(),
   }
@@ -420,11 +426,17 @@ export async function start(
   gotoCallback?: (linenumber: number, filename: string) => void,
   agent?: boolean,
   watch?: string[],
+  proxy?: string,
 ) {
   port = port || 3000
   hostname = hostname || 'localhost'
   input = input || '.'
   liveReload = liveReload || !!watch
+  proxyMode = proxy || 'read'
+  if (!PROXY.includes(proxyMode)) {
+    throw new Error(`--proxy is one of ${PROXY.join(', ')}, not ${proxyMode}`)
+  }
+  const proxies = !agent || proxyMode == 'off' ? [] : proxyMode == 'full' ? [webPort, webPort2] : [webPort]
 
   // the agent bridge is for this machine only
   const bind = agent
@@ -441,7 +453,7 @@ export async function start(
     const wanted = port
     while (
       !(await isFree(port, bind)) ||
-      !(await isFree(webPort(port), bind)) ||
+      (await Promise.all(proxies.map((proxyPort) => isFree(proxyPort(port), bind)))).includes(false) ||
       (liveReload && !(await isFree(reloadPort(port))))
     ) {
       if (++port > wanted + 20) {
@@ -498,7 +510,8 @@ export async function start(
 
     // Web pages: another port is another origin, so a page and its scripts
     // never reach /agent, the chat stream or the course. Only the shell may
-    // frame them.
+    // frame them. --proxy read fetches the document only (src/web.ts), full
+    // all of it (src/full.ts), off none.
     const proxyPort = webPort(port)
     const proxyHosts = hosts.map((h) => h.replace(/:\d+$/, '') + ':' + proxyPort)
     // CSP knows no IPv6 addresses
@@ -507,45 +520,59 @@ export async function start(
       .map((h) => 'http://' + h)
       .join(' ')
     webOrigin = 'http://' + hostname + ':' + proxyPort
-    webServer = http.createServer(function (req, res) {
-      if (!proxyHosts.includes(req.headers.host || '') || req.method !== 'GET') {
-        res.writeHead(403)
-        return res.end()
-      }
-      if (req.url === '/web.js') {
-        return fs.readFile(path.join(dirname, 'views/web.js'), function (err, data) {
-          res.writeHead(err ? 404 : 200, {
-            'Content-Type': 'text/javascript',
-            'Cache-Control': 'no-cache',
+    if (proxyMode == 'full') {
+      fullProxy = startFull({
+        // Another site than the shell: x.com through hammerhead in a frame of
+        // the same site (localhost:3000 and localhost:23000) ate all CPU and
+        // memory in Firefox until the desktop froze. Under 127.0.0.1 it loads.
+        hostname: hostname == 'localhost' ? '127.0.0.1' : hostname == '127.0.0.1' ? 'localhost' : hostname,
+        bind,
+        hosts,
+        port1: proxyPort,
+        port2: webPort2(port),
+        script: fs.readFileSync(path.join(dirname, 'views/web.js'), 'utf8'),
+      })
+    } else if (proxyMode == 'read') {
+      webServer = http.createServer(function (req, res) {
+        if (!proxyHosts.includes(req.headers.host || '') || req.method !== 'GET') {
+          res.writeHead(403)
+          return res.end()
+        }
+        if (req.url === '/web.js') {
+          return fs.readFile(path.join(dirname, 'views/web.js'), function (err, data) {
+            res.writeHead(err ? 404 : 200, {
+              'Content-Type': 'text/javascript',
+              'Cache-Control': 'no-cache',
+            })
+            res.end(data)
           })
-          res.end(data)
-        })
-      }
-      // /?<address>
-      const address = (req.url || '').slice(2)
-      web
-        .fetchPage(address, req.headers)
-        .then(function (page) {
-          // not a page: the frame takes it from the site
-          if (!page.body.length) {
-            res.writeHead(302, { Location: page.url })
-            return res.end()
-          }
-          // only these headers: the site's CSP, frame options and cookies stay out
-          res.writeHead(200, {
-            'Content-Type': page.type,
-            'Cache-Control': 'no-store',
-            'Content-Security-Policy': 'frame-ancestors ' + ancestors,
+        }
+        // /?<address>
+        const address = (req.url || '').slice(2)
+        web
+          .fetchPage(address, req.headers)
+          .then(function (page) {
+            // not a page: the frame takes it from the site
+            if (!page.body.length) {
+              res.writeHead(302, { Location: page.url })
+              return res.end()
+            }
+            // only these headers: the site's CSP, frame options and cookies stay out
+            res.writeHead(200, {
+              'Content-Type': page.type,
+              'Cache-Control': 'no-store',
+              'Content-Security-Policy': 'frame-ancestors ' + ancestors,
+            })
+            res.end(web.inject(page.body, page.url, webOrigin + '/web.js'))
           })
-          res.end(web.inject(page.body, page.url, webOrigin + '/web.js'))
-        })
-        .catch(function (e) {
-          res.writeHead(502, { 'Content-Type': 'text/plain; charset=utf-8' })
-          res.end('Could not load ' + address + '\n\n' + e.message)
-        })
-    })
-    webServer.on('error', (e) => console.error('web proxy:', e.message))
-    webServer.listen(proxyPort, bind)
+          .catch(function (e) {
+            res.writeHead(502, { 'Content-Type': 'text/plain; charset=utf-8' })
+            res.end('Could not load ' + address + '\n\n' + e.message)
+          })
+      })
+      webServer.on('error', (e) => console.error('web proxy:', e.message))
+      webServer.listen(proxyPort, bind)
+    }
   }
 
   // Initialize reload BEFORE routes to ensure its routes are registered first
@@ -710,8 +737,9 @@ export async function start(
     // the address field come here and need not know the port of the proxy
     app.get('/web', function (req: express.Request, res: express.Response) {
       const url = web.webURL(req.query.url)
+      if (proxyMode == 'off') return res.sendStatus(404)
       if (!url) return res.sendStatus(400)
-      res.redirect(webOrigin + '/?' + url.href)
+      res.redirect(fullProxy ? fullProxy.url(url.href) : webOrigin + '/?' + url.href)
     })
 
     // the LiaScript chat that renders the messages: element.js and its app
@@ -1025,6 +1053,10 @@ export function stop() {
     webServer.close()
     webServer = null
   }
+  if (fullProxy) {
+    fullProxy.close()
+    fullProxy = null
+  }
   if (watcher) {
     watcher.close()
     watcher = null
@@ -1045,6 +1077,11 @@ function reloadPort(port: number): number {
 // the proxy of the web pages, as unique as reloadPort
 function webPort(port: number): number {
   return port < 45535 ? port + 20000 : port - 20000
+}
+
+// hammerhead's second server, for cross-domain iframes (--proxy full)
+function webPort2(port: number): number {
+  return port < 35535 ? port + 30000 : port - 30000
 }
 
 // chokidar 4 knows no globs: skip hidden files and folders and node_modules
@@ -1190,6 +1227,7 @@ function eventsHandler(
     if (agents.list.length) replay.push(agentsMessage())
     if (progress) replay.push({ status: progress })
     if (hint) replay.push({ hint })
+    replay.push({ proxy: proxyMode })
     replay.forEach((msg) => response.write(`data: ${JSON.stringify(msg)}\n\n`))
   }
   clients.push(response)
