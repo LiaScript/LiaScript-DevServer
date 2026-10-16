@@ -183,7 +183,7 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   message carry it as `open`. The last three (logic in `src/sections.ts`, pure functions) let an
   agent work on one section of a long `journal.md` instead of reading the whole file: every ATX heading outside code
   fences and HTML comments is a section and a slide, addressed by heading path in the notation of the teaching-agent
-  specs (`## Agents → ### Teaching-Agent`, a part matches a heading that starts with it as a whole word), by slide,
+  specs (`## Agents → ### Teaching-Agent`, a part matches a heading that starts with it as a whole word, its `#`s fix the level), by slide,
   by line (from grep), or by default the slide the user looks at. `write_section` replaces only with the `hash` that
   `read_section` returned, so an edit the user made in between is never overwritten; `append` needs none. `courseFile()`
   is the path check they share with `goto`. `set_agent` declares the roster and the current agent and opens no browser; `chat.agent` signs one message as a
