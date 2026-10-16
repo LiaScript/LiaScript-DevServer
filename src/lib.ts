@@ -645,8 +645,10 @@ export async function start(
     }
   }
 
+  // the course of --input, a folder lists its files. With a course the
+  // listing showed technical files, and users had to guess which is theirs.
   app.get('/', function (req: express.Request, res: express.Response) {
-    res.redirect('/home')
+    res.redirect(project.readme ? home : '/home')
   })
 
   app.get('/gotoLine', eventsHandler)
