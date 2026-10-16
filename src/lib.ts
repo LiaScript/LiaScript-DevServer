@@ -89,10 +89,12 @@ export function inputCourse() {
 // which --responsiveVoice only achieves with a valid key. names: the voices in
 // the language of the course, for an agent to pick its own (set_agent voice).
 const speech = { voices: -1, automated: false, fallback: false, names: [] as string[] }
+// navigator.language: an agent greets in it before the course says its own
+var browserLang = ''
 
 // Who the user talks to: the agents of a workflow, each with an emoji that the
 // chat shows on its button and under every message. Kept out of state too.
-// label: what the user reads instead of the name, e.g. "Unterrichtsplanung"
+// label: what the user reads instead of the name, e.g. "Planungsassistent"
 // persona: a historical person of src/teachers/ the chat shows instead of the robot
 // voice: the name of a speech voice of the browser this agent reads aloud with
 export type Agent = { name: string; emoji: string; label?: string; persona?: string; voice?: string }
@@ -361,6 +363,7 @@ export function getState() {
     watched: watchers.length > 0,
     voices: speech.voices,
     voice_names: speech.names,
+    ...(browserLang ? { browser_lang: browserLang } : {}),
     agent: agents.current,
     agents: agents.list,
     view: agents.view,
@@ -853,6 +856,7 @@ export async function start(
         }
         if (typeof c.automated === 'boolean') speech.automated = c.automated
         if (typeof c.fallback === 'boolean') speech.fallback = c.fallback
+        if (c.browserLang !== undefined) browserLang = text(c.browserLang, 35)
       }
       bus.emit('state', getState())
 
