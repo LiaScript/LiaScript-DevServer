@@ -151,7 +151,9 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
     name (the agent menu of the chat, or a course link `agent:<name>/switch`) switches at once, before the event
     goes out; an unknown name stays a plain command. Every `chat`, `answer` and `command` (except a switch the
     server handled) sets the progress line to `Waiting for the assistant…` before the event goes out, so the user
-    sees at once that it arrived. An `activity` gets `params.help = 'true'` from the server alone (`needsHelp()`: the
+    sees at once that it arrived. A quiz `activity` carries `view`; a hit at the first try (`activity.js` sends it) goes out only in the learner
+    view, a companion could not tell solved from untouched; after `resolved` `input` is LiaScript's solution and
+    `answer` what the learner gave. An `activity` gets `params.help = 'true'` from the server alone (`needsHelp()`: the
     3rd wrong check of a quiz, `resolved`, the 3rd failed code run; once per task until it is solved) and, if no
     progress line shows, `Looking at your answer…`; the agent then has to answer or clear the line. Both turn into
     `Thinking…` with the first sign of an agent: `activity()`, which

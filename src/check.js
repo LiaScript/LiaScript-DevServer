@@ -664,6 +664,15 @@ async function main() {
   await tool('chat', { status: '' })
   // drain the fallback queue
   for (let i = 0; i < 5; i++) await tool('wait_for_event', { timeout_s: 0 })
+  // a hit at the first try is no news for an author who tests the course
+  const before = notifications.length
+  await quiz(1, 'solved', { block: '2' })
+  await sleep(100)
+  assert.strictEqual(notifications.length, before, 'no event in the author view')
+  await quiz(1, 'wrong', { block: '2' })
+  await sleep(100)
+  assert.strictEqual(JSON.parse(notifications.pop().params.content).params.view, 'author', 'a quiz event tells the view')
+  await tool('wait_for_event', { timeout_s: 0 })
 
   // a click on a link shows in the chat as what the user said, by its text
   stream = ''

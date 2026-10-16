@@ -972,6 +972,14 @@ export async function start(
       // already show what it works on
       if (body.type === 'activity') {
         delete checked.help
+        if (checked.kind === 'quiz') {
+          // a hit at the first try is news for a companion, who could not
+          // tell solved from untouched; an author testing would hear of all
+          if (checked.solved === 'solved' && checked.trial === '1' && agents.view !== 'learner') {
+            return res.sendStatus(204)
+          }
+          checked.view = agents.view
+        }
         if (needsHelp(checked, state.file)) {
           checked.help = 'true'
           if (!progress) {
