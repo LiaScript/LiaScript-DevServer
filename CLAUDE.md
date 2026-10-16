@@ -157,8 +157,10 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
     `Thinking…` with the first sign of an agent: `activity()`, which
     `mcp.ts` calls on every tool call and when it hands an event to a waiting call, and which a watcher of the event
     stream counts as too. While a progress line shows, a timer (`watchQuiet()`) puts a `{hint}` below it: after 30 s
-    without any sign since the event (`NO_REACTION`), or after 60 s of silence from an agent that did react
-    (`QUIET`, e.g. a permission prompt in the terminal). The agent's next status or message replaces both.
+    without any sign since the event (`NO_REACTION`, maybe no agent is connected: the server cannot know whether a
+    channel would wake an idle one), or after 60 s of silence from an agent that did react (`QUIET`, e.g. a
+    permission prompt in the terminal, which the text does not mention: it worried users while the agent worked).
+    A change of a watched file counts as a sign too. The agent's next status or message replaces both.
   - Chat sessions (`src/chats.ts`, a file store without Express): every chat is one `.chats/<id>.json` in
     `process.cwd()`, the project the MCP client opened, so it can be committed and continued by someone else. The id
     is UTC time plus random hex (no merge conflicts, no clash between twin instances), the file is valid JSON with

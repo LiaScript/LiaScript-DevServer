@@ -149,12 +149,13 @@ const WAITING = 'Waiting for the assistant…'
 const LOOKING = 'Looking at your answer…'
 const THINKING = 'Thinking…'
 const NO_REACTION_MS = 30000
+// the server cannot know whether an idle agent listens (a channel wakes it)
 const NO_REACTION =
-  'The assistant has not reacted yet. Your message is saved and waits for it.'
+  'The assistant has not reacted yet, maybe it is not connected. The message is saved, it answers once it starts.'
 const NOT_YET = 'The assistant has not reacted yet.'
 const QUIET_MS = 60000
-const QUIET =
-  'No sign of the assistant for a minute. It may still be working, or wait for a permission on the computer.'
+// nothing about a permission prompt: it worried users while the agent worked
+const QUIET = 'The assistant is still working, this can take a while.'
 // an event waits for the first sign of an agent
 var pending = false
 var hint = ''
@@ -621,6 +622,8 @@ export async function start(
       watcher.on('change', (filePath: string) => {
         // which one: a reload nobody expected is easier to explain
         const name = path.relative(watchPath, filePath)
+        // an agent that writes files is at work, also between its tool calls
+        if (progress && !pending) watchQuiet()
         if (agent && !shows(filePath)) return console.log('📝 ' + name + ' changed, not shown')
         console.log('📝 ' + name + ' changed')
         changed()
