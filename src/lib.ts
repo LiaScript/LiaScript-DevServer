@@ -1302,6 +1302,8 @@ function eventsHandler(
     if (progress) replay.push({ status: progress })
     if (hint) replay.push({ hint })
     replay.push({ proxy: proxyMode })
+    // the course of --input, the shell offers a way back to it
+    if (inputFile) replay.push({ home: inputFile })
     replay.forEach((msg) => response.write(`data: ${JSON.stringify(msg)}\n\n`))
   }
   clients.push(response)
