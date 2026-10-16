@@ -29,6 +29,7 @@ Abgleich aller Punkte mit dem Code, danach behoben. Commits auf `feat/agent-chat
 | N15, N18, N22, N47, N57, N62 (Text), N66, N69 (Text), N74 | MCP-Texte: Tutor-Zeile in den Instruktionen, Beispiel-Label, Stimmenregel bedingt, `null` in `agents[]`, `browser_lang`, Quiz im Chat ausprobieren, Antworten nicht echoen | 7042a73 |
 | N44, N70, N63 (teilweise) | Quiz-Event: `answer` = letzte Eingabe nach Auflösung, Erstlösung in der Lernansicht, `view` | d7a6020 |
 | #16, N40 (teilweise), N41, N53 | `goto` mit `section`, `line` auch mit `file` (serverseitig wie `outline` gezählt); `#anker`-Links im Chat bewegen den Kurs | dc2c012 |
+| N68, L14 | Der Server setzt `language:` des Kurskopfs in den Kopfkommentar einer Nachricht; `@liascript/chat` übernimmt ihn für alle Nachrichten (im Browser geprüft: keine zusätzliche Nachricht, F5 behält es) | siehe Log |
 | N5, N6, N8, N9, N20, N21, N23, N34, N54, N55 | Formular mit mehreren Fragen, „Frage: Antwort“, sichtbare Namen, Tabellen, Befehle gedämpft, Vorlesen (kein Inline-Code, Formularfragen, Abkürzungen, Status in der Sprache der Nachricht) | 65e2120 |
 
 **Schon vorher erledigt:** #1, #2, #5, #8, #10, #11, #13, #14, #15, N13, N17, N12 (`lock()` sperrt alles, im Browser nicht erneut geprüft). #6 betrifft nur Bibliotheksnutzer, N4 hat keinen Codepfad (eher Live-Reload, jetzt N51).
@@ -39,7 +40,7 @@ Abgleich aller Punkte mit dem Code, danach behoben. Commits auf `feat/agent-chat
 - N62 dauerhaftes KI-Kennzeichen in der Lernansicht, N65 Ausstieg aus der Lernansicht, N64 Tonhöhe spreizen / `pitch` in `set_agent`
 - N63 `max_trials` und `help: last-try`, N72 `goto`-Warnung bei nur gemeldetem Kurstitel, N76 Event bei Navigation, N40 Anker-Slug in `outline`
 - N32 `expect_seconds`, #9 Ankündigung des Reloads im Chat, N31 Chat-Titel setzbar, N69 Namen je Sprache, N38 Backoff für `reload.js`, N7 (nur Automatisierung, Ursache unklar), N67 Roadmap
-- Upstream: L1–L15, N46/L11, N68/L14
+- Upstream: L1–L13, L15, N46/L11 (L14 bleibt als Wunsch: Sprache für `<lia-chat>` von außen, ohne Kopfkommentar)
 
 ## Alte Punkte
 
@@ -197,7 +198,9 @@ Gefunden beim Test des Vorlesens im Chat des DevServers (2026-10-15, `@liascript
 
 ### Sprache im Chat
 
-- **`<lia-chat>` lässt sich keine Sprache geben.** Die Chat-App setzt `<html lang>` ihres iframes einmal
+- *(Umgangen 16.10.: ein Kopfkommentar `language:` in einer Nachricht mit Inhalt gilt für den ganzen Chat und
+  verschiebt die Nummern nicht, nur ein reiner Kopf über `define()` tut das. Der DevServer setzt ihn selbst.)*
+  **`<lia-chat>` lässt sich keine Sprache geben.** Die Chat-App setzt `<html lang>` ihres iframes einmal
   beim Start aus `definition.language` (`index_store`), also `en`, solange kein Header etwas anderes sagt.
   Ein Header geht nur über `define()` bzw. eine Nachricht `<!-- language: de -->`, und die zählt als
   Nachricht mit (die Nummern der Nachrichten verschieben sich). Davon hängt ab, in welcher Sprache

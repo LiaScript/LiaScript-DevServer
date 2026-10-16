@@ -207,7 +207,9 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   `get_state.events`, the Codex bridge, a loop of blocking `wait_for_event` (default 25 s, Copilot CLI ends tool
   calls after 30 s). Nothing wakes an idle Copilot, so the MCP prompt `chat` (`/mcp.liascript.chat` in VS Code)
   starts that loop. While `watched`, a `chat` form returns at once with its `ask` id instead
-  of blocking, otherwise the answer would arrive twice (tool result and stream line). `chat`, `answer` and `command` events carry `entry`, their number in the chat: `chat({reply_to})` answers
+  of blocking, otherwise the answer would arrive twice (tool result and stream line). `send()` puts `language:` of the course header into the header comment of a message (`withLanguage()`) unless
+  the chat says it already: `@liascript/chat` takes the language of a header in any message for all of them, quiz
+  buttons and feedback were English in a German course. `chat`, `answer` and `command` events carry `entry`, their number in the chat: `chat({reply_to})` answers
   with `newer_user_messages` when the user wrote, answered or clicked since (`newerThan()`), a message formulated
   before a newer one came is then no longer silently out of place. `close` takes a `reason`, shown under the form
   (live only, not saved). `chat` with only `status`

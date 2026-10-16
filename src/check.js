@@ -1019,6 +1019,27 @@ async function main() {
   assert.strictEqual(files().length, 2)
   assert.ok(shellStream.includes('"title":"second chat"'), 'the menu learns the new chat')
 
+  // the language of the course header goes into a message: quiz buttons and
+  // feedback of the whole chat follow it
+  const LANG = path.join(ROOT, 'check-lang.md')
+  fs.writeFileSync(LANG, '<!--\nlanguage: de\n-->\n# A\n')
+  try {
+    await post({ type: 'state', context: { file: 'check-lang.md', title: 'A', selection: '' } })
+    shellStream = ''
+    await tool('chat', { markdown: 'Hallo' })
+    await tool('chat', { markdown: 'noch eine' })
+    assert.ok(shellStream.includes('"markdown":"<!--\\nlanguage: de\\n-->\\n\\nHallo"'), 'the first message brings it: ' + shellStream)
+    assert.ok(shellStream.includes('"markdown":"noch eine"'), 'once per chat')
+    fs.writeFileSync(LANG, '<!--\nlanguage: fr\n-->\n# A\n')
+    await tool('chat', { markdown: '<!--\nimport: x\n-->\n\nSalut' })
+    assert.ok(shellStream.includes('"markdown":"<!--\\nlanguage: fr\\nimport: x\\n-->\\n\\nSalut"'), 'a new language, in the header of the message')
+    await tool('chat', { markdown: 'Text <!--\nlanguage: es\n-->' })
+    assert.ok(shellStream.includes('"markdown":"Text <!--\\nlanguage: es\\n-->"'), 'a comment further down is no header')
+  } finally {
+    fs.unlinkSync(LANG)
+  }
+  await post({ type: 'state', context: { file: '', title: '', selection: '' } })
+
   // back to the first one
   await post({ type: 'session', params: { id: saved.id } })
   await sleep(100)
