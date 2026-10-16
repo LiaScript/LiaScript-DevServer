@@ -71,6 +71,7 @@ var TEXTS = {
     Send: 'Senden',
     'Send answer': 'Antwort senden',
     '+ New chat': '+ Neuer Chat',
+    'New chat': 'Neuer Chat',
     'Send again': 'Erneut senden',
     'not delivered': 'nicht zugestellt',
     'No longer open': 'Nicht mehr offen',
@@ -177,6 +178,25 @@ function chatLang() {
   })
 }
 
+// The chat takes the color of the course: LiaScript's --color-highlight,
+// "r,g,b", which the player sets with the theme class of its document. A
+// listing or a web page keeps the last one.
+function accent() {
+  try {
+    var color = getComputedStyle(course.contentDocument.documentElement).getPropertyValue('--color-highlight').trim()
+    if (/^\d+,\s*\d+,\s*\d+$/.test(color)) document.documentElement.style.setProperty('--hl', color)
+  } catch (e) {}
+}
+course.addEventListener('load', function () {
+  accent()
+  try {
+    new MutationObserver(accent).observe(course.contentDocument.documentElement, {
+      attributes: true,
+      attributeFilter: ['class', 'style'],
+    })
+  } catch (e) {}
+})
+
 // the player sets its language once the course is parsed, again after a reload
 course.addEventListener('load', function () {
   localize()
@@ -193,6 +213,7 @@ course.addEventListener('load', function () {
 var homeCourse = ''
 var homeButton = document.getElementById('home')
 tr(homeButton, 'Back to the start of the course', 'title')
+tr(homeButton, 'Back to the start of the course', 'aria-label')
 
 function showHome() {
   var away = !!homeCourse
@@ -386,6 +407,8 @@ lia.iframe.addEventListener('load', function () {
   css.rel = 'stylesheet'
   css.href = new URL('chat.css', location.href).href
   doc.head.append(css)
+  // the rules of chat.css for this document only, the glass shows through
+  doc.documentElement.classList.add('lia-chat-frame')
   doc.body.classList.toggle('can-speak', log.classList.contains('can-speak'))
   // the link a click on agent: was about, for its text
   doc.addEventListener(
@@ -476,7 +499,11 @@ function showAgents(agents) {
   // the learner view: only the agent who teaches, larger on the stage
   document.body.classList.toggle('learner', agents.view == 'learner')
   who.textContent = ''
-  who.append(Avatar.bot(now, 22), now ? now.label || now.name : 'LiaAgent')
+  // the green dot: the agent the user talks to, here and in the robots
+  var face = document.createElement('span')
+  face.className = now ? 'face live' : 'face'
+  face.append(Avatar.bot(now, 22))
+  who.append(face, now ? now.label || now.name : 'LiaAgent')
 
   team.textContent = ''
   ;(agents.list || []).forEach(function (agent) {
@@ -577,6 +604,11 @@ sessions.addEventListener('change', function () {
     selectSession()
     sessions.classList.add('failed')
   })
+})
+// the same as + New chat in the menu
+document.getElementById('new').addEventListener('click', function () {
+  sessions.value = ''
+  sessions.dispatchEvent(new Event('change'))
 })
 
 function showSession(session) {
@@ -978,7 +1010,7 @@ function speaker() {
 }
 
 function idle(button) {
-  button.textContent = '\u25B6'
+  button.textContent = '\uEA44' // play of the icon font, chat.css
   tr(button, 'Read aloud', 'title')
   tr(button, 'Read this message aloud', 'aria-label')
 }
@@ -1202,7 +1234,7 @@ function read(item) {
   reading = item
   var button = item.button
   if (button) {
-    button.textContent = '\u25A0'
+    button.textContent = '\uEA57' // stop
     tr(button, 'Stop', 'title')
     tr(button, 'Stop reading', 'aria-label')
   }
