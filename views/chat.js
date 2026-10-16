@@ -354,6 +354,13 @@ lia.iframe.addEventListener('load', function () {
     'click',
     function (e) {
       lastLink = e.target.closest && e.target.closest('a')
+      // [Station 1](#station-1) or (#3) shows that slide of the course: the
+      // chat has no slides of its own
+      var href = lastLink && lastLink.getAttribute('href')
+      if (!href || href[0] != '#' || href.length < 2 || !isPlayer()) return
+      e.preventDefault()
+      e.stopPropagation()
+      course.contentWindow.location.hash = href
     },
     true,
   )

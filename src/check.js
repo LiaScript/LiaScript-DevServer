@@ -443,6 +443,7 @@ async function main() {
   await post({ type: 'state', context: { file: 'README.md', slide: 5, title: 'T5', selection: '' } })
   assert.strictEqual((await moved).slide, 5, 'goto answers with the reported state')
 
+
   // another file is a new page: the old one still reports while it goes
   // away, goto waits for the new one
   const opened = tool('goto', { file: 'other.md', slide: 2 })
@@ -528,6 +529,28 @@ async function main() {
   const reload = { connected: true, chat: true, reloaded: true }
   assert.deepStrictEqual(JSON.parse(notifications.pop().params.content).params, reload, 'a reload is an event')
   assert.deepStrictEqual((await tool('wait_for_event', {})).params, reload)
+
+  // a line or a heading goes to the slide as outline counts it, a heading in
+  // the comment of the header is none
+  const was = await tool('get_state', {})
+  const GOTO = path.join(ROOT, 'check-goto.md')
+  fs.writeFileSync(GOTO, ['<!--', '# not a slide', '-->', '# A', '', '## B', '', 'text', '', '## C', ''].join('\n'))
+  try {
+    await post({ type: 'state', context: { file: 'check-goto.md', slide: 1, title: 'A', selection: '' } })
+    const cases = [[{ line: 8 }, 2], [{ section: '## C' }, 3], [{ line: 2 }, 1], [{ file: 'check-goto.md', line: 8 }, 2]]
+    for (const [args, slide] of cases) {
+      stream = ''
+      const going = tool('goto', args)
+      await sleep(100)
+      assert.ok(stream.includes('"slide":' + slide + '}}'), JSON.stringify(args) + ': ' + stream)
+      await post({ type: 'state', context: { file: 'check-goto.md', slide, title: 'x', selection: '' } })
+      await going
+    }
+    assert.ok((await tool('goto', { slide: 2, line: 8 })).isError, 'one of slide, line, section')
+  } finally {
+    fs.unlinkSync(GOTO)
+  }
+  await post({ type: 'state', context: { file: was.file, slide: was.slide, title: was.title, selection: '' } })
 
   assert.deepStrictEqual(await tool('chat', { markdown: '**hi**' }), { sent: true })
   assert.ok(stream.includes('"markdown":"**hi**"'), 'the message reaches the shell')
