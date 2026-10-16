@@ -20,6 +20,7 @@
       voiceNames: voiceNames(),
       automated: navigator.webdriver === true,
       fallback: typeof responsiveVoice != 'undefined',
+      browserLang: navigator.language,
     }
   }
 

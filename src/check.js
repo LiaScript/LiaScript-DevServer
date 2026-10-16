@@ -804,6 +804,8 @@ async function main() {
   await tool('set_agent', { name: 'prof', agents: [{ name: 'tutor', emoji: '🧑‍🏫' }, examiner, { name: 'prof', emoji: '🎓', label: 'Sokrates', persona: 'socrates', voice: 'de_DE-thorsten-high' }] })
   assert.strictEqual((await tool('set_agent', { name: 'prof', persona: 'hypatia' })).agents[2].voice, 'de_DE-thorsten-high', 'a new persona keeps the voice until the agent picks another')
   assert.strictEqual((await tool('set_agent', { name: 'prof', voice: null })).agents[2].voice, undefined, 'null removes it')
+  const automatic = await tool('set_agent', { name: 'prof', agents: [{ name: 'tutor', emoji: '🧑‍🏫' }, examiner, { name: 'prof', emoji: '🎓', voice: null, persona: null }] })
+  assert.deepStrictEqual(automatic.agents[2], { name: 'prof', emoji: '🎓' }, 'null in agents too')
   await tool('set_agent', { name: 'tutor', view: 'author' })
   const listed = await tool('set_agent', { name: 'tutor', agents: [{ ...tutor, persona: 'hypatia' }, examiner] })
   assert.strictEqual(listed.view, 'learner', 'a persona in agents for the current agent switches too')
