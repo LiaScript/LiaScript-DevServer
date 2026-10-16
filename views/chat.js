@@ -195,7 +195,12 @@ course.addEventListener('load', function () {
 // server caps them.
 addEventListener('message', function (e) {
   var m = e.data
-  if (e.source != course.contentWindow || !m || typeof m.web != 'string') return
+  if (e.source != course.contentWindow || !m) return
+  // what the code of run_in_page returned
+  if (typeof m.page == 'string') {
+    return post({ type: 'page', params: { id: m.page, result: m.result, error: m.error } }).catch(function () {})
+  }
+  if (typeof m.web != 'string') return
   web = m.web
   history.replaceState(null, '', location.pathname + '?web=' + encodeURIComponent(web))
   document.title = String(m.title)
@@ -387,7 +392,7 @@ function showAgents(agents) {
   // the learner view: only the agent who teaches, larger on the stage
   document.body.classList.toggle('learner', agents.view == 'learner')
   who.textContent = ''
-  who.append(Avatar.bot(now, 22), now ? now.label || now.name : 'Chat')
+  who.append(Avatar.bot(now, 22), now ? now.label || now.name : 'LiaAgent')
 
   team.textContent = ''
   ;(agents.list || []).forEach(function (agent) {
@@ -1517,6 +1522,9 @@ stream.onmessage = function (event) {
   if (data.sessions) return showSessions(data.sessions)
   if (data.session) return showSession(data.session)
   if (data.entry) return showEntry(data.entry)
+  // run_in_page: views/web.js runs it, the frame may have moved on to
+  // another page by now, which only learns the code
+  if (data.page) return course.contentWindow.postMessage({ page: data.page }, '*')
   // the player follows a goto to a course itself, the file listing and a
   // web page cannot
   if (data.goto) {

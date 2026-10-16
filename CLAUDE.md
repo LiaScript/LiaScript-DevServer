@@ -174,7 +174,7 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
     `chats.title()`.
 - **`src/mcp.ts`** — the MCP adapter: a dependency-free newline-delimited JSON-RPC server on stdio (deliberately
   not the MCP SDK, see the header comment) with the tools `get_state`, `goto`, `chat`, `set_agent`, `find_teacher`, `read_chat`,
-  `wait_for_event`, `outline`, `read_section` and `write_section`. `read_chat` returns the saved chat (default the
+  `wait_for_event`, `outline`, `read_section`, `write_section` and `run_in_page`. `read_chat` returns the saved chat (default the
   last 50 entries, agents by name) so that a fresh agent can pick up a resumed session; ask ids are random
   (`ask-<hex>`) because a resumed chat holds the forms of earlier processes, and a `session` event
   ends a waiting `chat` form with `{switched: true}`. Only one form is open (`openAsk` in `lib.ts`): the newest of
@@ -199,8 +199,11 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   starts that loop. While `watched`, a `chat` form returns at once with its `ask` id instead
   of blocking, otherwise the answer would arrive twice (tool result and stream line). `chat` with only `status`
   sets the progress line below the messages (the SSE message `{status}`, no browser is opened for it); a message
-  keeps it only if it carries a `status` itself. Screenshots, console and clicks are deliberately no tools of the
-  bridge: the instructions tell an agent with browser automation tools (Playwright, Chrome DevTools) to open
+  keeps it only if it carries a `status` itself. `run_in_page` runs code of the agent in the web page behind the
+  proxy (`runInPage()` in `lib.ts`: SSE `{page: {id, code}}`, `chat.js` hands it to the frame, `views/web.js` evals
+  it and answers by `postMessage`, `chat.js` sends that as `POST /agent` type `page`, no event), to read or mark a
+  whole page; not for pages the extension loads directly. Screenshots, console and clicks of the course are
+  deliberately no tools of the bridge: the instructions tell an agent with browser automation tools (Playwright, Chrome DevTools) to open
   `get_state.url` there before the first `goto` or `chat`, unless a tab is connected already. Those tools drive a
   browser of their own and cannot attach to the user's, and two connected tabs overwrite each other's state.
   Claude Code cuts the instructions and every tool description at 2048 characters
