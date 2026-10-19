@@ -24,7 +24,7 @@ jobs:
           node-version: '24'
       - name: Building Package
         run: |
-          npm install -g pkg
+          npm install -g @yao-pkg/pkg@6.23.0
 
           npm install
           npm run build

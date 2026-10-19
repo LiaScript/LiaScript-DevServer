@@ -43,7 +43,7 @@ top-level folder would not.
 ### Releases
 
 Pushing a git tag triggers two independent GitHub Actions workflows (`.github/workflows/`):
-- Builds standalone binaries with `pkg` for win/linux/macos (`npm run release_*`) and attaches them to a GitHub Release
+- Builds standalone binaries with `@yao-pkg/pkg` (Node 22, `vercel/pkg` stops at 18, too old for hammerhead) for win/linux/macos (`npm run release_*`) and attaches them to a GitHub Release
 - Publishes the npm package (`npm run build` then `npm publish`)
 
 Both the CLI version string (in `src/index.ts`'s `--version` output and `package.json`'s `version` field, formatted
