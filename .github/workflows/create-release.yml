@@ -2,6 +2,8 @@ on:
   push:
     tags:
       - '*'
+    branches:
+      - mcp
 
 name: Create Release
 
@@ -10,6 +12,8 @@ permissions:
 
 jobs:
   build:
+    # the branch mcp builds only in the private LiaScript/DevServer, never as a public release
+    if: github.ref_type == 'tag' || github.repository == 'LiaScript/DevServer'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -25,9 +29,17 @@ jobs:
           npm install
           npm run build
           npm run release
+      # ponytail: a push of the branch replaces the assets of the release of its version, the tag stays on the
+      # first commit of that version; bump package.json for a release of its own
+      - name: Version
+        id: version
+        run: echo "tag=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || steps.version.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          prerelease: ${{ github.ref_type != 'tag' }}
           body: |
             Download your OS specific binary from below
           files: |
