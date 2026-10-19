@@ -11,9 +11,9 @@
     "test:codex": "node src/check-codex.js",
     "shebang": "head -c2 dist/index.js | grep -q '#!' || sed -i '1i #!/usr/bin/env node\\n' dist/index.js && chmod +x dist/index.js",
     "release": "npm run release_win && npm run release_linux && npm run release_macos",
-    "release_win": "pkg . -t node18-win --output release/windows/liascript-devserver -C GZip",
-    "release_linux": "pkg . -t node18-linux --output release/linux/liascript-devserver-linux -C GZip",
-    "release_macos": "pkg . -t node18-macos --output release/macos/liascript-devserver-macos -C GZip"
+    "release_win": "pkg . -t node22-win --output release/windows/liascript-devserver -C GZip",
+    "release_linux": "pkg . -t node22-linux --output release/linux/liascript-devserver-linux -C GZip",
+    "release_macos": "pkg . -t node22-macos --output release/macos/liascript-devserver-macos -C GZip"
   },
   "repository": {
     "type": "git",
