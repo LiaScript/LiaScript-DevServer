@@ -43,6 +43,6 @@ jobs:
           body: |
             Download your OS specific binary from below
           files: |
-            ./release/linux/liascript-devserver
-            ./release/macos/liascript-devserver
+            ./release/linux/liascript-devserver-linux
+            ./release/macos/liascript-devserver-macos
             ./release/windows/liascript-devserver.exe
