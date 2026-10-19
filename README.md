@@ -299,6 +299,13 @@ The agent gets these tools:
 | `chat`           | write into the chat on top of the course, optionally with buttons, radio buttons and checkboxes for you to answer |
 | `read_chat`      | read the saved chat, so that an agent can continue a conversation it did not start                               |
 | `wait_for_event` | fallback for agents that cannot be notified, see below                                                         |
+| `git_login`      | log in to GitHub: the agent gives you a link to a local page where you paste a [token](https://github.com/settings/tokens/new?scopes=repo&description=LiaScript%20DevServer), the agent never sees it |
+| `git_status`, `git_clone`, `git_sync`, `git_tag` | git without an installed git: changes and last commits, clone, commit + pull + push, tag a version |
+| `git_publish`    | a new GitHub repository for the course, with description, topics and the LiaScript link as website            |
+
+The token is kept in `~/.config/liascript/github.json` and sent to github.com
+only. `git_sync` does not merge conflicts: it stops before anything is merged
+or pushed.
 
 #### Reading aloud
 
