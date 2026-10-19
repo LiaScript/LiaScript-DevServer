@@ -1123,6 +1123,52 @@ async function main() {
   assert.ok(offOut.includes('"id":99') && offOut.split('\n').find((l) => l.includes('"id":99')).includes('"isError":true'), 'goto url refused')
   off.stdin.end()
 
+  // --- git without git: a repo of its own, a fake login in a HOME of its own
+  const home = path.join(PROJECT, 'git-home')
+  const account = path.join(home, '.config', 'liascript')
+  fs.mkdirSync(account, { recursive: true })
+  fs.writeFileSync(path.join(account, 'github.json'), JSON.stringify({ token: 'x', login: 'tester', name: 'Tester', email: 't@example.org' }))
+  const gitCourse = path.join(PROJECT, 'git-course')
+  fs.mkdirSync(gitCourse)
+  fs.writeFileSync(path.join(gitCourse, 'README.md'), '# Course\n')
+  const env = { ...process.env, HOME: home, USERPROFILE: home }
+  const gitServer = spawn(process.execPath, [path.join(ROOT, 'dist/index.js'), '--mcp', '-p', PORT, '-i', path.join(gitCourse, 'README.md')], { cwd: PROJECT, env, stdio: ['pipe', 'pipe', 'ignore'] })
+  let gitOut = ''
+  gitServer.stdout.on('data', (chunk) => (gitOut += chunk))
+  let gitId = 0
+  const gitTool = async (name, args) => {
+    const id = ++gitId
+    gitServer.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method: 'tools/call', params: { name, arguments: args } }) + '\n')
+    for (let i = 0; i < 50; i++) {
+      await sleep(100)
+      const line = gitOut.split('\n').find((l) => l.startsWith('{') && JSON.parse(l).id === id)
+      if (line) {
+        const result = JSON.parse(line).result
+        return result.isError ? { error: result.content[0].text } : JSON.parse(result.content[0].text)
+      }
+    }
+    throw new Error('no answer to ' + name)
+  }
+  assert.deepStrictEqual(await gitTool('git_login', {}), { user: 'tester' })
+  assert.ok(/no git repository/.test((await gitTool('git_status', {})).error))
+  assert.ok(/below root/.test((await gitTool('git_status', { dir: '..' })).error), 'never a repository above root')
+  await require('isomorphic-git').init({ fs, dir: gitCourse, defaultBranch: 'main' })
+  assert.deepStrictEqual((await gitTool('git_status', {})).changed, ['new README.md'])
+  const synced = await gitTool('git_sync', { message: 'First words' })
+  assert.ok(/^[0-9a-f]{7}$/.test(synced.commit) && synced.pushed === false, 'committed, nothing to push to')
+  assert.strictEqual((await gitTool('git_sync', { message: 'again' })).commit, null, 'nothing changed')
+  assert.strictEqual((await gitTool('git_tag', { name: 'v1' })).tag, 'v1')
+  const st = await gitTool('git_status', {})
+  assert.deepStrictEqual([st.changed, st.log, st.tags, st.branch], [[], [synced.commit + ' First words'], ['v1'], 'main'])
+  const gitState = await gitTool('get_state', {})
+  const gitPort = Number(new URL(gitState.events).port)
+  const login = new URL(gitState.events.replace('/agent/events/', '/git/')).pathname
+  const gitHost = { Host: '127.0.0.1:' + gitPort }
+  assert.strictEqual((await request('GET', login, gitHost, undefined, gitPort)).status, 200, 'the login page')
+  assert.strictEqual((await request('GET', '/git/wrong', gitHost, undefined, gitPort)).status, 403)
+  assert.strictEqual((await request('POST', login, gitHost, 'token=abc', gitPort)).status, 403, 'a POST without Origin')
+  gitServer.stdin.end()
+
   // --- the agent quits, the server follows
   const exited = new Promise((resolve) => child.on('exit', resolve))
   child.stdin.end()

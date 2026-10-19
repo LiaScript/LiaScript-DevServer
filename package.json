@@ -49,6 +49,7 @@
     "cors": "^2.8.6",
     "express": "^4.22.1",
     "express-handlebars": "^5.3.5",
+    "isomorphic-git": "^1.44.3",
     "minimist": "^1.2.8",
     "open": "^8.4.2",
     "reload": "^3.3.0",

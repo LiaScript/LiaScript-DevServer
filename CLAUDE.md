@@ -183,7 +183,7 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
     `chats.title()`.
 - **`src/mcp.ts`** — the MCP adapter: a dependency-free newline-delimited JSON-RPC server on stdio (deliberately
   not the MCP SDK, see the header comment) with the tools `get_state`, `goto`, `chat`, `set_agent`, `find_teacher`, `read_chat`,
-  `wait_for_event`, `outline`, `read_section`, `write_section` and `run_in_page`. `read_chat` returns the saved chat (default the
+  `wait_for_event`, `outline`, `read_section`, `write_section`, `run_in_page` and the `git_` tools (`src/git.ts`). `read_chat` returns the saved chat (default the
   last 50 entries, agents by name) so that a fresh agent can pick up a resumed session; ask ids are random
   (`ask-<hex>`) because a resumed chat holds the forms of earlier processes, and a `session` event
   ends a waiting `chat` form with `{switched: true}`. Only one form is open (`openAsk` in `lib.ts`): the newest of
@@ -229,6 +229,16 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   (`ttsHint()` in `lib.ts`). `--responsiveVoice` without a key injects `key=true`, which the service rejects.
   Automation tools start Chrome with `--disable-component-extensions-with-background-pages`, which removes its
   online voices.
+- **`src/git.ts`** — git for users who cannot install it (no admin rights): the tools `git_login`, `git_status`,
+  `git_clone`, `git_sync`, `git_publish` and `git_tag` on `isomorphic-git` (pure JS, `main` and `http/node` resolve
+  without the exports map, so `pkg` finds them) and the GitHub REST API by `fetch`. The user pastes a personal
+  access token into `GET /git/<token>` of `lib.ts` (`gitLogin()`, the random token of the event stream, so course
+  scripts cannot set it; `POST` checks `Origin`), it lands in `~/.config/liascript/github.json` with the login and
+  the noreply address for commits, never in a tool result, and `onAuth` hands it to `github.com` only. Every `dir`
+  is below root, `repo()` refuses a repository above it. `git_sync` is add -A, commit, pull, push; a
+  `MergeConflictError` aborts before anything is written. `git_publish` creates the repository (`owner` for an
+  organization), pushes and fills the about section: `description`, `topics`, `homepage` (default the LiaScript
+  link to `README.md`, public only). `src/check.js` covers it offline with a `HOME` of its own and a fake login.
 - **`src/teachers/`** — teacher personas: historical people a teaching agent can take on. `looks.ts` is a verbatim
   copy of `src/famous.ts` of `LiaTemplates/virtual-speaker` (copy it again to take over new people, only header and
   last line differ), `traits.ts` holds gender, region, lived, fields and teaching (an English instruction, never a
