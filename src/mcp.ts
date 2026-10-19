@@ -9,6 +9,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import * as readline from 'readline'
 
+import * as git from './git'
 import * as server from './lib'
 import * as sections from './sections'
 import * as teachers from './teachers/catalog'
@@ -263,6 +264,66 @@ const TOOLS = [
       type: 'object',
       properties: { code: { type: 'string', description: 'e.g. [...document.querySelectorAll("article")].map(a => a.innerText)' } },
       required: ['code'],
+    },
+  },
+  {
+    name: 'git_login',
+    description:
+      'Log in to GitHub for the git_ tools, which need no installed git. Returns {user} when logged in, else {url}: put it as a link into the chat and tell the user to open it, create a token there and paste it in. The token never reaches you. Call again afterwards to check.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'git_status',
+    description:
+      'The git repository at dir (relative to root, default root): {dir, user, branch, remote, changed, log (last 5 commits), tags}.',
+    inputSchema: { type: 'object', properties: { dir: { type: 'string' } } },
+  },
+  {
+    name: 'git_clone',
+    description:
+      'Clone an https repository into dir below root (default its name), e.g. to continue a course of someone else. Private GitHub repositories need git_login.',
+    inputSchema: {
+      type: 'object',
+      properties: { url: { type: 'string' }, dir: { type: 'string' } },
+      required: ['url'],
+    },
+  },
+  {
+    name: 'git_sync',
+    description:
+      'Save and share: commits every change at dir (relative to root, default root) with message, pulls and pushes. Only when the user asks, pushing publishes. A conflict stops before anything is merged or pushed, tell the user.',
+    inputSchema: {
+      type: 'object',
+      properties: { message: { type: 'string' }, dir: { type: 'string' } },
+      required: ['message'],
+    },
+  },
+  {
+    name: 'git_publish',
+    description:
+      'Create a new GitHub repository for the folder dir (relative to root, default root), commit and push everything. Only when the user asks; confirm name and public or private in the chat first. Fills the about section of the repository: description (one sentence), topics (e.g. ["liascript", "oer", subject, language]) and homepage, by default the link that opens README.md in LiaScript (public only). owner: an organization instead of the user.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'default the folder name' },
+        private: { type: 'boolean' },
+        description: { type: 'string' },
+        topics: { type: 'array', items: { type: 'string' }, description: 'lowercase, digits and -' },
+        homepage: { type: 'string' },
+        owner: { type: 'string' },
+        message: { type: 'string', description: 'of the first commit' },
+        dir: { type: 'string' },
+      },
+    },
+  },
+  {
+    name: 'git_tag',
+    description:
+      'Tag the last commit at dir (relative to root, default root), e.g. v1.0 for a version of the course, and push the tag. git_sync first, uncommitted changes are not in it.',
+    inputSchema: {
+      type: 'object',
+      properties: { name: { type: 'string' }, message: { type: 'string' }, dir: { type: 'string' } },
+      required: ['name'],
     },
   },
 ]
@@ -838,6 +899,12 @@ const TOOL_CALLS: { [name: string]: (args: any, request: any) => any } = {
   read_section: readSection,
   write_section: writeSection,
   run_in_page: runInPage,
+  git_login: () => (git.user() ? { user: git.user() } : { url: server.gitLogin() }),
+  git_status: (args: any) => git.status(server.getState().root, args),
+  git_clone: (args: any) => git.clone(server.getState().root, args),
+  git_sync: (args: any) => git.sync(server.getState().root, args),
+  git_publish: (args: any) => git.publish(server.getState().root, args),
+  git_tag: (args: any) => git.tag(server.getState().root, args),
 }
 
 async function handle(method: string, params: any, request: any) {

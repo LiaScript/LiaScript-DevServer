@@ -10,6 +10,7 @@ const packageJson = require('../package.json')
 import { EventEmitter } from 'events'
 
 import * as chats from './chats'
+import * as git from './git'
 import * as web from './web'
 import { startFull, Full } from './full'
 
@@ -354,6 +355,11 @@ var settling: any = null
 // the last shell closed its stream since the last report: F5 or a restart of
 // the browser, the agent learns of it even if the state is the same again
 var shellClosed = false
+
+// the page where the user hands over a GitHub token, see src/git.ts
+export function gitLogin() {
+  return origin + '/git/' + token
+}
 
 export function getState() {
   return {
@@ -1068,6 +1074,27 @@ export async function start(
         res.on('close', () => {
           watchers = watchers.filter((watcher) => watcher !== res)
         })
+      },
+    )
+
+    // the GitHub token goes from the user to src/git.ts, never past the
+    // agent; the random token keeps course scripts out
+    app.get('/git/:token', function (req: express.Request, res: express.Response) {
+      if (req.params.token !== token) return res.sendStatus(403)
+      res.send(git.page())
+    })
+    app.post(
+      '/git/:token',
+      express.urlencoded({ extended: false }),
+      async function (req: express.Request, res: express.Response) {
+        if (req.params.token !== token || req.headers.origin !== 'http://' + req.headers.host) {
+          return res.sendStatus(403)
+        }
+        try {
+          res.send(git.page(await git.login(req.body.token)))
+        } catch (e: any) {
+          res.status(400).send(git.page(undefined, e.message))
+        }
       },
     )
   }
