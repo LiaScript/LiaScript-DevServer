@@ -1008,7 +1008,7 @@ function speaker() {
 }
 
 function idle(button) {
-  button.textContent = '\uEA44' // play of the icon font, chat.css
+  button.textContent = '\uEA48' // play of the icon font, chat.css
   tr(button, 'Read aloud', 'title')
   tr(button, 'Read this message aloud', 'aria-label')
 }
@@ -1232,7 +1232,7 @@ function read(item) {
   reading = item
   var button = item.button
   if (button) {
-    button.textContent = '\uEA57' // stop
+    button.textContent = '\uEA5B' // stop
     tr(button, 'Stop', 'title')
     tr(button, 'Stop reading', 'aria-label')
   }
