@@ -1,6 +1,6 @@
 {
   "name": "@liascript/devserver",
-  "version": "1.2.19--2.4.0",
+  "version": "1.2.20--2.5.0",
   "description": "Run a development server for LiaScript locally",
   "main": "dist/index.js",
   "scripts": {
@@ -43,8 +43,8 @@
   "author": "André Dietrich",
   "license": "MIT",
   "dependencies": {
-    "@liascript/chat": "^0.1.2--2.4.0",
-    "@liascript/editor": "^1.2.0--2.4.0",
+    "@liascript/chat": "^0.1.2--2.5.0",
+    "@liascript/editor": "^1.2.0--2.5.0",
     "chokidar": "^4.0.3",
     "cors": "^2.8.6",
     "express": "^4.22.1",
