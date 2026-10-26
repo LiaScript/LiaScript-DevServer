@@ -164,6 +164,18 @@ Sandbox (2) stehen aus. **Vor echten Schülern:** Die Agenten laufen mit dem Kon
 Lehrers; Freigaben lehnt das Gateway zwar ab, aber Erlaubnis-Regeln in
 `~/.claude/settings.json` des Lehrers gelten auch für die Agenten der Schüler.
 
+## Meilenstein 3: Vor echten Schülern
+
+Getestet (2026-10-26): Jeder Agent läuft in bubblewrap. Mit seinen eigenen Argumenten sah
+eine Shell darin weder `~/.ssh` noch den Ordner eines anderen Nutzers, keine
+`LIA_*`-Variablen, 5 Prozesse, `/usr` nur lesend; der DevServer einer anderen Nutzerin
+antwortet ohne Gateway-Schlüssel mit 403. Der Agent selbst lehnt solche Bitten schon nach
+seinen Regeln ab. Logins überstehen einen Neustart. `--student-model haiku` wirkt
+(der Agent meldet Claude Haiku), die Kosten erscheinen im Dashboard. Offen: Sandbox für
+Codex und Gemini und unter Windows; mit Abo-Login liest der Agent technisch die
+Zugangsdatei in seinem Home (Claude Code fragt dafür, das Gateway lehnt ab), mit
+`ANTHROPIC_API_KEY` entfällt das.
+
 ## Danach (je eigener Plan)
 
 2. Sandbox-Spike: Claude Code und Codex per ACP in bubblewrap; `~/.ssh` unerreichbar,

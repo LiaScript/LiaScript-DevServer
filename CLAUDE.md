@@ -258,6 +258,16 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   values accepted, so no path from the form reaches the disk), kept as `course` in `users.json` and shown in the list, sets passwords, deletes users (their folder stays), shows who is online, where (`/agent/state`, with
   `stuck`, the last help of `needsHelp()`) and lets the teacher read the latest chat. `check.js` covers login,
   lock and routing with a stub agent. The UI of each share tab sits below `tab-<id>/`: the service worker asks every
+  Before real students: logins are kept in `DIR/logins.json` (`0600`, 7 days, cleared by a new password). Every
+  agent runs in bubblewrap (`sandbox()` in `acp.ts`, `LIA_SANDBOX`, off with `--no-sandbox`, Claude only so far):
+  `/usr` and `/etc` read-only, node and the adapter (resolved with `npm exec --call`, no npx inside), the user's
+  folder, a home of its own outside it (`DIR/.homes/<name>`: Claude Code reads its working folder without asking,
+  the login file must not lie there), `--clearenv`, its own pid namespace, the resolver under `/run/systemd`. With
+  `ANTHROPIC_API_KEY` that key goes in, else the file `~/.claude/.credentials.json` alone. The network stays for the
+  API, so the DevServers of the users answer only requests with `x-lia-gateway` (`LIA_GATEWAY_KEY`, a random key
+  per gateway), and `connect()` hands the agent no `LIA_*` variable. `--student-model`/`--author-model` set
+  `ANTHROPIC_MODEL` per role. `acp.ts` keeps the cost of each session (`usage_update.cost`, cumulative, at the end
+  of a turn) in `.chats/.acp-costs.json`, the dashboard sums it per user.
   share tab, only the one with that id answers, two logins in one browser never cross.
 - **`src/share.ts` + `share/`** — `--share` (spike, see
   `docs/superpowers/specs/2026-10-26-shared-devserver-webrtc-design.md`): the server for browsers elsewhere over

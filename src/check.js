@@ -1204,17 +1204,25 @@ async function main() {
   fs.mkdirSync(path.join(COURSES, 'prolog'), { recursive: true })
   fs.writeFileSync(path.join(COURSES, 'prolog', 'README.md'), '# Prolog\n')
   fs.mkdirSync(path.join(COURSES, 'bilder'))
-  const gw = spawn(process.execPath, [path.join(ROOT, 'dist/index.js'), '--users', USERS, '--courses', COURSES, '-p', ADMIN, '--agent', 'node -e setInterval(Date.now,1e9)'], { cwd: PROJECT, stdio: ['ignore', 'pipe', 'ignore'] })
-  // also when an assertion fails: a gateway left behind holds the port
-  process.on('exit', () => gw.kill())
-  const front = await new Promise((resolve, reject) => {
-    gw.on('exit', () => reject(new Error('the gateway stopped')))
-    let out = ''
-    gw.stdout.on('data', (d) => {
-      const m = /front: http:\/\/127\.0\.0\.1:(\d+)/.exec((out += d))
-      if (m) resolve(Number(m[1]))
+  // a gateway and what it prints: the port of its front and of anna's DevServer
+  let gwOut = ''
+  const gateway = () => {
+    const g = spawn(process.execPath, [path.join(ROOT, 'dist/index.js'), '--users', USERS, '--courses', COURSES, '-p', ADMIN, '--no-sandbox', '--agent', 'node -e setInterval(Date.now,1e9)'], { cwd: PROJECT, stdio: ['ignore', 'pipe', 'ignore'] })
+    // also when an assertion fails: a gateway left behind holds the port
+    process.on('exit', () => g.kill())
+    g.stdout.on('data', (d) => (gwOut += d))
+    return g
+  }
+  const printed = (re) =>
+    new Promise((resolve, reject) => {
+      const t = setInterval(() => {
+        const m = re.exec(gwOut)
+        if (m) clearInterval(t), resolve(Number(m[1]))
+      }, 50)
+      setTimeout(() => (clearInterval(t), reject(new Error('the gateway did not print ' + re))), 15000)
     })
-  })
+  let gw = gateway()
+  const front = await printed(/front: http:\/\/127\.0\.0\.1:(\d+)/)
   const FORM = { 'Content-Type': 'application/x-www-form-urlencoded' }
   const ADM = { ...FORM, Host: '127.0.0.1:' + ADMIN, Origin: 'http://127.0.0.1:' + ADMIN }
   assert.strictEqual((await request('POST', '/users', { ...FORM, Host: ADM.Host }, 'name=anna&password=secret1&role=student', ADMIN)).status, 403, 'an admin form without Origin')
@@ -1241,10 +1249,22 @@ async function main() {
   const inside = await request('GET', '/', { ...TAB, 'X-Lia-Token': token }, undefined, front)
   assert.strictEqual(inside.status, 302, 'the DevServer of anna')
   assert.ok(inside.headers.location.startsWith('https://liascript.github.io/share/tab-x/liascript/chat.html?'), inside.headers.location)
-  for (let i = 0; i < 5; i++) await request('POST', '/lia-login', { ...TAB, ...FORM }, 'name=anna&password=nope', front)
-  const locked = await request('POST', '/lia-login', { ...TAB, ...FORM }, 'name=anna&password=secret1', front)
+  // anna's DevServer answers the gateway only, not the agents of the others
+  const annaPort = await printed(/anna \| +- local: +http:\/\/localhost:(\d+)/)
+  assert.strictEqual((await request('GET', '/', { Host: 'localhost:' + annaPort }, undefined, annaPort)).status, 403, 'no request without the key of the gateway')
+  // logins survive a restart of the gateway
+  let gwExit = new Promise((resolve) => gw.on('exit', resolve))
+  gw.kill()
+  await gwExit
+  gwOut = ''
+  gw = gateway()
+  const front2 = await printed(/front: http:\/\/127\.0\.0\.1:(\d+)/)
+  assert.strictEqual((await request('GET', '/', { ...TAB, 'X-Lia-Token': token }, undefined, front2)).status, 302, 'still logged in after a restart')
+  assert.strictEqual(fs.statSync(path.join(USERS, 'logins.json')).mode & 0o777, 0o600, 'logins.json for the owner only')
+  for (let i = 0; i < 5; i++) await request('POST', '/lia-login', { ...TAB, ...FORM }, 'name=anna&password=nope', front2)
+  const locked = await request('POST', '/lia-login', { ...TAB, ...FORM }, 'name=anna&password=secret1', front2)
   assert.ok(locked.status === 401 && locked.data.includes('warten'), 'five wrong passwords lock the name')
-  const gwExit = new Promise((resolve) => gw.on('exit', resolve))
+  gwExit = new Promise((resolve) => gw.on('exit', resolve))
   gw.kill()
   await gwExit
 

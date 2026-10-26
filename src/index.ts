@@ -50,6 +50,10 @@ if (argv.h || argv.help) {
   console.log('                 the share link and gets DIR/<name> and an agent')
   console.log('                 of their own (with --share); -p is the port of')
   console.log('                 the admin page')
+  console.log('    --no-sandbox the agents of --users without bubblewrap')
+  console.log('    --student-model, --author-model  the model of the agents of')
+  console.log('                 that role (ANTHROPIC_MODEL), e.g. haiku; the key')
+  console.log('                 comes from ANTHROPIC_API_KEY, else your login')
   console.log('    --courses    DIR: its subfolders are the courses the admin')
   console.log('                 page copies for a new user (default: .)')
   console.log('    --share      share it over WebRTC, prints a link for other')
@@ -100,6 +104,11 @@ if (argv.users) {
       courses: require('path').resolve(typeof argv.courses == 'string' ? argv.courses : '.'),
       admin: Number(argv.p || argv.port || 3000),
       agent: typeof argv.agent == 'string' ? argv.agent : 'claude',
+      // minimist turns --no-sandbox into sandbox: false
+      sandbox: argv.sandbox !== false,
+      models: Object.fromEntries(
+        ['student', 'author'].filter((r) => typeof argv[r + '-model'] == 'string').map((r) => [r, argv[r + '-model']]),
+      ),
       share: argv.share && ((front: string) => {
         const { link, holder } = share({
           local: front,

@@ -6,7 +6,7 @@
 // after IDLE_MS without an open tab. The admin page on localhost manages the
 // users and shows who is where. The DevServer itself stays one user per
 // process; this file only starts, routes and watches them.
-import { spawn, ChildProcess } from 'child_process'
+import { execFileSync, spawn, ChildProcess } from 'child_process'
 import * as crypto from 'crypto'
 import * as fs from 'fs'
 import * as http from 'http'
@@ -36,6 +36,8 @@ type Options = {
   admin: number // port of the admin page
   agent: string
   courses: string // the folder whose subfolders the admin page offers as courses
+  sandbox: boolean // every agent in bubblewrap (src/acp.ts), off only with --no-sandbox
+  models: { [role: string]: string } // ANTHROPIC_MODEL per role, e.g. a small one for students
   share?: (front: string) => string // starts the share host, returns the link
 }
 
@@ -86,8 +88,33 @@ export async function gateway(o: Options) {
   } catch (e) {}
   const save = () => fs.writeFileSync(file, JSON.stringify(users, null, 2), { mode: 0o600 })
 
-  // login token -> name; in memory, a restart asks everybody to log in again
+  if (o.sandbox) {
+    try {
+      execFileSync('bwrap', ['--version'])
+    } catch (e) {
+      throw new Error('the agents of --users run in bubblewrap (bwrap), which is missing: install it, or start with --no-sandbox')
+    }
+  }
+  // the DevServers of the users answer only requests with this key
+  const gatewayKey = crypto.randomBytes(16).toString('hex')
+
+  // login token -> name, kept in DIR/logins.json, so a restart keeps the
+  // tabs logged in; a login ends after LOGIN_MS or with a new password
+  const LOGIN_MS = 7 * 24 * 60 * 60 * 1000
+  const loginFile = path.join(dir, 'logins.json')
   const logins = new Map<string, string>()
+  const since = new Map<string, number>()
+  try {
+    for (const [t, l] of Object.entries(JSON.parse(fs.readFileSync(loginFile, 'utf8')) as any)) {
+      if ((l as any).at > Date.now() - LOGIN_MS) logins.set(t, (l as any).name), since.set(t, (l as any).at)
+    }
+  } catch (e) {}
+  const saveLogins = () =>
+    fs.writeFileSync(
+      loginFile,
+      JSON.stringify(Object.fromEntries([...logins].map(([t, name]) => [t, { name, at: since.get(t) || Date.now() }]))),
+      { mode: 0o600 },
+    )
   const failed = new Map<string, { n: number; until: number }>()
   const running = new Map<string, Instance>()
   // one start at a time: two of them looked for a free port at once
@@ -109,7 +136,15 @@ export async function gateway(o: Options) {
       const port = nextPort++
       child = spawn(process.execPath, [...self, '--agent', o.agent, '-p', String(port), '-i', input], {
         cwd: home,
-        env: { ...process.env, LIA_TOKEN: token, LIA_GATEWAY: '1', LIA_ROLE: users[name].role },
+        env: {
+          ...process.env,
+          LIA_TOKEN: token,
+          LIA_GATEWAY: '1',
+          LIA_GATEWAY_KEY: gatewayKey,
+          LIA_ROLE: users[name].role,
+          ...(o.models[users[name].role] ? { ANTHROPIC_MODEL: o.models[users[name].role] } : {}),
+          ...(o.sandbox ? { LIA_SANDBOX: '1', LIA_AGENT_HOME: path.join(dir, '.homes', name) } : {}),
+        },
         stdio: ['ignore', 'pipe', 'inherit'],
       })
       inst.child = child
@@ -194,7 +229,8 @@ ${message ? `<p class="bad">${esc(message)}</p>` : ''}<button>Anmelden</button><
 
   const front = http.createServer(async (req, res) => {
     const base = /^https?:\/\/[\w.-]+(:\d+)?(\/[\w.~-]+)*$/.test(String(req.headers['x-lia-origin'])) ? String(req.headers['x-lia-origin']) : ''
-    const name = logins.get(String(req.headers['x-lia-token'] || ''))
+    const presented = String(req.headers['x-lia-token'] || '')
+    const name = (since.get(presented) || 0) > Date.now() - LOGIN_MS ? logins.get(presented) : undefined
 
     if (req.url === '/lia-login' && req.method === 'POST') {
       const f = await form(req)
@@ -214,6 +250,8 @@ ${message ? `<p class="bad">${esc(message)}</p>` : ''}<button>Anmelden</button><
       failed.delete(who)
       const token = crypto.randomBytes(16).toString('hex')
       logins.set(token, who)
+      since.set(token, Date.now())
+      saveLogins()
       console.log('👤 ' + who + ': logged in')
       // the share page sends it along with every request of this tab
       return page(
@@ -241,18 +279,18 @@ ${message ? `<p class="bad">${esc(message)}</p>` : ''}<button>Anmelden</button><
     }
     inst.open++
     inst.last = Date.now()
-    const since = Date.now()
+    const started = Date.now()
     // LIA_DEBUG=1: every request of a user and how long it stayed open
     if (process.env.LIA_DEBUG) console.log('🐞 ' + name + ' ' + req.method + ' ' + req.url + ' (' + (req.headers['sec-fetch-dest'] || '-') + ')')
     res.on('close', () => {
       inst.open--
       inst.last = Date.now()
-      if (process.env.LIA_DEBUG) console.log('🐞 ' + name + ' closed ' + req.url + ' after ' + (Date.now() - since) + ' ms, ' + res.statusCode)
+      if (process.env.LIA_DEBUG) console.log('🐞 ' + name + ' closed ' + req.url + ' after ' + (Date.now() - started) + ' ms, ' + res.statusCode)
     })
     // the DevServer checks Host and Origin as for a tab of this machine
     const web = req.headers['x-lia-web'] === '1'
     const target = web ? (port < 45535 ? port + 20000 : port - 20000) : port
-    const headers: any = { ...req.headers, host: 'localhost:' + target }
+    const headers: any = { ...req.headers, host: 'localhost:' + target, 'x-lia-gateway': gatewayKey }
     if (headers.origin) headers.origin = 'http://localhost:' + target
     delete headers['x-lia-token']
     delete headers['x-lia-web']
@@ -265,12 +303,27 @@ ${message ? `<p class="bad">${esc(message)}</p>` : ''}<button>Anmelden</button><
     if (!inst.port) return null
     try {
       const r = await fetch('http://127.0.0.1:' + inst.port + '/agent/state/' + inst.token, {
-        headers: { host: 'localhost:' + inst.port },
+        headers: { host: 'localhost:' + inst.port, 'x-lia-gateway': gatewayKey },
         signal: AbortSignal.timeout(1000),
       })
       return r.ok ? await r.json() : null
     } catch (e) {
       return null
+    }
+  }
+
+  // what the agents of a user cost, all their sessions (src/acp.ts writes it)
+  const costOf = (name: string) => {
+    try {
+      const sum: { [currency: string]: number } = {}
+      for (const c of Object.values(JSON.parse(fs.readFileSync(path.join(dir, name, '.chats', '.acp-costs.json'), 'utf8'))) as any[]) {
+        sum[c.currency] = (sum[c.currency] || 0) + c.amount
+      }
+      return Object.entries(sum)
+        .map(([currency, amount]) => amount.toLocaleString('de-DE', { style: 'currency', currency, maximumFractionDigits: 4 }))
+        .join(', ')
+    } catch (e) {
+      return ''
     }
   }
 
@@ -282,7 +335,7 @@ ${message ? `<p class="bad">${esc(message)}</p>` : ''}<button>Anmelden</button><
   async function rows() {
     const names = Object.keys(users).sort()
     const states = await Promise.all(names.map((n) => (running.get(n) ? stateOf(running.get(n)!) : null)))
-    if (!names.length) return '<tr><td colspan="7">Noch keine Nutzer.</td></tr>'
+    if (!names.length) return '<tr><td colspan="8">Noch keine Nutzer.</td></tr>'
     return names
       .map((n, i) => {
         const inst = running.get(n)
@@ -295,6 +348,7 @@ ${message ? `<p class="bad">${esc(message)}</p>` : ''}<button>Anmelden</button><
 <td>${users[n].course ? esc(users[n].course) : '<small>–</small>'}</td>
 <td>${esc(where)}${help ? `<br><b>Braucht Hilfe</b> <small>${esc(ago(s.stuck.at))}, Folie ${esc(s.stuck.slide || '?')}</small>` : ''}</td>
 <td>${s && s.session ? esc(s.session.count) + ' Einträge<br><a href="/chat/' + esc(n) + '" target="_blank">mitlesen</a>' : ''}</td>
+<td>${esc(costOf(n)) || '<small>–</small>'}</td>
 <td><form method="post" action="/password/${esc(n)}"><input name="password" type="password" placeholder="neues Passwort" required minlength="6"><button>setzen</button></form></td>
 <td><form method="post" action="/delete/${esc(n)}" onsubmit="return confirm('${esc(n)} löschen? Der Ordner bleibt erhalten.')"><button class="danger">löschen</button></form></td></tr>`
       })
@@ -316,7 +370,7 @@ form.new{display:flex;flex-wrap:wrap;gap:8px}code{word-break:break-all}.msg{colo
 <h1>LiaScript Klasse</h1>
 <div class="card"><b>Link für alle:</b><br>${link ? `<code>${esc(link)}</code>` : 'nicht geteilt, mit <code>--share</code> starten'}</div>
 ${message ? `<p class="msg">${esc(message)}</p>` : ''}
-<h2>Nutzer</h2><div class="card"><table><thead><tr><th>Name</th><th>Status</th><th>Kurs</th><th>Wo</th><th>Chat</th><th>Passwort</th><th></th></tr></thead><tbody id="rows">${table}</tbody></table></div>
+<h2>Nutzer</h2><div class="card"><table><thead><tr><th>Name</th><th>Status</th><th>Kurs</th><th>Wo</th><th>Chat</th><th>Kosten</th><th>Passwort</th><th></th></tr></thead><tbody id="rows">${table}</tbody></table></div>
 <h2>Neuer Nutzer</h2><div class="card"><form class="new" method="post" action="/users">
 <input name="name" placeholder="name (a-z, 0-9, - _)" required pattern="[a-z0-9][a-z0-9_-]{0,31}">
 <input name="password" type="password" placeholder="Passwort" required minlength="6">
@@ -409,11 +463,13 @@ body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-
         save()
         // logged in with the old one: out
         for (const [t, n] of logins) if (n === who) logins.delete(t)
+        saveLogins()
         message = 'Neues Passwort für ' + who + ' gesetzt.'
       }
     } else if (action === 'delete' && users[who]) {
       running.get(who)?.child?.kill()
       for (const [t, n] of logins) if (n === who) logins.delete(t)
+      saveLogins()
       delete users[who]
       save()
       message = who + ' ist gelöscht, der Ordner ' + path.join(dir, who) + ' bleibt.'
@@ -441,6 +497,11 @@ body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-
   console.log('👥 users in ' + dir + ' (' + Object.keys(users).length + ')')
   console.log('👥 admin page: http://localhost:' + o.admin + '/')
   console.log('📚 courses from ' + o.courses + ' (' + courseList(o.courses).length + ')')
+  console.log(o.sandbox ? '🔒 every agent in bubblewrap, in the folder of its user' : '⚠️  no sandbox: the agents can read everything this user can')
+  if (o.agent == 'claude' && !process.env.ANTHROPIC_API_KEY) {
+    console.log('⚠️  no ANTHROPIC_API_KEY: every agent uses your own Claude login, and its limits')
+  }
+  for (const [role, model] of Object.entries(o.models)) console.log('🧠 ' + role + ': ' + model)
   // reachable through the share link, or on this machine with the headers it sets
   console.log('👥 front: ' + frontOrigin)
   if (link) console.log('🔗 share: ' + link)

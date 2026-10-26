@@ -5,8 +5,9 @@
 // what it wants to do beyond those tools the user allows in the chat.
 // One ACP session per chat session, kept in .chats/.acp-sessions.json, so a
 // restart continues where the chat left off.
-import { spawn } from 'child_process'
+import { execFileSync, spawn } from 'child_process'
 import * as fs from 'fs'
+import * as os from 'os'
 import * as path from 'path'
 import * as readline from 'readline'
 
@@ -14,8 +15,9 @@ import * as server from './lib'
 import * as mcp from './mcp'
 
 // npx fetches the adapter on first use, pinned: a newer one may speak differently
+const CLAUDE = '@agentclientprotocol/claude-agent-acp@0.96.0'
 const AGENTS: { [name: string]: string[] } = {
-  claude: ['npx', '-y', '@agentclientprotocol/claude-agent-acp@0.96.0'],
+  claude: ['npx', '-y', CLAUDE],
   codex: ['npx', '-y', '@zed-industries/codex-acp@0.16.0'],
   gemini: ['gemini', '--acp'],
 }
@@ -33,11 +35,57 @@ const RULES =
 // started by --users for someone elsewhere: nobody there may allow more
 const remote = () => !!server.getState().share || !!process.env.LIA_GATEWAY
 
+// --users (src/gateway.ts) sets LIA_SANDBOX: the agent of a user runs in
+// bubblewrap and sees the system read-only, node and the adapter, and the
+// folder of the user. No other home, no other process, none of the
+// environment of this server. Its own home (LIA_AGENT_HOME) lies outside that
+// folder: Claude Code reads the working folder without asking, and there it
+// would read the login. Reading elsewhere needs a permission, which the
+// gateway refuses. The network stays, for the API; the DevServers of the
+// other users want the key of the gateway (LIA_GATEWAY_KEY in lib.ts).
+function sandbox(which: string, dir: string): string[] {
+  if (which !== 'claude') throw new Error('no sandbox for ' + which + ' yet: start --users with --no-sandbox to run it without one')
+  // the adapter itself, not npx: inside there is no npm cache
+  const bin = execFileSync('npm', ['exec', '--yes', '--package=' + CLAUDE, '--call', 'command -v claude-agent-acp'], { encoding: 'utf8' }).trim()
+  const entry = fs.realpathSync(bin)
+  const modules = entry.slice(0, entry.lastIndexOf('/node_modules/'))
+  const node = path.dirname(path.dirname(fs.realpathSync(process.execPath)))
+  const home = process.env.LIA_AGENT_HOME || path.join(dir, '.agent')
+  fs.mkdirSync(path.join(home, '.claude'), { recursive: true })
+  const args = ['--die-with-parent', '--unshare-pid', '--unshare-ipc', '--unshare-uts', '--new-session', '--clearenv']
+  args.push('--ro-bind', '/usr', '/usr', '--ro-bind', '/etc', '/etc')
+  for (const d of ['/bin', '/lib', '/lib64', '/sbin']) {
+    try {
+      if (fs.lstatSync(d).isSymbolicLink()) args.push('--symlink', fs.readlinkSync(d), d)
+      else args.push('--ro-bind', d, d)
+    } catch (e) {}
+  }
+  // resolv.conf points into /run on systemd systems
+  args.push('--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp', '--tmpfs', '/run')
+  args.push('--ro-bind-try', '/run/systemd/resolve', '/run/systemd/resolve')
+  args.push('--ro-bind', node, node, '--ro-bind', modules, modules, '--bind', dir, dir, '--bind', home, home, '--chdir', dir)
+  args.push('--setenv', 'HOME', home, '--setenv', 'PATH', path.join(node, 'bin') + ':/usr/bin:/bin')
+  args.push('--setenv', 'LANG', process.env.LANG || 'C.UTF-8')
+  for (const key of ['ANTHROPIC_API_KEY', 'ANTHROPIC_MODEL', 'ANTHROPIC_BASE_URL']) {
+    if (process.env[key]) args.push('--setenv', key, process.env[key] as string)
+  }
+  // without a key the login of this machine's user, that file only
+  const login = path.join(os.homedir(), '.claude', '.credentials.json')
+  if (!process.env.ANTHROPIC_API_KEY && fs.existsSync(login)) {
+    const target = path.join(home, '.claude', '.credentials.json')
+    if (!fs.existsSync(target)) fs.writeFileSync(target, '', { mode: 0o600 })
+    args.push('--bind', login, target)
+  }
+  return ['bwrap', ...args, path.join(node, 'bin', 'node'), entry]
+}
+
 type Peer = { call: (method: string, params: object) => Promise<any>; notify: (method: string, params: object) => void }
 
 // JSON-RPC both ways over the stdio of the agent
 function connect(cmd: string, args: string[], onRequest: (method: string, params: any) => Promise<any>, onNotify: (method: string, params: any) => void): Peer {
-  const child = spawn(cmd, args, { stdio: ['pipe', 'pipe', 'inherit'], cwd: server.getState().root })
+  // the tokens of this server are none of the agent's business
+  const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('LIA_')))
+  const child = spawn(cmd, args, { stdio: ['pipe', 'pipe', 'inherit'], cwd: server.getState().root, env })
   const pending = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void }>()
   let id = 0
   const write = (msg: object) => child.stdin.write(JSON.stringify({ jsonrpc: '2.0', ...msg }) + '\n')
@@ -82,13 +130,20 @@ function connect(cmd: string, args: string[], onRequest: (method: string, params
 }
 
 export async function host(which: string) {
-  const [cmd, ...args] = AGENTS[which] || which.split(' ')
+  const [cmd, ...args] = process.env.LIA_SANDBOX ? sandbox(which, server.getState().root) : AGENTS[which] || which.split(' ')
   const tools = await mcp.serveHttp(onEvent)
   const root = server.getState().root
   const store = path.join(process.cwd(), '.chats', '.acp-sessions.json')
   let saved: { [chat: string]: string } = {}
   try {
     saved = JSON.parse(fs.readFileSync(store, 'utf8'))
+  } catch (e) {}
+  // what each ACP session cost so far, as the agent reports it (usage_update),
+  // for the dashboard of --users
+  const costs = path.join(process.cwd(), '.chats', '.acp-costs.json')
+  let spent: { [session: string]: { amount: number; currency: string } } = {}
+  try {
+    spent = JSON.parse(fs.readFileSync(costs, 'utf8'))
   } catch (e) {}
 
   // the turn that runs: its text, and how many chat messages it found
@@ -108,6 +163,12 @@ export async function host(which: string) {
       throw Object.assign(new Error('not supported: ' + method), { code: -32601 })
     },
     (method, params) => {
+      const cost = method === 'session/update' && params.update && params.update.sessionUpdate === 'usage_update' && params.update.cost
+      if (cost && typeof cost.amount === 'number') {
+        spent[params.sessionId] = { amount: cost.amount, currency: String(cost.currency || 'USD') }
+        fs.mkdirSync(path.dirname(costs), { recursive: true })
+        fs.writeFileSync(costs, JSON.stringify(spent))
+      }
       if (method !== 'session/update' || !turn || params.sessionId !== turn.session) return
       // a sign of life: the chat shows Thinking… instead of Waiting…
       server.activity()

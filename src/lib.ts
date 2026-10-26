@@ -588,6 +588,16 @@ export async function start(
       port == 80 ? h : h + ':' + port,
     )
 
+    // started by --users (src/gateway.ts): only the gateway may ask, not the
+    // agents of the other users, which share the network of this machine
+    const gatewayKey = process.env.LIA_GATEWAY_KEY
+    if (gatewayKey) {
+      app.use(function (req: express.Request, res: express.Response, next: express.NextFunction) {
+        if (req.headers['x-lia-gateway'] !== gatewayKey) return res.sendStatus(403)
+        next()
+      })
+    }
+
     app.use(function (
       req: express.Request,
       res: express.Response,
@@ -626,7 +636,8 @@ export async function start(
       })
     } else if (proxyMode == 'read') {
       webServer = http.createServer(function (req, res) {
-        if (!proxyHosts.includes(req.headers.host || '') || req.method !== 'GET') {
+        const key = process.env.LIA_GATEWAY_KEY
+        if (!proxyHosts.includes(req.headers.host || '') || req.method !== 'GET' || (key && req.headers['x-lia-gateway'] !== key)) {
           res.writeHead(403)
           return res.end()
         }
