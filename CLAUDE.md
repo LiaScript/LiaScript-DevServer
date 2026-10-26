@@ -293,6 +293,14 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   in the sandbox is allowed every tool (`trusted()` in `acp.ts`: the Teaching-Agent runs node and shell commands),
   the rules for authors move confirmations "in the terminal" into a chat form. `LIA_CONFIG_DIR`
   (`DIR/.homes/<name>/.config/liascript`) gives every user their own GitHub login for `git_login`.
+  Learners choose their teacher: a new, empty chat of a student (the tab or `+ New chat`, `greet()` in `acp.ts`,
+  once per chat) becomes the prompt `GREET`, the click on `agent:/choose-teacher` adds `CHOOSE`: both spell out the
+  calls (`find_teacher`, one `chat` with a `teacher` form, end the turn, then `set_agent persona`), Haiku left out
+  the form with the rules alone. `get_state.teachers` is `teachers:` of the course header (`sections.headerList()`,
+  unknown ids left out with a warning), `find_teacher` offers only those; `teacher:` still decides alone. In host mode
+  (`forward` set) a form returns at once and its answer comes as the next prompt (`HOSTED` says so): an agent that
+  waited and also polled `read_chat` answered twice. Only the permission form of `acp.ts` waits (`wait: true`).
+  `LIA_DEBUG=1` logs every prompt and tool call of the agent.
   share tab, only the one with that id answers, two logins in one browser never cross.
 - **`src/share.ts` + `share/`** — `--share` (spike, see
   `docs/superpowers/specs/2026-10-26-shared-devserver-webrtc-design.md`): the server for browsers elsewhere over

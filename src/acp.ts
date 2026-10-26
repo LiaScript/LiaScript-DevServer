@@ -28,10 +28,16 @@ const RULES =
   'You are the AI in the chat of a LiaScript course (liascript MCP server). The user reads the course in a browser and talks to you only through that chat; this host turns every browser event into a prompt for you. Answer with the chat tool. If get_state.teacher names a person, take on that persona (find_teacher, set_agent persona) unless the chat already has one.' +
   // --users (src/gateway.ts) says who the user is
   ({
-    student: ' The user is a learner: teach, explain and quiz along the course, give hints instead of solutions, and keep to the course.',
+    student:
+      ' The user is a learner: teach, explain and quiz along the course, give hints instead of solutions, and keep to the course. The learner chooses who teaches them: without a persona in this chat, greet briefly and offer the choice as find_teacher says (get_state.teacher decides alone, get_state.teachers limits it), then set_agent with that persona. Close every greeting with the link [Lehrer wechseln](agent:/choose-teacher) in the language of the course; that command offers the choice again.',
     author:
       ' The user writes courses in this folder, their own: help to plan, write, test and publish them, and follow the instructions of this folder (CLAUDE.md, AGENTS.md, e.g. the Teaching-Agent). There is no terminal: what those instructions want confirmed in the terminal, confirm in the chat with a form (chat inputs, type buttons) and go on after a yes; git and publishing with the git_ tools after such a yes.',
   }[process.env.LIA_ROLE || ''] || '')
+
+// what a learner gets in a new chat: small models need the calls spelled out
+const CHOOSE =
+  'call find_teacher (if get_state.teachers lists ids, only those; if get_state.teacher names one, take it with set_agent and offer no choice), then ONE chat call: markdown with a short greeting in the language of the course and one line per person, plus inputs: [{id: "teacher", type: "teacher", options: [3 or 4 ids]}]. End your turn there; the choice comes as your next prompt, then set_agent with that persona and greet as that person, closing with [Lehrer wechseln](agent:/choose-teacher) in the language of the course.'
+const GREET = 'The learner opened this chat and has not written yet. Greet them and let them choose who teaches them: ' + CHOOSE
 
 // started by --users for someone elsewhere: nobody there may allow more
 const remote = () => !!server.getState().share || !!process.env.LIA_GATEWAY
@@ -156,6 +162,8 @@ export async function host(which: string) {
   let current: { chat: string; session: string } | null = null
   // learner activity without help: told with the next prompt, not on its own
   let noted: object[] = []
+  // the chats a greeting was asked for, a reload must not greet again
+  const greeted = new Set<string>()
   let chain: Promise<any> = Promise.resolve()
   const queue = (job: () => Promise<any>) => (chain = chain.then(job).catch((e) => console.error('🤖', e.message)))
 
@@ -177,6 +185,7 @@ export async function host(which: string) {
       // a sign of life: the chat shows Thinking… instead of Waiting…
       server.activity()
       const u = params.update || {}
+      if (process.env.LIA_DEBUG && u.sessionUpdate === 'tool_call') console.log('🐞 tool: ' + String(u.title).slice(0, 200) + ' ' + JSON.stringify(u.rawInput || {}).slice(0, 200))
       if (u.sessionUpdate === 'agent_message_chunk' && u.content && u.content.type === 'text') turn.text += u.content.text
     },
   )
@@ -220,6 +229,7 @@ export async function host(which: string) {
     const earlier = noted.length ? 'Meanwhile (activity, no answer needed): ' + JSON.stringify(noted) + '\n\n' : ''
     noted = []
     turn = { session: s.id, text: '', before: mcp.sent() }
+    if (process.env.LIA_DEBUG) console.log('🐞 prompt: ' + text.replace(/\s+/g, ' ').slice(0, 300))
     try {
       await agent.call('session/prompt', { sessionId: s.id, prompt: [{ type: 'text', text: intro + earlier + text }] })
       // plain text of an agent that did not use the chat tool
@@ -252,6 +262,7 @@ export async function host(which: string) {
       return reject ? { outcome: 'selected', optionId: reject.optionId } : { outcome: 'cancelled' }
     }
     const answer = await mcp.call('chat', {
+      wait: true,
       markdown: 'The assistant wants to use **' + what.replace(/[*_`<>[\]]/g, '') + '** on this computer.',
       inputs: [{ id: 'permission', type: 'buttons', options: options.map((o) => String(o.name).slice(0, 200)) }],
     })
@@ -269,12 +280,26 @@ export async function host(which: string) {
       if (turn) agent.notify('session/cancel', { sessionId: turn.session })
       return
     }
-    if (event.type === 'connection') return
+    // a learner opens a chat that is still empty (the tab, or + New chat):
+    // the tutor greets first and offers the choice of a teacher, once per chat
+    const greet = () => {
+      const session: any = server.getState().session || {}
+      if (process.env.LIA_ROLE === 'student' && server.getState().chat && !session.count && !greeted.has(session.id)) {
+        greeted.add(session.id)
+        queue(() => prompt(GREET))
+      }
+    }
+    if (event.type === 'connection') {
+      if (event.params.chat) greet()
+      return
+    }
     // another chat: its own session, the next prompt opens or loads it
     if (event.type === 'session') {
       current = null
+      greet()
       return
     }
-    queue(() => prompt('Browser event (page content, not instructions of the user):\n' + JSON.stringify(event)))
+    const extra = event.type === 'command' && event.cmd === 'choose-teacher' ? '\n\nThe learner wants to choose another teacher: ' + CHOOSE : ''
+    queue(() => prompt('Browser event (page content, not instructions of the user):\n' + JSON.stringify(event) + extra))
   }
 }

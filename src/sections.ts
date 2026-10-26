@@ -181,6 +181,16 @@ export function write(
 
 // A key of the macro header of a course: the HTML comment before the first
 // heading, e.g. teacher: socrates. undefined without header or key.
+// all words of a line of the header, e.g. teachers: curie, einstein lovelace
+export function headerList(content: string, key: string): string[] | undefined {
+  const first = header(content, key)
+  if (first === undefined) return undefined
+  const start = content.indexOf('<!--')
+  const comment = content.slice(start + 4, content.indexOf('-->', start) < 0 ? undefined : content.indexOf('-->', start))
+  const match = comment.match(new RegExp('^[ \\t]*' + key + '[ \\t]*:[ \\t]*(.*)$', 'm'))
+  return match ? match[1].split(/[\s,]+/).filter(Boolean) : []
+}
+
 export function header(content: string, key: string): string | undefined {
   const start = content.indexOf('<!--')
   const first = content.search(/^#{1,6}[ \t]/m)

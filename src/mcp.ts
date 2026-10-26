@@ -56,7 +56,7 @@ Tutor, companion or learner mode: find_teacher, then set_agent persona.`
 // as a prompt, there is no terminal and no browser of its own
 const HOSTED = INSTRUCTIONS.replace(/confirm such things in the terminal/, 'refuse them, there is no terminal')
   .replace(/answer in the terminal and wait/, 'wait')
-  .replace(/Events reach you one way[^]*?\n\nPreview:[^\n]*/, 'Events reach you as prompts of the host that started you: never call wait_for_event, never start a Monitor, never open a browser. Your plain text reaches the chat only if you sent no chat message in that turn.')
+  .replace(/Events reach you one way[^]*?\n\nPreview:[^\n]*/, 'Events reach you as prompts of the host that started you: never call wait_for_event, never start a Monitor, never open a browser. Your plain text reaches the chat only if you sent no chat message in that turn. A form (chat with inputs) returns at once, its answer comes as your next prompt: end your turn after asking, never look for the answer yourself.')
 
 // a slash command for clients without channel or Monitor, e.g. /mcp.liascript.chat in Copilot
 const PROMPT = {
@@ -183,7 +183,7 @@ const TOOLS = [
   {
     name: 'find_teacher',
     description:
-      'Historical people a teaching agent can take on as persona (set_agent persona): portrait, voice and teaching style. One line per person: id · name · lived · region · gender · fields · teaching. topic matches a part of a field or the name, any case; gender female|male; region europe|asia|africa|north-america|south-america|oceania|polar. Without filters all of them. If get_state.teacher names one, take that one and ask nobody. Otherwise find 3 or 4 that fit the course: read its topic first, match it to fields yourself (try several topics), mix women and men and regions, follow wishes of the user (a woman, someone from Africa). Describe each in one sentence of the language of the course in the markdown, then ask with a chat form {type: "teacher", options: [ids]}; the answer is the id. Then set_agent with that persona, introduce yourself as an AI in the role of that person, and teach in their style until the user asks for someone else.',
+      'Historical people a teaching agent can take on as persona (set_agent persona): portrait, voice and teaching style. One line per person: id · name · lived · region · gender · fields · teaching. topic matches a part of a field or the name, any case; gender female|male; region europe|asia|africa|north-america|south-america|oceania|polar. Without filters all of them. If get_state.teacher names one, take that one and ask nobody. If get_state.teachers lists ids (teachers: of the course header), offer only those. Otherwise find 3 or 4 that fit the course: read its topic first, match it to fields yourself (try several topics), mix women and men and regions, follow wishes of the user (a woman, someone from Africa). Describe each in one sentence of the language of the course in the markdown, then ask with a chat form {type: "teacher", options: [ids]}; the answer is the id. Then set_agent with that persona, introduce yourself as an AI in the role of that person, and teach in their style until the user asks for someone else.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -676,17 +676,30 @@ function changed(base: any, a: any): server.Agent {
 // teacher: <id> in the header of the open course, or of the --input file
 // before a browser reported; a path the browser forged or a file that is
 // gone reads nothing
-function courseTeacher(state: any): { teacher?: string | null; warning?: string } {
+// teacher: <id> of the course header, the one to take; teachers: <ids>, the
+// ones a learner may choose from
+function courseTeacher(state: any): { teacher?: string | null; teachers?: string[]; warning?: string } {
   let content
   try {
     content = fs.readFileSync(path.join(state.root, courseFile(state.file || server.inputCourse())), 'utf8')
   } catch (e) {
     return {}
   }
+  const out: { teacher?: string | null; teachers?: string[]; warning?: string } = {}
+  const warnings: string[] = []
   const id = sections.header(content, 'teacher')
-  if (id === undefined) return {}
-  if (isPersona(id)) return { teacher: id }
-  return { teacher: null, warning: 'the course names teacher ' + id + ', which find_teacher does not know' }
+  if (id !== undefined) {
+    out.teacher = isPersona(id) ? id : null
+    if (!isPersona(id)) warnings.push('the course names teacher ' + id + ', which find_teacher does not know')
+  }
+  const ids = sections.headerList(content, 'teachers')
+  if (ids && ids.length) {
+    out.teachers = ids.filter(isPersona)
+    const unknown = ids.filter((i) => !isPersona(i))
+    if (unknown.length) warnings.push('find_teacher does not know ' + unknown.join(', ') + ' of teachers')
+  }
+  if (warnings.length) out.warning = warnings.join('; ')
+  return out
 }
 
 function setAgent(args: any) {
@@ -853,8 +866,9 @@ async function chat(args: any, request: any) {
   server.send({ chat: { id, markdown: args.markdown, inputs, status, lang, agent } })
   messages++
   if (!inputs.length) return late(closed ? { sent: true, closed } : { sent: true })
-  // the watcher gets the answer as an event, a blocked call would get it twice
-  if (args.wait === false || server.getState().watched) return late({ sent: true, ask: id })
+  // the watcher gets the answer as an event, a blocked call would get it twice;
+  // so does the host of --agent, unless it asks itself (wait: true)
+  if (args.wait === false || server.getState().watched || (forward && args.wait !== true)) return late({ sent: true, ask: id })
 
   return new Promise((resolve) => {
     // a newer form replaces the one the user has not answered
