@@ -429,6 +429,137 @@
         color: #fff;
         font-size: 15px;
       }
+      /* the class channel (class.js): a view in place of the chat with the AI */
+      #panel.class-view #log,
+      #panel.class-view #stage,
+      #panel.class-view #say,
+      #panel.class-view #class-banner {
+        display: none;
+      }
+      #class-open .badge {
+        position: absolute;
+        top: 0;
+        right: 0;
+        min-width: 14px;
+        padding: 0 3px;
+        border-radius: 7px;
+        background: var(--accent);
+        color: #fff;
+        font-size: 10px;
+        line-height: 14px;
+      }
+      #class-open[aria-pressed='true'] {
+        color: var(--accent);
+      }
+      #class-banner {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        margin: 0.4rem 0.5rem 0;
+        padding: 0.35rem 0.4rem 0.35rem 0.7rem;
+        border-left: 3px solid var(--accent);
+        border-radius: 8px;
+        background: var(--soft);
+        cursor: pointer;
+      }
+      #class-banner[hidden] {
+        display: none;
+      }
+      #class-banner .text {
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      #class {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        min-height: 0;
+      }
+      #class[hidden] {
+        display: none;
+      }
+      #class .head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.4rem 0.6rem;
+      }
+      #class .back {
+        border: 0;
+        background: none;
+        color: var(--accent);
+        font: inherit;
+        cursor: pointer;
+      }
+      #class .list {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        padding: 0 0.6rem;
+      }
+      #class .m {
+        margin: 0.35rem 0;
+        padding: 0.35rem 0.6rem;
+        border-radius: 10px;
+        background: var(--soft);
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      #class .m.mine {
+        margin-left: 2rem;
+        background: color-mix(in srgb, var(--accent) 14%, transparent);
+      }
+      #class .m.teacher {
+        border-left: 3px solid var(--accent);
+      }
+      #class .m small,
+      #class .none,
+      #class .muted {
+        color: var(--muted);
+      }
+      #class form {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.35rem;
+        padding: 0.5rem 0.6rem;
+        border-top: 1px solid var(--line);
+      }
+      #class form[hidden] {
+        display: none;
+      }
+      #class select {
+        width: 100%;
+        font: inherit;
+        color: inherit;
+        background: transparent;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 0.2rem 0.4rem;
+      }
+      #class textarea {
+        flex: 1;
+        font: inherit;
+        color: inherit;
+        background: transparent;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 0.3rem 0.5rem;
+        resize: none;
+      }
+      #class .send {
+        border: 0;
+        border-radius: 8px;
+        padding: 0 0.8rem;
+        background: var(--accent);
+        color: #fff;
+        font: inherit;
+        cursor: pointer;
+      }
+      #class .muted {
+        padding: 0 0.6rem;
+      }
     </style>
   </head>
   <body>
@@ -557,5 +688,7 @@
     <script src="avatar.js"></script>
     <script src="activity.js"></script>
     <script src="chat.js"></script>
+    <!-- the class channel, only behind liadev --users -->
+    <script src="class.js"></script>
   </body>
 </html>

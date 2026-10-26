@@ -11,6 +11,7 @@ import * as crypto from 'crypto'
 import * as fs from 'fs'
 import * as http from 'http'
 import * as net from 'net'
+import * as os from 'os'
 import * as path from 'path'
 
 const NAME = /^[a-z0-9][a-z0-9_-]{0,31}$/
@@ -39,6 +40,7 @@ type Options = {
   sandbox: boolean // every agent in bubblewrap (src/acp.ts), off only with --no-sandbox
   models: { [role: string]: string } // ANTHROPIC_MODEL per role, e.g. a small one for students
   share?: (front: string) => string // starts the share host, returns the link
+  lan?: number // the port of the front on the network of the school (--lan), without share page
 }
 
 const esc = (s: any) => String(s).replace(/[&<>"']/g, (c) => '&#' + c.charCodeAt(0) + ';')
@@ -54,15 +56,88 @@ function free(port: number): Promise<boolean> {
   })
 }
 
-// the body of a form or of the login
-async function form(req: http.IncomingMessage): Promise<URLSearchParams> {
+// the body of a request, at most 10000 characters
+async function read(req: http.IncomingMessage): Promise<string> {
   let body = ''
   for await (const chunk of req) {
     body += chunk
     if (body.length > 10000) break
   }
-  return new URLSearchParams(body)
+  return body
 }
+
+// the body of a form or of the login
+async function form(req: http.IncomingMessage): Promise<URLSearchParams> {
+  return new URLSearchParams(await read(req))
+}
+
+// The files of a course, relative paths, without what never belongs to it
+const SKIP = /(^|[/\\])(\.git|\.chats|node_modules)$/
+function filesOf(root: string, rel = ''): string[] {
+  let out: string[] = []
+  let entries: fs.Dirent[] = []
+  try {
+    entries = fs.readdirSync(path.join(root, rel), { withFileTypes: true })
+  } catch (e) {
+    return out
+  }
+  for (const e of entries) {
+    const p = rel ? rel + '/' + e.name : e.name
+    if (SKIP.test(p)) continue
+    if (e.isDirectory()) out = out.concat(filesOf(root, p))
+    else if (e.isFile()) out.push(p)
+  }
+  return out
+}
+
+const same = (a: string, b: string) => {
+  try {
+    return fs.readFileSync(a).equals(fs.readFileSync(b))
+  } catch (e) {
+    return false
+  }
+}
+
+// next to a file of the user: README.md -> README.update.md
+const beside = (p: string) => p.replace(/(\.[^./]*)?$/, '.update$1')
+
+// A course update for one user, file by file against the version delivered
+// last (base, kept outside the user's folder): what the user did not change
+// gets the teacher's new version, what the user changed stays, and where both
+// changed, the teacher's version goes beside it (beside()). Then base is the
+// new version. Returns what happened, for the teacher and the user.
+export function syncCourse(source: string, base: string, work: string) {
+  const report = { updated: [] as string[], added: [] as string[], removed: [] as string[], conflicts: [] as string[] }
+  const s = new Set(filesOf(source))
+  const b = new Set(filesOf(base))
+  const put = (p: string, to = p) => {
+    fs.mkdirSync(path.dirname(path.join(work, to)), { recursive: true })
+    fs.copyFileSync(path.join(source, p), path.join(work, to))
+  }
+  for (const p of new Set([...s, ...b])) {
+    const w = path.join(work, p)
+    const has = fs.existsSync(w)
+    if (s.has(p) && b.has(p)) {
+      if (same(path.join(source, p), path.join(base, p))) continue // the teacher changed nothing
+      if (!has || same(w, path.join(base, p))) put(p), report.updated.push(p)
+      else if (!same(w, path.join(source, p))) put(p, beside(p)), report.conflicts.push(p)
+    } else if (s.has(p)) {
+      if (!has) put(p), report.added.push(p)
+      else if (!same(w, path.join(source, p))) put(p, beside(p)), report.conflicts.push(p)
+    } else if (has && same(w, path.join(base, p))) {
+      fs.rmSync(w)
+      report.removed.push(p)
+    }
+  }
+  fs.rmSync(base, { recursive: true, force: true })
+  fs.cpSync(source, base, { recursive: true, filter: (src) => !SKIP.test(src) })
+  return report
+}
+
+// the class channel: the teacher, everybody
+const TEACHER = '@teacher'
+const ALL = '@all'
+type Message = { t: string; from: string; to: string; text: string }
 
 // the subfolders of --courses with a Markdown file, the courses to copy
 function courseList(root: string): string[] {
@@ -202,10 +277,105 @@ export async function gateway(o: Options) {
     res.end()
   }
 
+  // the version of the course a user got last, outside the user's folder
+  const baseOf = (name: string) => path.join(dir, '.base', name)
+
+  // a course update for a user: their DevServer stops (its agent must not
+  // work on files that change), the next request starts it again
+  function updateCourse(name: string) {
+    running.get(name)?.child?.kill()
+    const r = syncCourse(path.join(o.courses, users[name].course as string), baseOf(name), path.join(dir, name))
+    const parts = [
+      r.updated.length && r.updated.length + ' aktualisiert',
+      r.added.length && r.added.length + ' neu',
+      r.removed.length && r.removed.length + ' entfernt',
+    ].filter(Boolean)
+    const text =
+      'Dein Kurs ' + users[name].course + ' wurde aktualisiert' + (parts.length ? ' (' + parts.join(', ') + ')' : ', es gab nichts Neues') + '.' +
+      (r.conflicts.length
+        ? ' Diese Dateien hattest du selbst geändert, sie bleiben so; die neue Version liegt daneben: ' + r.conflicts.map(beside).join(', ')
+        : '')
+    if (parts.length || r.conflicts.length) post(TEACHER, name, text)
+    return name + ': ' + (parts.join(', ') || 'nichts Neues') + (r.conflicts.length ? ', Konflikte: ' + r.conflicts.join(', ') : '')
+  }
+
+  // ------------------------------------------------------------ the class channel
+  // Messages between people beside the chat with the AI, which never sees
+  // them: the teacher to all or one, a user to the teacher, users to each
+  // other once the teacher allows it (settings.dm). All of it is kept in
+  // DIR/.class, the teacher reads all of it, a muted user writes nothing.
+  const classDir = path.join(dir, '.class')
+  fs.mkdirSync(classDir, { recursive: true })
+  const messagesFile = path.join(classDir, 'messages.jsonl')
+  const settingsFile = path.join(classDir, 'settings.json')
+  let messages: Message[] = []
+  try {
+    messages = fs.readFileSync(messagesFile, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l))
+  } catch (e) {}
+  let settings = { dm: false, muted: [] as string[] }
+  try {
+    settings = { ...settings, ...JSON.parse(fs.readFileSync(settingsFile, 'utf8')) }
+  } catch (e) {}
+  const saveSettings = () => fs.writeFileSync(settingsFile, JSON.stringify(settings), { mode: 0o600 })
+  const listeners: { name: string; res: http.ServerResponse }[] = []
+  const sees = (m: Message, name: string) => m.to === ALL || m.to === name || m.from === name
+  const classState = (name: string) => ({
+    me: name,
+    dm: settings.dm,
+    muted: settings.muted.includes(name),
+    users: settings.dm ? Object.keys(users).filter((n) => n !== name).sort() : [],
+    messages: messages.filter((m) => sees(m, name)).slice(-200),
+  })
+  const tell = (res: http.ServerResponse, msg: object) => res.write('data: ' + JSON.stringify(msg) + '\n\n')
+  function post(from: string, to: string, text: string) {
+    const m = { t: new Date().toISOString(), from, to, text }
+    messages.push(m)
+    fs.appendFileSync(messagesFile, JSON.stringify(m) + '\n', { mode: 0o600 })
+    for (const l of listeners) if (sees(m, l.name)) tell(l.res, { message: m })
+  }
+  const classChanged = () => listeners.forEach((l) => tell(l.res, { state: classState(l.name) }))
+
+  async function classRoute(name: string, req: http.IncomingMessage, res: http.ServerResponse) {
+    const route = (req.url || '').split('?')[0]
+    if (req.method === 'GET' && route === '/class/state') {
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' })
+      return res.end(JSON.stringify(classState(name)))
+    }
+    if (req.method === 'GET' && route === '/class/events') {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' })
+      tell(res, { state: classState(name) })
+      const me = { name, res }
+      listeners.push(me)
+      const ping = setInterval(() => res.write('data: {"ping":true}\n\n'), 20000)
+      return res.on('close', () => {
+        clearInterval(ping)
+        listeners.splice(listeners.indexOf(me), 1)
+      })
+    }
+    if (req.method === 'POST' && route === '/class/send') {
+      let m: any = {}
+      try {
+        m = JSON.parse(await read(req))
+      } catch (e) {}
+      const to = String(m.to || '')
+      const text = typeof m.text === 'string' ? m.text.trim() : ''
+      const allowed = to === TEACHER || (settings.dm && users[to] && to !== name)
+      if (settings.muted.includes(name) || !allowed || !text || text.length > 2000) {
+        res.writeHead(403)
+        return res.end()
+      }
+      post(name, to, text)
+      res.writeHead(204)
+      return res.end()
+    }
+    res.writeHead(404)
+    res.end()
+  }
+
   // ------------------------------------------------------------ the front
 
-  function page(res: http.ServerResponse, title: string, body: string, status = 200) {
-    res.writeHead(status, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' })
+  function page(res: http.ServerResponse, title: string, body: string, status = 200, more: http.OutgoingHttpHeaders = {}) {
+    res.writeHead(status, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', ...more })
     res.end(`<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(title)}</title>
 <style>:root{color-scheme:light dark;--bg:#f6f7f9;--fg:#1d2330;--card:#fff;--line:#d6dbe3;--accent:#0f766e;--bad:#b42318}
 @media (prefers-color-scheme:dark){:root{--bg:#14171c;--fg:#e6e9ee;--card:#1d2128;--line:#343a45;--accent:#2dd4bf;--bad:#f97066}}
@@ -227,9 +397,12 @@ ${message ? `<p class="bad">${esc(message)}</p>` : ''}<button>Anmelden</button><
     )
   }
 
-  const front = http.createServer(async (req, res) => {
+  async function serve(req: http.IncomingMessage, res: http.ServerResponse) {
+    const lan = req.headers['x-lia-lan'] === '1'
     const base = /^https?:\/\/[\w.-]+(:\d+)?(\/[\w.~-]+)*$/.test(String(req.headers['x-lia-origin'])) ? String(req.headers['x-lia-origin']) : ''
-    const presented = String(req.headers['x-lia-token'] || '')
+    // the share page sends the login as a header, a browser on the network a cookie
+    const cookie = lan && /(?:^|;\s*)lia=([0-9a-f]{32})/.exec(String(req.headers.cookie || ''))
+    const presented = String(req.headers['x-lia-token'] || (cookie && cookie[1]) || '')
     const name = (since.get(presented) || 0) > Date.now() - LOGIN_MS ? logins.get(presented) : undefined
 
     if (req.url === '/lia-login' && req.method === 'POST') {
@@ -253,11 +426,14 @@ ${message ? `<p class="bad">${esc(message)}</p>` : ''}<button>Anmelden</button><
       since.set(token, Date.now())
       saveLogins()
       console.log('👤 ' + who + ': logged in')
-      // the share page sends it along with every request of this tab
+      // the share page sends it along with every request of this tab, a
+      // browser on the network of the school keeps it as a cookie
       return page(
         res,
         'Angemeldet',
         `<script>sessionStorage.setItem('lia-share-token', ${JSON.stringify(token)}); location.replace(${JSON.stringify(base + '/')})</script>`,
+        200,
+        lan ? { 'Set-Cookie': 'lia=' + token + '; Path=/; HttpOnly; SameSite=Strict; Max-Age=' + LOGIN_MS / 1000 } : {},
       )
     }
 
@@ -268,6 +444,9 @@ ${message ? `<p class="bad">${esc(message)}</p>` : ''}<button>Anmelden</button><
       res.writeHead(401)
       return res.end()
     }
+
+    // the class channel is the gateway's, the rest the user's DevServer
+    if ((req.url || '').startsWith('/class/')) return classRoute(name, req, res)
 
     const inst = running.get(name) || start(name)
     let port: number
@@ -295,7 +474,8 @@ ${message ? `<p class="bad">${esc(message)}</p>` : ''}<button>Anmelden</button><
     delete headers['x-lia-token']
     delete headers['x-lia-web']
     reach(target, req, res, headers)
-  })
+  }
+  const front = http.createServer(serve)
 
   // ------------------------------------------------------------ the admin page
 
@@ -335,7 +515,7 @@ ${message ? `<p class="bad">${esc(message)}</p>` : ''}<button>Anmelden</button><
   async function rows() {
     const names = Object.keys(users).sort()
     const states = await Promise.all(names.map((n) => (running.get(n) ? stateOf(running.get(n)!) : null)))
-    if (!names.length) return '<tr><td colspan="8">Noch keine Nutzer.</td></tr>'
+    if (!names.length) return '<tr><td colspan="9">Noch keine Nutzer.</td></tr>'
     return names
       .map((n, i) => {
         const inst = running.get(n)
@@ -345,13 +525,36 @@ ${message ? `<p class="bad">${esc(message)}</p>` : ''}<button>Anmelden</button><
         const where = s ? (s.web ? '🌐 ' + s.web : (s.file || '') + (s.slide ? ' · Folie ' + s.slide : '') + (s.title ? ' · ' + s.title : '')) : ''
         return `<tr${help ? ' class="help"' : ''}><td><b>${esc(n)}</b><br><small>${esc(users[n].role === 'author' ? 'Autor' : 'Schüler')}</small></td>
 <td>${online ? '🟢 online' : inst ? '🟡 läuft' : '⚪ aus'}<br><small>${inst ? esc(ago(inst.last)) : ''}</small></td>
-<td>${users[n].course ? esc(users[n].course) : '<small>–</small>'}</td>
+<td>${
+          users[n].course
+            ? esc(users[n].course) + `<form method="post" action="/update/${esc(n)}"><button class="quiet">aktualisieren</button></form>`
+            : `<form method="post" action="/assign/${esc(n)}"><select name="course"><option value="">–</option>${courseList(o.courses)
+                .map((c) => `<option>${esc(c)}</option>`)
+                .join('')}</select><button class="quiet">zuweisen</button></form>`
+        }</td>
 <td>${esc(where)}${help ? `<br><b>Braucht Hilfe</b> <small>${esc(ago(s.stuck.at))}, Folie ${esc(s.stuck.slide || '?')}</small>` : ''}</td>
 <td>${s && s.session ? esc(s.session.count) + ' Einträge<br><a href="/chat/' + esc(n) + '" target="_blank">mitlesen</a>' : ''}</td>
 <td>${esc(costOf(n)) || '<small>–</small>'}</td>
 <td><form method="post" action="/password/${esc(n)}"><input name="password" type="password" placeholder="neues Passwort" required minlength="6"><button>setzen</button></form></td>
+<td><form method="post" action="/mute/${esc(n)}"><button class="quiet">${settings.muted.includes(n) ? '🔇 stumm' : '🔈 darf schreiben'}</button></form></td>
 <td><form method="post" action="/delete/${esc(n)}" onsubmit="return confirm('${esc(n)} löschen? Der Ordner bleibt erhalten.')"><button class="danger">löschen</button></form></td></tr>`
       })
+      .join('')
+  }
+
+  // the class channel for the teacher: every message, also between users
+  const label = (n: string) => (n === TEACHER ? 'Lehrkraft' : n === ALL ? 'alle' : n)
+  function classLog() {
+    if (!messages.length) return '<p><small>Noch keine Nachrichten.</small></p>'
+    return messages
+      .slice(-100)
+      .reverse()
+      .map(
+        (m) =>
+          `<div class="m${m.from === TEACHER ? ' me' : ''}"><small>${esc(label(m.from))} → ${esc(label(m.to))} · ${esc(
+            new Date(m.t).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }),
+          )}</small><br>${esc(m.text)}</div>`,
+      )
       .join('')
   }
 
@@ -365,12 +568,23 @@ h1{font-size:1.4rem}h2{font-size:1.1rem;margin-top:2rem}small{color:var(--muted)
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;overflow-x:auto}
 table{border-collapse:collapse;width:100%}td,th{text-align:left;padding:8px;border-bottom:1px solid var(--line);vertical-align:top}tr.help{background:var(--help)}
 input,select,button{font:inherit;padding:6px 10px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
-button{background:var(--accent);border-color:var(--accent);color:#fff;cursor:pointer}button.danger{background:transparent;color:var(--bad);border-color:var(--bad)}
+button{background:var(--accent);border-color:var(--accent);color:#fff;cursor:pointer}button.danger{background:transparent;color:var(--bad);border-color:var(--bad)}button.quiet{background:transparent;color:var(--fg);border-color:var(--line)}
+.m{border:1px solid var(--line);border-radius:10px;padding:6px 10px;margin:6px 0;white-space:pre-wrap}.m.me{border-color:var(--accent)}#log{max-height:40vh;overflow:auto}
+form.say{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start}form.say textarea{flex:1;min-width:200px;font:inherit;padding:6px 10px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
 form.new{display:flex;flex-wrap:wrap;gap:8px}code{word-break:break-all}.msg{color:var(--accent)}</style></head><body><main>
 <h1>LiaScript Klasse</h1>
-<div class="card"><b>Link für alle:</b><br>${link ? `<code>${esc(link)}</code>` : 'nicht geteilt, mit <code>--share</code> starten'}</div>
+<div class="card"><b>Link für alle:</b><br>${link ? `<code>${esc(link)}</code>` : 'nicht geteilt, mit <code>--share</code> starten'}${
+      lanAddresses.length ? '<br><b>Im Schulnetz:</b> ' + lanAddresses.map((a) => `<code>${esc(a)}</code>`).join(' ') : ''
+    }</div>
 ${message ? `<p class="msg">${esc(message)}</p>` : ''}
-<h2>Nutzer</h2><div class="card"><table><thead><tr><th>Name</th><th>Status</th><th>Kurs</th><th>Wo</th><th>Chat</th><th>Kosten</th><th>Passwort</th><th></th></tr></thead><tbody id="rows">${table}</tbody></table></div>
+<h2>Nutzer</h2><div class="card"><form method="post" action="/update/all" style="margin-bottom:8px"><button class="quiet">Kurs-Updates an alle verteilen</button></form><table><thead><tr><th>Name</th><th>Status</th><th>Kurs</th><th>Wo</th><th>Chat</th><th>Kosten</th><th>Passwort</th><th>Klasse</th><th></th></tr></thead><tbody id="rows">${table}</tbody></table></div>
+<h2>Klasse</h2><div class="card">
+<form class="say" method="post" action="/class/say"><select name="to"><option value="${ALL}">an alle</option>${Object.keys(users)
+      .sort()
+      .map((n) => `<option value="${esc(n)}">an ${esc(n)}</option>`)
+      .join('')}</select><textarea name="text" rows="2" required maxlength="2000" placeholder="Nachricht an die Klasse …"></textarea><button>senden</button></form>
+<form method="post" action="/class/dm"><label><input type="checkbox" name="on" value="1"${settings.dm ? ' checked' : ''} onchange="this.form.submit()"> Schüler dürfen einander schreiben</label></form>
+<div id="log">${classLog()}</div></div>
 <h2>Neuer Nutzer</h2><div class="card"><form class="new" method="post" action="/users">
 <input name="name" placeholder="name (a-z, 0-9, - _)" required pattern="[a-z0-9][a-z0-9_-]{0,31}">
 <input name="password" type="password" placeholder="Passwort" required minlength="6">
@@ -379,6 +593,7 @@ ${message ? `<p class="msg">${esc(message)}</p>` : ''}
       .map((c) => `<option>${esc(c)}</option>`)
       .join('')}</select>
 <button>anlegen</button></form></div>
+<script>setInterval(function(){fetch('/class/log').then(function(r){return r.text()}).then(function(t){document.getElementById('log').innerHTML=t})},5000)</script>
 <script>setInterval(function(){fetch('/rows').then(function(r){return r.text()}).then(function(t){if(!document.activeElement||!document.getElementById('rows').contains(document.activeElement))document.getElementById('rows').innerHTML=t})},5000)</script>
 </main></body></html>`)
   }
@@ -423,6 +638,10 @@ body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-
       return res.end(await rows())
     }
     if (req.method === 'GET' && action === 'chat' && users[who]) return chatPage(res, who)
+    if (req.method === 'GET' && action === 'class' && who === 'log') {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' })
+      return res.end(classLog())
+    }
     if (req.method !== 'POST') {
       res.writeHead(404)
       return res.end()
@@ -443,12 +662,8 @@ body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-
       else {
         const home = path.join(dir, name)
         // ponytail: a copy; later a git clone, so that an update can merge
-        if (course)
-          fs.cpSync(path.join(o.courses, course), home, {
-            recursive: true,
-            filter: (src) => !/(^|[/\\])(\.git|\.chats|node_modules)$/.test(src),
-          })
         fs.mkdirSync(home, { recursive: true })
+        if (course) syncCourse(path.join(o.courses, course), baseOf(name), home)
         const salt = crypto.randomBytes(16).toString('hex')
         users[name] = { salt, hash: hash(password, salt), role, created: new Date().toISOString(), ...(course ? { course } : {}) }
         save()
@@ -466,6 +681,35 @@ body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-
         saveLogins()
         message = 'Neues Passwort für ' + who + ' gesetzt.'
       }
+    } else if (action === 'update' && who === 'all') {
+      message = Object.keys(users)
+        .filter((n) => users[n].course && courseList(o.courses).includes(users[n].course as string))
+        .map(updateCourse)
+        .join(' · ') || 'Niemand hat einen Kurs.'
+    } else if (action === 'update' && users[who] && users[who].course) {
+      message = courseList(o.courses).includes(users[who].course as string) ? updateCourse(who) : 'Den Kurs ' + users[who].course + ' gibt es nicht mehr.'
+    } else if (action === 'assign' && users[who] && !users[who].course) {
+      const course = String(f.get('course') || '')
+      if (!courseList(o.courses).includes(course)) message = 'Bitte einen Kurs wählen.'
+      else {
+        users[who].course = course
+        save()
+        message = updateCourse(who)
+      }
+    } else if (action === 'class' && who === 'say') {
+      const to = String(f.get('to') || ALL)
+      const text = String(f.get('text') || '').trim()
+      if (text && text.length <= 2000 && (to === ALL || users[to])) post(TEACHER, to, text), (message = 'Gesendet an ' + (to === ALL ? 'alle' : to) + '.')
+    } else if (action === 'class' && who === 'dm') {
+      settings.dm = f.get('on') === '1'
+      saveSettings()
+      classChanged()
+      message = settings.dm ? 'Schüler dürfen einander schreiben.' : 'Schüler schreiben nur noch der Lehrkraft.'
+    } else if (action === 'mute' && users[who]) {
+      settings.muted = settings.muted.includes(who) ? settings.muted.filter((n) => n !== who) : [...settings.muted, who]
+      saveSettings()
+      classChanged()
+      message = who + (settings.muted.includes(who) ? ' ist stummgeschaltet.' : ' darf wieder schreiben.')
     } else if (action === 'delete' && users[who]) {
       running.get(who)?.child?.kill()
       for (const [t, n] of logins) if (n === who) logins.delete(t)
@@ -494,6 +738,21 @@ body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-
   const frontOrigin = 'http://127.0.0.1:' + (front.address() as net.AddressInfo).port
   await new Promise<void>((resolve, reject) => admin.once('error', reject).listen(o.admin, '127.0.0.1', resolve))
   link = o.share ? o.share(frontOrigin) : ''
+  // --lan: the same front for browsers on the network of the school, no
+  // share page and no internet needed. What only the share host may say is
+  // dropped; the address is the one the browser used.
+  const lanAddresses: string[] = []
+  if (o.lan) {
+    const lanFront = http.createServer((req, res) => {
+      for (const h of ['x-lia-origin', 'x-lia-web-origin', 'x-lia-web', 'x-lia-token', 'x-lia-lan']) delete req.headers[h]
+      req.headers['x-lia-lan'] = '1'
+      req.headers['x-lia-origin'] = 'http://' + req.headers.host
+      serve(req, res)
+    })
+    await new Promise<void>((resolve, reject) => lanFront.once('error', reject).listen(o.lan, '0.0.0.0', resolve))
+    for (const list of Object.values(os.networkInterfaces()))
+      for (const a of list || []) if (a.family === 'IPv4' && !a.internal) lanAddresses.push('http://' + a.address + ':' + o.lan + '/')
+  }
   console.log('👥 users in ' + dir + ' (' + Object.keys(users).length + ')')
   console.log('👥 admin page: http://localhost:' + o.admin + '/')
   console.log('📚 courses from ' + o.courses + ' (' + courseList(o.courses).length + ')')
@@ -505,4 +764,5 @@ body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-
   // reachable through the share link, or on this machine with the headers it sets
   console.log('👥 front: ' + frontOrigin)
   if (link) console.log('🔗 share: ' + link)
+  for (const a of lanAddresses) console.log('🏫 on the network of the school: ' + a)
 }

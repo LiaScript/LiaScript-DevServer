@@ -176,6 +176,17 @@ Codex und Gemini und unter Windows; mit Abo-Login liest der Agent technisch die
 Zugangsdatei in seinem Home (Claude Code fragt dafür, das Gateway lehnt ab), mit
 `ANTHROPIC_API_KEY` entfällt das.
 
+## Meilenstein 4: Klassenkanal, Kurs-Updates, Schulnetz
+
+Klassenkanal im Gateway (`/class/*`, Reiter in `views/class.js`), getestet mit zwei Schülern
+und der Admin-Seite: Rundruf als Banner, Direktnachricht nach Freischaltung, Stummschalten.
+Kurs-Updates **ohne Git** (Abweichung von Entscheidung 6): Datei für Datei gegen die zuletzt
+ausgelieferte Version; was beide geändert haben, bleibt beim Schüler, die neue Version liegt
+daneben. Schneller und durchschaubarer als ein Repo pro Schüler, das beim Update den
+Arbeitsstand des Agenten umschalten müsste. `--lan`: dasselbe Gateway im Schulnetz ohne
+Internet, Login per Cookie, getestet über die Netzwerkadresse im Browser. Offen: HTTPS im
+Schulnetz (heute Klartext), Webseiten im Chat im LAN-Modus.
+
 ## Danach (je eigener Plan)
 
 2. Sandbox-Spike: Claude Code und Codex per ACP in bubblewrap; `~/.ssh` unerreichbar,

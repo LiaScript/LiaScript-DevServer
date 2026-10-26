@@ -50,6 +50,8 @@ if (argv.h || argv.help) {
   console.log('                 the share link and gets DIR/<name> and an agent')
   console.log('                 of their own (with --share); -p is the port of')
   console.log('                 the admin page')
+  console.log('    --lan        [PORT] --users also on the network of the school,')
+  console.log('                 without share page and internet (default: 8000)')
   console.log('    --no-sandbox the agents of --users without bubblewrap')
   console.log('    --student-model, --author-model  the model of the agents of')
   console.log('                 that role (ANTHROPIC_MODEL), e.g. haiku; the key')
@@ -106,6 +108,7 @@ if (argv.users) {
       agent: typeof argv.agent == 'string' ? argv.agent : 'claude',
       // minimist turns --no-sandbox into sandbox: false
       sandbox: argv.sandbox !== false,
+      lan: argv.lan ? (argv.lan === true ? 8000 : Number(argv.lan)) : undefined,
       models: Object.fromEntries(
         ['student', 'author'].filter((r) => typeof argv[r + '-model'] == 'string').map((r) => [r, argv[r + '-model']]),
       ),

@@ -268,6 +268,23 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   per gateway), and `connect()` hands the agent no `LIA_*` variable. `--student-model`/`--author-model` set
   `ANTHROPIC_MODEL` per role. `acp.ts` keeps the cost of each session (`usage_update.cost`, cumulative, at the end
   of a turn) in `.chats/.acp-costs.json`, the dashboard sums it per user.
+  The class channel: messages between people, never seen by an agent, kept by the gateway in `DIR/.class`
+  (`messages.jsonl`, `settings.json` with `dm` and `muted`, `0600`). The front answers `/class/state`,
+  `/class/events` (SSE) and `POST /class/send {to, text}` itself instead of the user's DevServer: a user writes to
+  `@teacher` always, to another user only while the teacher allows it (`dm`), a muted one nothing; a user sees what
+  goes to `@all`, to them or from them. The admin page sends as `@teacher` to all or one, switches `dm`, mutes a
+  user and shows every message. `views/class.js` (loaded by `chat.html`, served next to `chat.js`, uses its
+  `TEXTS`, `tr`, `t`, `when`) shows the button only where `/class/state` answers: a view in place of the chat
+  (`#panel.class-view`), a badge with the unread messages, and a banner for a message of the teacher.
+  Course updates (`syncCourse()`): no git, file by file against the version a user got last, kept outside the
+  folder in `DIR/.base/<name>`. Unchanged by the user: the new version; changed by the user only: stays; changed by
+  both: stays, the teacher's version goes beside it (`README.update.md`, `beside()`); new in the course: comes;
+  removed from the course and unchanged: goes. The admin page updates one user or all (their DevServer stops for
+  it) and assigns a course to a user without one; the user hears of it in the class channel.
+  `--lan [PORT]`: the same front (`serve()`) also on `0.0.0.0` for the network of the school, without share page,
+  Nostr or internet. There the login is a cookie (`lia`, `HttpOnly`, `SameSite=Strict`), the address the one the
+  browser used (`x-lia-origin` from `Host`), every `x-lia-*` header of the browser is dropped; without
+  `x-lia-web-origin` the DevServer offers no web pages. Plain HTTP: the passwords cross the network unencrypted.
   share tab, only the one with that id answers, two logins in one browser never cross.
 - **`src/share.ts` + `share/`** — `--share` (spike, see
   `docs/superpowers/specs/2026-10-26-shared-devserver-webrtc-design.md`): the server for browsers elsewhere over

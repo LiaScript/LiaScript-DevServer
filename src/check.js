@@ -1200,6 +1200,7 @@ async function main() {
   // agent: the real one would need npx, a network and a login.
   const USERS = path.join(PROJECT, 'klasse')
   const ADMIN = PORT - 10
+  const LAN = PORT - 11
   const COURSES = path.join(PROJECT, 'kurse')
   fs.mkdirSync(path.join(COURSES, 'prolog'), { recursive: true })
   fs.writeFileSync(path.join(COURSES, 'prolog', 'README.md'), '# Prolog\n')
@@ -1207,7 +1208,7 @@ async function main() {
   // a gateway and what it prints: the port of its front and of anna's DevServer
   let gwOut = ''
   const gateway = () => {
-    const g = spawn(process.execPath, [path.join(ROOT, 'dist/index.js'), '--users', USERS, '--courses', COURSES, '-p', ADMIN, '--no-sandbox', '--agent', 'node -e setInterval(Date.now,1e9)'], { cwd: PROJECT, stdio: ['ignore', 'pipe', 'ignore'] })
+    const g = spawn(process.execPath, [path.join(ROOT, 'dist/index.js'), '--users', USERS, '--courses', COURSES, '-p', ADMIN, '--lan', LAN, '--no-sandbox', '--agent', 'node -e setInterval(Date.now,1e9)'], { cwd: PROJECT, stdio: ['ignore', 'pipe', 'ignore'] })
     // also when an assertion fails: a gateway left behind holds the port
     process.on('exit', () => g.kill())
     g.stdout.on('data', (d) => (gwOut += d))
@@ -1261,6 +1262,58 @@ async function main() {
   const front2 = await printed(/front: http:\/\/127\.0\.0\.1:(\d+)/)
   assert.strictEqual((await request('GET', '/', { ...TAB, 'X-Lia-Token': token }, undefined, front2)).status, 302, 'still logged in after a restart')
   assert.strictEqual(fs.statSync(path.join(USERS, 'logins.json')).mode & 0o777, 0o600, 'logins.json for the owner only')
+  // the class channel: between people, kept by the gateway
+  const JSON_ = { 'Content-Type': 'application/json' }
+  const as = (t) => ({ ...TAB, 'X-Lia-Token': t })
+  const say = (t, to, text) => request('POST', '/class/send', { ...as(t), ...JSON_ }, JSON.stringify({ to, text }), front2)
+  const classOf = async (t) => JSON.parse((await request('GET', '/class/state', as(t), undefined, front2)).data)
+  await request('POST', '/users', ADM, 'name=ben&password=secret2&role=student', ADMIN)
+  const benToken = /"([0-9a-f]{32})"/.exec((await request('POST', '/lia-login', { ...TAB, ...FORM }, 'name=ben&password=secret2', front2)).data)[1]
+  assert.deepStrictEqual(await classOf(token), { me: 'anna', dm: false, muted: false, users: [], messages: [] })
+  assert.strictEqual((await say(token, '@teacher', 'Ich habe eine Frage')).status, 204, 'always to the teacher')
+  assert.strictEqual((await say(token, 'ben', 'Hallo Ben')).status, 403, 'not to others before the teacher allows it')
+  assert.strictEqual((await classOf(benToken)).messages.length, 0, 'ben does not see what anna wrote to the teacher')
+  await request('POST', '/class/dm', ADM, 'on=1', ADMIN)
+  assert.deepStrictEqual((await classOf(benToken)).users, ['anna', 'carl'], 'the others, once allowed')
+  assert.strictEqual((await say(token, 'ben', 'Hallo Ben')).status, 204)
+  assert.deepStrictEqual((await classOf(benToken)).messages.map((m) => m.text), ['Hallo Ben'])
+  await request('POST', '/class/say', ADM, 'to=%40all&text=Pause', ADMIN)
+  assert.deepStrictEqual((await classOf(benToken)).messages.map((m) => m.from + ':' + m.text), ['anna:Hallo Ben', '@teacher:Pause'], 'the teacher to all')
+  await request('POST', '/mute/anna', ADM, '', ADMIN)
+  assert.strictEqual((await say(token, '@teacher', 'noch eine')).status, 403, 'a muted user writes nothing')
+  assert.ok((await request('GET', '/class/log', { Host: ADM.Host }, undefined, ADMIN)).data.includes('Ich habe eine Frage'), 'the teacher reads all')
+  assert.strictEqual(fs.statSync(path.join(USERS, '.class', 'messages.jsonl')).mode & 0o777, 0o600)
+  // --lan: the same front on the network, the login a cookie, the addresses those the browser used
+  const LANHOST = { Host: '127.0.0.1:' + LAN, Accept: 'text/html' }
+  assert.ok((await request('GET', '/', LANHOST, undefined, LAN)).data.includes('http://127.0.0.1:' + LAN + '/lia-login'), 'the login first, on the network too')
+  assert.strictEqual((await request('GET', '/', { ...LANHOST, 'X-Lia-Origin': 'https://evil.com' }, undefined, LAN)).data.includes('evil.com'), false, 'only the share host names an address')
+  const lanLogin = await request('POST', '/lia-login', { ...LANHOST, ...FORM }, 'name=ben&password=secret2', LAN)
+  const cookie = String(lanLogin.headers['set-cookie']).split(';')[0]
+  assert.ok(/^lia=[0-9a-f]{32}$/.test(cookie) && /HttpOnly/.test(lanLogin.headers['set-cookie']) && /SameSite=Strict/.test(lanLogin.headers['set-cookie']), 'a cookie for the login')
+  const lanInside = await request('GET', '/', { ...LANHOST, Cookie: cookie, 'Sec-Fetch-Dest': 'document' }, undefined, LAN)
+  assert.ok(lanInside.status === 302 && lanInside.headers.location.startsWith('http://127.0.0.1:' + LAN + '/liascript/chat.html'), 'the DevServer of ben, under the address of the network: ' + lanInside.headers.location)
+  assert.strictEqual(JSON.parse((await request('GET', '/class/state', { ...LANHOST, Cookie: cookie }, undefined, LAN)).data).me, 'ben', 'the class channel with the cookie')
+  assert.strictEqual((await request('GET', '/', { Host: '127.0.0.1:' + front2, Cookie: cookie, 'X-Lia-Origin': 'https://x.io/share/tab-x', 'Sec-Fetch-Dest': 'iframe' }, undefined, front2)).status, 200, 'the share front takes no cookie')
+
+  // course updates, file by file against what carl got last
+  const carl = path.join(USERS, 'carl')
+  const prolog = path.join(COURSES, 'prolog')
+  const carlFile = (f) => fs.readFileSync(path.join(carl, f), 'utf8')
+  fs.writeFileSync(path.join(prolog, 'README.md'), '# Prolog 2\n')
+  fs.writeFileSync(path.join(prolog, 'neu.md'), 'neu\n')
+  await request('POST', '/update/carl', ADM, '', ADMIN)
+  assert.deepStrictEqual([carlFile('README.md'), carlFile('neu.md')], ['# Prolog 2\n', 'neu\n'], 'unchanged files get the new version, new ones come')
+  fs.writeFileSync(path.join(carl, 'README.md'), '# Meins\n')
+  fs.writeFileSync(path.join(prolog, 'README.md'), '# Prolog 3\n')
+  fs.rmSync(path.join(prolog, 'neu.md'))
+  await request('POST', '/update/carl', ADM, '', ADMIN)
+  assert.deepStrictEqual(
+    [carlFile('README.md'), carlFile('README.update.md'), fs.existsSync(path.join(carl, 'neu.md'))],
+    ['# Meins\n', '# Prolog 3\n', false],
+    'what carl changed stays, the new version beside it; what the teacher removed goes',
+  )
+  assert.ok(!fs.existsSync(path.join(carl, '.base')) && fs.existsSync(path.join(USERS, '.base', 'carl', 'README.md')), 'the base outside the folder of the user')
+  assert.ok(fs.readFileSync(path.join(USERS, '.class', 'messages.jsonl'), 'utf8').includes('README.update.md'), 'carl hears of it in the class channel')
   for (let i = 0; i < 5; i++) await request('POST', '/lia-login', { ...TAB, ...FORM }, 'name=anna&password=nope', front2)
   const locked = await request('POST', '/lia-login', { ...TAB, ...FORM }, 'name=anna&password=secret1', front2)
   assert.ok(locked.status === 401 && locked.data.includes('warten'), 'five wrong passwords lock the name')
