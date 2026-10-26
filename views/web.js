@@ -5,9 +5,14 @@
 // the real address too, and it rewrites links and forms itself.
 
 ;(function () {
-  // the page in the shell, not its iframes
-  if (parent == window || parent != top) return
-  var proxy = location.origin + '/?'
+  // the page in the shell, not its iframes; through --share the share page
+  // holds the shell, one level more (web.js?shared)
+  var src = (document.currentScript && document.currentScript.src) || ''
+  var depth = 0
+  for (var w = window; w != top; w = w.parent) depth++
+  if (depth != (/[?&]shared\b/.test(src) ? 2 : 1)) return
+  // through --share the page for web pages may sit in a folder
+  var proxy = location.origin + location.pathname + '?'
   var timer
   var reported = ''
 

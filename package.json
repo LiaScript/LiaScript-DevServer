@@ -5,7 +5,7 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "npx parcel build src/index.ts --target main && npx parcel build --target teachers && npm run shebang && npm run lib && cp src/codex-bridge.js dist/codex-bridge.js",
-    "lib": "tsc --module commonjs -d src/lib.ts --outDir dist",
+    "lib": "tsc --module commonjs -d --types node src/lib.ts --outDir dist",
     "codex": "node dist/codex-bridge.js",
     "test:mcp": "node src/check.js",
     "test:codex": "node src/check-codex.js",
@@ -43,8 +43,9 @@
   "author": "André Dietrich",
   "license": "MIT",
   "dependencies": {
-    "@liascript/chat": "^0.1.2--2.2.2",
+    "@liascript/chat": "^0.1.2--2.5.0",
     "@liascript/editor": "^1.2.0--2.6.2",
+    "@trystero-p2p/nostr": "^0.26.0",
     "chokidar": "^4.0.3",
     "cors": "^2.8.6",
     "express": "^4.22.1",
@@ -53,7 +54,8 @@
     "minimist": "^1.2.8",
     "open": "^8.4.2",
     "reload": "^3.3.0",
-    "testcafe-hammerhead": "^31.7.8"
+    "testcafe-hammerhead": "^31.7.8",
+    "werift": "^0.25.2"
   },
   "devDependencies": {
     "@dicebear/avataaars": "^9.4.2",

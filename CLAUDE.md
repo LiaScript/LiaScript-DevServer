@@ -229,6 +229,75 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   (`ttsHint()` in `lib.ts`). `--responsiveVoice` without a key injects `key=true`, which the service rejects.
   Automation tools start Chrome with `--disable-component-extensions-with-background-pages`, which removes its
   online voices.
+- **`src/acp.ts`** — `--agent claude|codex|gemini|<command>`: the server starts the AI itself instead of waiting
+  for an MCP client (implies agent mode, excludes `--mcp`). It speaks ACP (Agent Client Protocol, ndjson JSON-RPC on
+  stdio, no SDK) with an adapter fetched by `npx`, pinned (`@agentclientprotocol/claude-agent-acp`,
+  `@zed-industries/codex-acp`, `gemini --acp`). The tools of `mcp.ts` reach it over HTTP (`serveHttp()`: loopback,
+  random token in the path, no `Origin`, one POST one JSON answer), with the `HOSTED` instructions (no terminal, no
+  `wait_for_event`, no browser; `open()` of `mcp.ts` opens nothing then). `serveHttp` sets `forward`: every event a
+  waiting chat form did not take goes to the host instead of the channel and the queue. Each chat, command, answer and
+  `activity` with `help` becomes a prompt (one at a time), other activity rides along with the next one, a closed
+  chat cancels the turn, a `session` event switches the ACP session. One ACP session per chat session, kept in
+  `.chats/.acp-sessions.json` and resumed with `session/load` after a restart (then the prompt asks for `set_agent`
+  again, the roster lives in memory). The first prompt of a new session carries `RULES` (ACP has no common system
+  prompt). Plain text of a turn that sent no chat message (`mcp.sent()`) goes into the chat; the end of a turn
+  clears the progress line. `session/request_permission`: tools of the liascript server are allowed, anything else is
+  refused through `--share` and asked as a chat form locally (rarely reached: the hosted rules make the agent refuse
+  commands itself).
+- **`src/gateway.ts`** — `--users DIR [--share] [--agent …] [-p admin port]`: one start for many users. A front
+  server on loopback (random port, `👥 front:`) is what the share link reaches: without a valid `x-lia-token` it
+  answers a page with the login (`/lia-login`, scrypt hashes in `DIR/users.json` `0600`, five wrong passwords lock
+  a name for a minute), the token lives in the `sessionStorage` of the share tab and `lia-share.js` sends it with
+  every request (`m.token` → `x-lia-token` in `share.ts`). With a login it starts the user's DevServer on demand
+  (`--agent`, `-i README.md` or `.`, cwd `DIR/<name>`, env `LIA_TOKEN` for `/agent/state/<token>`,
+  `LIA_GATEWAY` so `acp.ts` refuses every permission, `LIA_ROLE` student|author for its rules), one start at a
+  time from port 4100 (the port comes from its `local:` line), proxies to it with `Host` and `Origin` of a local tab
+  (`x-lia-web` → its web proxy port) and stops it after 15 min without an open request. The admin page
+  (`127.0.0.1:<-p>`, `Host` checked, forms need their `Origin`) creates users, optionally with a copy of a course:
+  a dropdown of the subfolders of `--courses DIR` (default `.`) that hold a Markdown file (`courseList()`, the only
+  values accepted, so no path from the form reaches the disk), kept as `course` in `users.json` and shown in the list, sets passwords, deletes users (their folder stays), shows who is online, where (`/agent/state`, with
+  `stuck`, the last help of `needsHelp()`) and lets the teacher read the latest chat. `check.js` covers login,
+  lock and routing with a stub agent. The UI of each share tab sits below `tab-<id>/`: the service worker asks every
+  share tab, only the one with that id answers, two logins in one browser never cross.
+- **`src/share.ts` + `share/`** — `--share` (spike, see
+  `docs/superpowers/specs/2026-10-26-shared-devserver-webrtc-design.md`): the server for browsers elsewhere over
+  WebRTC. Trystero (`@trystero-p2p/nostr`, the strategy of the LiaScript classroom) with `werift` as
+  `RTCPeerConnection` (`node-datachannel` never connected two Node peers); `index.ts` loads it only with the flag,
+  through `createRequire`, because parcel hoists every `require(` to the top of the bundle. Room and key are kept per
+  project folder in `~/.config/liascript/share.json` (`0600`, optional `turn` for `turnConfig`), the link survives a
+  restart until `--share-new`. `share/` is a static page without build (Trystero from jsDelivr) for an origin of its
+  own: `lia-share.js` joins the room of the fragment (`#room=…&key=…&web=…`, the key encrypts the handshake) and
+  shows `/` in a frame, `lia-share-sw.js` hands every other request of that origin to it, and the answer streams
+  back (SSE works). A new host peer (restart) fails the open requests and reloads the frame, a failed EventSource does
+  not retry. The host replays a request with `fetch` against the local server, `Origin` set to it, `X-Lia-Origin`
+  the page (`originOf()` in `lib.ts` puts it into the `/` redirect, the listing and the `.md` redirect). Live reload:
+  the `reload` WebSocket does not pass, so `reloadNow()` also writes `{reload: true}` to every stream of a remote
+  client (`x-lia-origin`), `gotoScript` reloads on it, and the player of a remote client gets no `reload.js`. Web
+  pages (`--proxy read` only): the same page under a second origin (`web=`, `--share-web`, by default the other one
+  of `localhost`/`127.0.0.1`) is hidden in the share page as `lia-share-relay.html`; its service worker hands the
+  requests of a web page in the shell to the relay, which passes them through a `MessagePort` to the share page with
+  `web: true`, and the host sends them to `proxyOrigin()`. `/web` redirects to `X-Lia-Web-Origin`, the proxy adds
+  the share page to `frame-ancestors` and injects `web.js?shared`: there the page sits one frame deeper (under the
+  share page), `web.js` counts the depth. `get_state.share` is the link. Not through the tunnel: `--proxy full`, the
+  browser extension. The page is published as `LiaScript/share` (https://liascript.github.io/share/, the default
+  of `--share`; copy `share/` there after a change), so it sits in a folder: `X-Lia-Origin` carries the folder too
+  (`https://liascript.github.io/share`), every path the server hands out starts with `originOf(req)`, the scripts of
+  the UI compute the same prefix (`BASE` in `chat.js`, `base__` in `gotoScript`, used by `agent.js`: the part of
+  the path before `/liascript/`, `''` locally) and the service worker strips it again. It only takes the share page
+  itself as carrier, not another tab of liascript.github.io. There is no second origin under liascript.github.io,
+  so web pages are off through it (`/web` 404, `{proxy: 'off'}` in the replay) until `--share-web` names one.
+  TURN: the workflow of `LiaScript/share` (`.github/workflows/pages.yml`, only there, `cp share/*` keeps it)
+  publishes the page and writes `ice.json` from the organization secret `WEBRTC_ICE_SERVERS` (a JSON list of
+  RTCIceServer, the same as in the LiaScript build). `lia-share.js` and the host (`turn()` in `share.ts`, unless
+  `share.json` has its own `turn`) pass it to Trystero as `turnConfig`: a phone behind the NAT of its carrier
+  needs a relay.
+  Transfer: the host reads every answer but an event stream at once (`arrayBuffer()`): over a phone it read for
+  20 to 30 s, and a Node server closes the connection `keepAliveTimeout` (5 s) after it handed over the last byte,
+  the end of big scripts was missing ("terminated"). Text goes packed with gzip when the page says it can unpack
+  (`m.gzip`, `DecompressionStream` in the worker), about a third. The worker keeps files with an 8-hex content hash
+  in their name in the Cache API per room (`__lia-cache/<room>/…`, the room of a tab comes with its first answer):
+  a file of one teacher's server never answers for another. `&debug` in the link shows a log of every request and
+  of the errors of all frames.
 - **`src/git.ts`** — git for users who cannot install it (no admin rights): the tools `git_login`, `git_status`,
   `git_clone`, `git_sync`, `git_publish` and `git_tag` on `isomorphic-git` (pure JS, `main` and `http/node` resolve
   without the exports map, so `pkg` finds them) and the GitHub REST API by `fetch`. The user pastes a personal

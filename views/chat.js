@@ -2,6 +2,10 @@
 // and reports to the server on its own; this page only does the chat, which
 // therefore survives every reload of the course.
 
+// '' here, the folder of the share page through --share (e.g. /share): every
+// path of the server starts with it, the service worker strips it again
+var BASE = location.pathname.slice(0, location.pathname.lastIndexOf('/liascript/'))
+
 var course = document.getElementById('course')
 var log = document.getElementById('log')
 var say = document.getElementById('say')
@@ -15,7 +19,7 @@ if (web) {
   })
 } else {
   course.src =
-    (/^\?\/home/.test(location.search) ? location.search.slice(1) : 'index.html' + location.search) + location.hash
+    (/^\?\/home/.test(location.search) ? BASE + location.search.slice(1) : 'index.html' + location.search) + location.hash
 }
 
 // the extension sets up its tab within moments, else the proxy
@@ -34,20 +38,20 @@ function whenExtension(go) {
 // the user's logins. Else the proxy of the server (--proxy), which off refuses.
 function webPage(url) {
   var html = document.documentElement.dataset
-  return html.liaExtension == 'ready' && html.proxy != 'off' ? url : '/web?url=' + encodeURIComponent(url)
+  return html.liaExtension == 'ready' && html.proxy != 'off' ? url : BASE + '/web?url=' + encodeURIComponent(url)
 }
 
 // the player, not the listing or a web page
 function isPlayer() {
   try {
-    return course.contentWindow.location.pathname == '/liascript/index.html'
+    return course.contentWindow.location.pathname == BASE + '/liascript/index.html'
   } catch (e) {
     return false
   }
 }
 
 function post(msg) {
-  return fetch('/agent', {
+  return fetch(BASE + '/agent', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(msg),
@@ -218,13 +222,13 @@ tr(homeButton, 'Back to the start of the course', 'aria-label')
 function showHome() {
   var away = !!homeCourse
   try {
-    away = away && !(isPlayer() && new URL(course.contentWindow.location.search.slice(1)).pathname == '/' + encodeURI(homeCourse))
+    away = away && !(isPlayer() && new URL(course.contentWindow.location.search.slice(1)).pathname == BASE + '/' + encodeURI(homeCourse))
   } catch (e) {}
   homeButton.hidden = !away
 }
 course.addEventListener('load', showHome)
 homeButton.addEventListener('click', function () {
-  course.src = 'index.html?' + location.origin + '/' + encodeURI(homeCourse)
+  course.src = 'index.html?' + location.origin + BASE + '/' + encodeURI(homeCourse)
 })
 
 // The listing of the folder of the course or file (a PDF, a text) in the
@@ -235,13 +239,13 @@ tr(filesButton, 'Files in this folder', 'aria-label')
 
 function courseFolder() {
   try {
-    var where = course.contentWindow.location.pathname
+    var where = course.contentWindow.location.pathname.slice(BASE.length)
     if (isPlayer()) {
       var file = new URL(course.contentWindow.location.search.slice(1))
       if (file.origin != location.origin) return null
-      where = '/home' + file.pathname.replace(/^\/+/, '/')
+      where = '/home' + file.pathname.slice(BASE.length).replace(/^\/+/, '/')
     } else if (!where.startsWith('/home/') || isListing()) return null
-    return where.replace(/\/[^/]*$/, '')
+    return BASE + where.replace(/\/[^/]*$/, '')
   } catch (e) {
     return null
   }
@@ -267,7 +271,7 @@ filesButton.addEventListener('click', function () {
 // F5 comes back to the folder. Its links stay in the frame.
 course.addEventListener('load', function () {
   try {
-    var where = course.contentWindow.location.pathname
+    var where = course.contentWindow.location.pathname.slice(BASE.length)
     // this origin again, no web page
     web = ''
     if (!where.startsWith('/home')) return
@@ -1696,7 +1700,7 @@ var lastHeard = 0
 
 function connect() {
   if (stream) stream.close()
-  stream = new EventSource('/gotoLine?chat')
+  stream = new EventSource(BASE + '/gotoLine?chat')
   lastHeard = Date.now()
   // every (re)connect first replays the chat, the agents and the progress
   // line, also the hint of the server if there is one
@@ -1752,7 +1756,7 @@ function message(event) {
     var go = data.goto
     if (typeof go.url == 'string') course.src = webPage(go.url)
     else if (go.file && !isPlayer()) {
-      course.src = 'index.html?' + location.origin + '/' + encodeURI(go.file) + (go.slide ? '#' + go.slide : '')
+      course.src = 'index.html?' + location.origin + BASE + '/' + encodeURI(go.file) + (go.slide ? '#' + go.slide : '')
     }
     return
   }

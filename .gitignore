@@ -13,3 +13,6 @@ test.md
 .mcp.json
 .vibe/config.toml
 .superpowers/
+# users of --users (src/gateway.ts) started in this checkout: their copies, chats and passwords
+klasse/
+users/

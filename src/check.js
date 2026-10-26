@@ -336,7 +336,7 @@ async function main() {
 
   // --- http guards
   const page = await listening()
-  assert.ok(page.data.includes('<script src="/liascript/agent.js">'), 'agent script is injected')
+  assert.ok(page.data.includes('<script src="agent.js">'), 'agent script is injected')
   for (const file of ['activity.js', 'agent.js']) {
     const served = await request('GET', '/liascript/' + file, {})
     assert.strictEqual(served.status, 200, file + ' is served')
@@ -368,6 +368,16 @@ async function main() {
   assert.strictEqual((await request('GET', '/', { Host: 'evil.com' })).status, 403, 'rebound host on GET')
   const start = await request('GET', '/', {})
   assert.strictEqual(start.headers.location, 'http://localhost:3999/liascript/chat.html?http://localhost:3999/README.md', '/ opens the course')
+  // --share: the addresses of the share page, with its folder
+  const SHARE = { 'X-Lia-Origin': 'https://liascript.github.io/share' }
+  assert.strictEqual((await request('GET', '/', SHARE)).headers.location, 'https://liascript.github.io/share/liascript/chat.html?https://liascript.github.io/share/README.md', '/ through --share')
+  assert.strictEqual((await request('GET', '/', { 'X-Lia-Origin': 'javascript:alert(1)' })).headers.location, start.headers.location, 'a bad X-Lia-Origin is ignored')
+  assert.strictEqual((await request('GET', '/web?url=https://example.org/', SHARE)).status, 404, 'no web pages through --share without a page for them')
+  assert.strictEqual(
+    (await request('GET', '/home/README.md', { ...SHARE, 'Sec-Fetch-Dest': 'iframe' })).headers.location,
+    'https://liascript.github.io/share/liascript/index.html?https://liascript.github.io/share/README.md',
+    'a course of the listing through --share, one slash: //x is a host to new URL()',
+  )
   assert.strictEqual((await post({ type: 'bogus' })).status, 400)
   assert.strictEqual((await post(report)).status, 204)
 
@@ -1185,6 +1195,58 @@ async function main() {
   const ended = new Promise((resolve) => child.on('exit', resolve))
   child.stdin.end()
   await ended
+
+  // --- --users: the login first, then the DevServer of that user. A stub
+  // agent: the real one would need npx, a network and a login.
+  const USERS = path.join(PROJECT, 'klasse')
+  const ADMIN = PORT - 10
+  const COURSES = path.join(PROJECT, 'kurse')
+  fs.mkdirSync(path.join(COURSES, 'prolog'), { recursive: true })
+  fs.writeFileSync(path.join(COURSES, 'prolog', 'README.md'), '# Prolog\n')
+  fs.mkdirSync(path.join(COURSES, 'bilder'))
+  const gw = spawn(process.execPath, [path.join(ROOT, 'dist/index.js'), '--users', USERS, '--courses', COURSES, '-p', ADMIN, '--agent', 'node -e setInterval(Date.now,1e9)'], { cwd: PROJECT, stdio: ['ignore', 'pipe', 'ignore'] })
+  // also when an assertion fails: a gateway left behind holds the port
+  process.on('exit', () => gw.kill())
+  const front = await new Promise((resolve, reject) => {
+    gw.on('exit', () => reject(new Error('the gateway stopped')))
+    let out = ''
+    gw.stdout.on('data', (d) => {
+      const m = /front: http:\/\/127\.0\.0\.1:(\d+)/.exec((out += d))
+      if (m) resolve(Number(m[1]))
+    })
+  })
+  const FORM = { 'Content-Type': 'application/x-www-form-urlencoded' }
+  const ADM = { ...FORM, Host: '127.0.0.1:' + ADMIN, Origin: 'http://127.0.0.1:' + ADMIN }
+  assert.strictEqual((await request('POST', '/users', { ...FORM, Host: ADM.Host }, 'name=anna&password=secret1&role=student', ADMIN)).status, 403, 'an admin form without Origin')
+  assert.strictEqual((await request('GET', '/', { Host: 'evil.com' }, undefined, ADMIN)).status, 403, 'the admin page is for this machine')
+  assert.strictEqual((await request('POST', '/users', ADM, 'name=anna&password=secret1&role=student', ADMIN)).status, 303)
+  const usersFile = path.join(USERS, 'users.json')
+  assert.strictEqual(fs.statSync(usersFile).mode & 0o777, 0o600, 'users.json for the owner only')
+  assert.ok(!fs.readFileSync(usersFile, 'utf8').includes('secret1'), 'no password in users.json')
+  const adminPage = (await request('GET', '/', { Host: ADM.Host }, undefined, ADMIN)).data
+  assert.ok(adminPage.includes('<option>prolog</option>') && !adminPage.includes('<option>bilder</option>'), 'the courses: folders with Markdown')
+  await request('POST', '/users', ADM, 'name=carl&password=secret1&role=student&course=prolog', ADMIN)
+  assert.ok(fs.existsSync(path.join(USERS, 'carl', 'README.md')), 'a copy of the course')
+  assert.strictEqual(JSON.parse(fs.readFileSync(usersFile, 'utf8')).carl.course, 'prolog')
+  assert.ok((await request('GET', '/rows', { Host: ADM.Host }, undefined, ADMIN)).data.includes('prolog'), 'the list names the course')
+  await request('POST', '/users', ADM, 'name=dora&password=secret1&role=student&course=' + encodeURIComponent('../kurse/prolog'), ADMIN)
+  assert.ok(!JSON.parse(fs.readFileSync(usersFile, 'utf8')).dora, 'only a course of the list')
+  const TAB = { 'X-Lia-Origin': 'https://liascript.github.io/share/tab-x', 'Sec-Fetch-Dest': 'iframe' }
+  const gate = await request('GET', '/', TAB, undefined, front)
+  assert.ok(gate.status === 200 && gate.data.includes('https://liascript.github.io/share/tab-x/lia-login'), 'the login first')
+  assert.strictEqual((await request('GET', '/agent', {}, undefined, front)).status, 401, 'nothing else without a login')
+  assert.strictEqual((await request('POST', '/lia-login', { ...TAB, ...FORM }, 'name=anna&password=nope', front)).status, 401, 'a wrong password')
+  const right = await request('POST', '/lia-login', { ...TAB, ...FORM }, 'name=anna&password=secret1', front)
+  const token = /setItem\('lia-share-token', "([0-9a-f]{32})"\)/.exec(right.data)[1]
+  const inside = await request('GET', '/', { ...TAB, 'X-Lia-Token': token }, undefined, front)
+  assert.strictEqual(inside.status, 302, 'the DevServer of anna')
+  assert.ok(inside.headers.location.startsWith('https://liascript.github.io/share/tab-x/liascript/chat.html?'), inside.headers.location)
+  for (let i = 0; i < 5; i++) await request('POST', '/lia-login', { ...TAB, ...FORM }, 'name=anna&password=nope', front)
+  const locked = await request('POST', '/lia-login', { ...TAB, ...FORM }, 'name=anna&password=secret1', front)
+  assert.ok(locked.status === 401 && locked.data.includes('warten'), 'five wrong passwords lock the name')
+  const gwExit = new Promise((resolve) => gw.on('exit', resolve))
+  gw.kill()
+  await gwExit
 
   fs.rmSync(PROJECT, { recursive: true, force: true })
   console.log('ok')

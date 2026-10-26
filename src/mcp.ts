@@ -6,6 +6,7 @@
 
 import * as crypto from 'crypto'
 import * as fs from 'fs'
+import * as http from 'http'
 import * as path from 'path'
 import * as readline from 'readline'
 
@@ -15,7 +16,12 @@ import * as sections from './sections'
 import * as teachers from './teachers/catalog'
 import { webURL } from './web'
 
-const open = require('open')
+const opener = require('open')
+
+// with --agent the user may be elsewhere (--share): no browser of this machine
+function open(url: string) {
+  if (!forward) opener(url)
+}
 
 // never answer 2026-07-28, see above
 const VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05']
@@ -45,6 +51,12 @@ Preview: a connected tab (get_state.connected) stays the only one. Else open get
 get_state.tts: the browser cannot read aloud. Mention it only if asked, act only with consent.
 
 Tutor, companion or learner mode: find_teacher, then set_agent persona.`
+
+// --agent (src/acp.ts): the host that started the agent hands it every event
+// as a prompt, there is no terminal and no browser of its own
+const HOSTED = INSTRUCTIONS.replace(/confirm such things in the terminal/, 'refuse them, there is no terminal')
+  .replace(/answer in the terminal and wait/, 'wait')
+  .replace(/Events reach you one way[^]*?\n\nPreview:[^\n]*/, 'Events reach you as prompts of the host that started you: never call wait_for_event, never start a Monitor, never open a browser. Your plain text reaches the chat only if you sent no chat message in that turn.')
 
 // a slash command for clients without channel or Monitor, e.g. /mcp.liascript.chat in Copilot
 const PROMPT = {
@@ -520,6 +532,11 @@ let waiter: { request: any; done: (event: object) => void } | null = null
 // the chat form a blocking chat call is waiting on
 let ask: { id: string; request: any; done: (answer: object) => void } | null = null
 
+// --agent: the host gets every event a waiting call did not take
+let forward: ((event: any) => void) | null = null
+// chat messages sent, the host mirrors plain text only if a turn sent none
+let messages = 0
+
 function onEvent(event: any) {
   // the answer to a waiting chat call is its result, not an event
   if (ask && event.type === 'answer' && event.params.ask === ask.id) {
@@ -538,6 +555,8 @@ function onEvent(event: any) {
   }
   // the user opened another chat, the form stays in the old one
   if (ask && event.type === 'session') ask.done({ switched: true })
+
+  if (forward) return forward(event)
 
   if (waiter) {
     server.activity()
@@ -832,6 +851,7 @@ async function chat(args: any, request: any) {
   const id = 'ask-' + crypto.randomBytes(4).toString('hex')
   const agent = server.currentAgent()
   server.send({ chat: { id, markdown: args.markdown, inputs, status, lang, agent } })
+  messages++
   if (!inputs.length) return late(closed ? { sent: true, closed } : { sent: true })
   // the watcher gets the answer as an event, a blocked call would get it twice
   if (args.wait === false || server.getState().watched) return late({ sent: true, ask: id })
@@ -919,7 +939,7 @@ async function handle(method: string, params: any, request: any) {
         // approve tool use in the session.
         capabilities: { tools: {}, prompts: {}, experimental: { 'claude/channel': {} } },
         serverInfo: { name: 'liascript-devserver', version: '1' },
-        instructions: INSTRUCTIONS,
+        instructions: forward ? HOSTED : INSTRUCTIONS,
       }
 
     case 'ping':
@@ -992,4 +1012,67 @@ export function mcp() {
     if (gone >= 0) cancelled.splice(gone, 1)
     else out({ id: msg.id, ...answer })
   })
+}
+
+// --agent (src/acp.ts): the same tools over HTTP for the agent the server
+// starts itself, on loopback under a random token, for this machine only.
+// Streamable HTTP in its simplest form: one POST, one JSON answer, no stream.
+// onEvent: every browser event a waiting chat form did not take.
+export function serveHttp(onEvent: (event: any) => void): Promise<string> {
+  forward = onEvent
+  server.bus.on('event', onEvent)
+  const token = crypto.randomBytes(16).toString('hex')
+  const httpServer = http.createServer(async (req, res) => {
+    // a page in a browser sends an Origin, the agent none
+    if (req.url !== '/' + token || req.headers.origin !== undefined) {
+      res.writeHead(404)
+      return res.end()
+    }
+    if (req.method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' })
+      return res.end()
+    }
+    let body = ''
+    for await (const chunk of req) body += chunk
+    let msg: any
+    try {
+      msg = JSON.parse(body)
+    } catch (e) {
+      res.writeHead(400, { 'Content-Type': 'application/json' })
+      return res.end(JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'parse error' } }))
+    }
+    if (msg && msg.method === 'notifications/cancelled') cancel(msg.params && msg.params.requestId)
+    // notifications and responses
+    if (!msg || msg.id === undefined || typeof msg.method !== 'string') {
+      res.writeHead(202)
+      return res.end()
+    }
+    let answer: object
+    try {
+      answer = { result: await handle(msg.method, msg.params || {}, msg.id) }
+    } catch (e: any) {
+      answer = { error: { code: e.code || -32603, message: e.message } }
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ jsonrpc: '2.0', id: msg.id, ...answer }))
+  })
+  return new Promise((resolve) =>
+    httpServer.listen(0, '127.0.0.1', () => resolve('http://127.0.0.1:' + (httpServer.address() as any).port + '/' + token)),
+  )
+}
+
+// for the host: a tool as the agent would call it
+export async function call(name: string, args: object) {
+  const result: any = await handle('tools/call', { name, arguments: args }, 'host-' + crypto.randomBytes(4).toString('hex'))
+  const text = result.content[0].text
+  if (result.isError) throw new Error(text)
+  try {
+    return JSON.parse(text)
+  } catch (e) {
+    return text
+  }
+}
+
+export function sent() {
+  return messages
 }

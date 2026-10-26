@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LiaScript Share</title>
+  <style>
+    :root { color-scheme: light dark; --bg: #fff; --fg: #222; }
+    @media (prefers-color-scheme: dark) { :root { --bg: #1b1b1b; --fg: #ddd; } }
+    html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); }
+    #status { font: 16px/1.5 system-ui, sans-serif; padding: 1rem; }
+    iframe { display: block; border: 0; width: 100%; height: 100%; }
+  </style>
+</head>
+<body>
+  <p id="status">Connecting…</p>
+  <script type="module" src="lia-share.js"></script>
+</body>
+</html>
