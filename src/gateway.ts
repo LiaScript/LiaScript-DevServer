@@ -22,7 +22,8 @@ const TRIES = 5
 const LOCK_MS = 60 * 1000
 
 // course: the folder of --courses it got a copy of, if any
-type User = { salt: string; hash: string; role: string; created: string; course?: string }
+// kit: the user has the tools of --kit (the Teaching-Agent) in their folder
+type User = { salt: string; hash: string; role: string; created: string; course?: string; kit?: boolean }
 type Instance = {
   child: ChildProcess
   ready: Promise<number>
@@ -37,6 +38,7 @@ type Options = {
   admin: number // port of the admin page
   agent: string
   courses: string // the folder whose subfolders the admin page offers as courses
+  kit?: string // --kit: the Teaching-Agent (or another set of agent instructions) for authors
   sandbox: boolean // every agent in bubblewrap (src/acp.ts), off only with --no-sandbox
   models: { [role: string]: string } // ANTHROPIC_MODEL per role, e.g. a small one for students
   share?: (front: string) => string // starts the share host, returns the link
@@ -98,6 +100,12 @@ const same = (a: string, b: string) => {
   }
 }
 
+// what of --kit goes into the folder of an author: the instructions of the
+// agents and the specs they read; not the sample course, not .mcp.json (its
+// agent gets the tools from the gateway, a DevServer of its own has no place
+// in the sandbox)
+const KIT = ['CLAUDE.md', 'AGENTS.md', '.codex', 'specs', '.gitignore']
+
 // next to a file of the user: README.md -> README.update.md
 const beside = (p: string) => p.replace(/(\.[^./]*)?$/, '.update$1')
 
@@ -106,9 +114,11 @@ const beside = (p: string) => p.replace(/(\.[^./]*)?$/, '.update$1')
 // gets the teacher's new version, what the user changed stays, and where both
 // changed, the teacher's version goes beside it (beside()). Then base is the
 // new version. Returns what happened, for the teacher and the user.
-export function syncCourse(source: string, base: string, work: string) {
+// only: the entries of source that count (KIT), else all of it
+export function syncCourse(source: string, base: string, work: string, only?: string[]) {
   const report = { updated: [] as string[], added: [] as string[], removed: [] as string[], conflicts: [] as string[] }
-  const s = new Set(filesOf(source))
+  const of = (p: string) => !only || only.includes(p.split('/')[0])
+  const s = new Set(filesOf(source).filter(of))
   const b = new Set(filesOf(base))
   const put = (p: string, to = p) => {
     fs.mkdirSync(path.dirname(path.join(work, to)), { recursive: true })
@@ -130,7 +140,10 @@ export function syncCourse(source: string, base: string, work: string) {
     }
   }
   fs.rmSync(base, { recursive: true, force: true })
-  fs.cpSync(source, base, { recursive: true, filter: (src) => !SKIP.test(src) })
+  fs.mkdirSync(base, { recursive: true })
+  for (const e of only || fs.readdirSync(source)) {
+    if (fs.existsSync(path.join(source, e))) fs.cpSync(path.join(source, e), path.join(base, e), { recursive: true, filter: (src) => !SKIP.test(src) })
+  }
   return report
 }
 
@@ -203,7 +216,8 @@ export async function gateway(o: Options) {
     const home = path.join(dir, name)
     fs.mkdirSync(home, { recursive: true })
     const token = crypto.randomBytes(16).toString('hex')
-    const input = fs.existsSync(path.join(home, 'README.md')) ? 'README.md' : '.'
+    // the journal of the Teaching-Agent is the dashboard of an author
+    const input = ['journal.md', 'README.md'].find((f) => fs.existsSync(path.join(home, f))) || '.'
     const inst: Instance = { child: null as any, ready: null as any, port: 0, token, open: 0, last: Date.now() }
     let child: ChildProcess
     inst.ready = starting = starting.then(async () => {
@@ -217,6 +231,8 @@ export async function gateway(o: Options) {
           LIA_GATEWAY: '1',
           LIA_GATEWAY_KEY: gatewayKey,
           LIA_ROLE: users[name].role,
+          // the GitHub login of git_login (src/git.ts), the user's own
+          LIA_CONFIG_DIR: path.join(dir, '.homes', name, '.config', 'liascript'),
           ...(o.models[users[name].role] ? { ANTHROPIC_MODEL: o.models[users[name].role] } : {}),
           ...(o.sandbox ? { LIA_SANDBOX: '1', LIA_AGENT_HOME: path.join(dir, '.homes', name) } : {}),
         },
@@ -282,16 +298,27 @@ export async function gateway(o: Options) {
 
   // a course update for a user: their DevServer stops (its agent must not
   // work on files that change), the next request starts it again
+  const baseKitOf = (name: string) => path.join(dir, '.base-kit', name)
   function updateCourse(name: string) {
     running.get(name)?.child?.kill()
-    const r = syncCourse(path.join(o.courses, users[name].course as string), baseOf(name), path.join(dir, name))
+    const none = { updated: [] as string[], added: [] as string[], removed: [] as string[], conflicts: [] as string[] }
+    const course = users[name].course && courseList(o.courses).includes(users[name].course as string)
+    const c = course ? syncCourse(path.join(o.courses, users[name].course as string), baseOf(name), path.join(dir, name)) : none
+    const k = users[name].kit && o.kit ? syncCourse(o.kit, baseKitOf(name), path.join(dir, name), KIT) : none
+    const r = {
+      updated: [...c.updated, ...k.updated],
+      added: [...c.added, ...k.added],
+      removed: [...c.removed, ...k.removed],
+      conflicts: [...c.conflicts, ...k.conflicts],
+    }
+    const what = [course && 'Kurs ' + users[name].course, users[name].kit && o.kit && 'Teaching-Agent'].filter(Boolean).join(' und ')
     const parts = [
       r.updated.length && r.updated.length + ' aktualisiert',
       r.added.length && r.added.length + ' neu',
       r.removed.length && r.removed.length + ' entfernt',
     ].filter(Boolean)
     const text =
-      'Dein Kurs ' + users[name].course + ' wurde aktualisiert' + (parts.length ? ' (' + parts.join(', ') + ')' : ', es gab nichts Neues') + '.' +
+      'Dein ' + what + ' wurde aktualisiert' + (parts.length ? ' (' + parts.join(', ') + ')' : ', es gab nichts Neues') + '.' +
       (r.conflicts.length
         ? ' Diese Dateien hattest du selbst geändert, sie bleiben so; die neue Version liegt daneben: ' + r.conflicts.map(beside).join(', ')
         : '')
@@ -526,8 +553,10 @@ ${message ? `<p class="bad">${esc(message)}</p>` : ''}<button>Anmelden</button><
         return `<tr${help ? ' class="help"' : ''}><td><b>${esc(n)}</b><br><small>${esc(users[n].role === 'author' ? 'Autor' : 'Schüler')}</small></td>
 <td>${online ? '🟢 online' : inst ? '🟡 läuft' : '⚪ aus'}<br><small>${inst ? esc(ago(inst.last)) : ''}</small></td>
 <td>${
-          users[n].course
-            ? esc(users[n].course) + `<form method="post" action="/update/${esc(n)}"><button class="quiet">aktualisieren</button></form>`
+          users[n].course || users[n].kit
+            ? esc(users[n].course || '') +
+              (users[n].kit ? `<br><small>+ Teaching-Agent</small>` : '') +
+              `<form method="post" action="/update/${esc(n)}"><button class="quiet">aktualisieren</button></form>`
             : `<form method="post" action="/assign/${esc(n)}"><select name="course"><option value="">–</option>${courseList(o.courses)
                 .map((c) => `<option>${esc(c)}</option>`)
                 .join('')}</select><button class="quiet">zuweisen</button></form>`
@@ -588,7 +617,9 @@ ${message ? `<p class="msg">${esc(message)}</p>` : ''}
 <h2>Neuer Nutzer</h2><div class="card"><form class="new" method="post" action="/users">
 <input name="name" placeholder="name (a-z, 0-9, - _)" required pattern="[a-z0-9][a-z0-9_-]{0,31}">
 <input name="password" type="password" placeholder="Passwort" required minlength="6">
-<select name="role"><option value="student">Schüler</option><option value="author">Autor</option></select>
+<select name="role"><option value="student">Schüler</option><option value="author">Autor</option></select>${
+      o.kit ? '<label title="Die Anweisungen und Specs des Teaching-Agent in den Ordner, für Autoren"><input type="checkbox" name="kit" value="1"> mit Teaching-Agent</label>' : ''
+    }
 <select name="course" title="Kopie eines Kurses aus ${esc(o.courses)}"><option value="">ohne Kurs (leerer Ordner)</option>${courseList(o.courses)
       .map((c) => `<option>${esc(c)}</option>`)
       .join('')}</select>
@@ -664,10 +695,13 @@ body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-
         // ponytail: a copy; later a git clone, so that an update can merge
         fs.mkdirSync(home, { recursive: true })
         if (course) syncCourse(path.join(o.courses, course), baseOf(name), home)
+        const kit = !!o.kit && f.get('kit') === '1'
+        if (kit) syncCourse(o.kit as string, baseKitOf(name), home, KIT)
         const salt = crypto.randomBytes(16).toString('hex')
-        users[name] = { salt, hash: hash(password, salt), role, created: new Date().toISOString(), ...(course ? { course } : {}) }
+        users[name] = { salt, hash: hash(password, salt), role, created: new Date().toISOString(), ...(course ? { course } : {}), ...(kit ? { kit } : {}) }
         save()
-        message = name + ' ist angelegt' + (course ? ', mit einer Kopie von ' + course : '') + '.'
+        message =
+          name + ' ist angelegt' + (course ? ', mit einer Kopie von ' + course : '') + (kit ? ', mit dem Teaching-Agent' : '') + '.'
       }
     } else if (action === 'password' && users[who]) {
       const password = String(f.get('password') || '')
@@ -683,11 +717,11 @@ body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-
       }
     } else if (action === 'update' && who === 'all') {
       message = Object.keys(users)
-        .filter((n) => users[n].course && courseList(o.courses).includes(users[n].course as string))
+        .filter((n) => (users[n].course && courseList(o.courses).includes(users[n].course as string)) || (users[n].kit && o.kit))
         .map(updateCourse)
         .join(' · ') || 'Niemand hat einen Kurs.'
-    } else if (action === 'update' && users[who] && users[who].course) {
-      message = courseList(o.courses).includes(users[who].course as string) ? updateCourse(who) : 'Den Kurs ' + users[who].course + ' gibt es nicht mehr.'
+    } else if (action === 'update' && users[who] && (users[who].course || users[who].kit)) {
+      message = updateCourse(who)
     } else if (action === 'assign' && users[who] && !users[who].course) {
       const course = String(f.get('course') || '')
       if (!courseList(o.courses).includes(course)) message = 'Bitte einen Kurs wählen.'
@@ -756,6 +790,7 @@ body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-
   console.log('👥 users in ' + dir + ' (' + Object.keys(users).length + ')')
   console.log('👥 admin page: http://localhost:' + o.admin + '/')
   console.log('📚 courses from ' + o.courses + ' (' + courseList(o.courses).length + ')')
+  if (o.kit) console.log('🧰 kit for authors: ' + o.kit + ' (' + KIT.filter((e) => fs.existsSync(path.join(o.kit as string, e))).join(', ') + ')')
   console.log(o.sandbox ? '🔒 every agent in bubblewrap, in the folder of its user' : '⚠️  no sandbox: the agents can read everything this user can')
   if (o.agent == 'claude' && !process.env.ANTHROPIC_API_KEY) {
     console.log('⚠️  no ANTHROPIC_API_KEY: every agent uses your own Claude login, and its limits')

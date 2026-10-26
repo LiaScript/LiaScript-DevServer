@@ -1205,10 +1205,17 @@ async function main() {
   fs.mkdirSync(path.join(COURSES, 'prolog'), { recursive: true })
   fs.writeFileSync(path.join(COURSES, 'prolog', 'README.md'), '# Prolog\n')
   fs.mkdirSync(path.join(COURSES, 'bilder'))
+  // a kit like the Teaching-Agent: its instructions, specs, and what stays out
+  const KITDIR = path.join(PROJECT, 'kit')
+  fs.mkdirSync(path.join(KITDIR, 'specs'), { recursive: true })
+  fs.writeFileSync(path.join(KITDIR, 'CLAUDE.md'), 'Teaching-Agent v1\n')
+  fs.writeFileSync(path.join(KITDIR, 'specs', 'main.md'), 'specs\n')
+  fs.writeFileSync(path.join(KITDIR, 'README.md'), '# the sample course\n')
+  fs.writeFileSync(path.join(KITDIR, '.mcp.json'), '{}\n')
   // a gateway and what it prints: the port of its front and of anna's DevServer
   let gwOut = ''
   const gateway = () => {
-    const g = spawn(process.execPath, [path.join(ROOT, 'dist/index.js'), '--users', USERS, '--courses', COURSES, '-p', ADMIN, '--lan', LAN, '--no-sandbox', '--agent', 'node -e setInterval(Date.now,1e9)'], { cwd: PROJECT, stdio: ['ignore', 'pipe', 'ignore'] })
+    const g = spawn(process.execPath, [path.join(ROOT, 'dist/index.js'), '--users', USERS, '--courses', COURSES, '--kit', KITDIR, '-p', ADMIN, '--lan', LAN, '--no-sandbox', '--agent', 'node -e setInterval(Date.now,1e9)'], { cwd: PROJECT, stdio: ['ignore', 'pipe', 'ignore'] })
     // also when an assertion fails: a gateway left behind holds the port
     process.on('exit', () => g.kill())
     g.stdout.on('data', (d) => (gwOut += d))
@@ -1294,6 +1301,19 @@ async function main() {
   assert.ok(lanInside.status === 302 && lanInside.headers.location.startsWith('http://127.0.0.1:' + LAN + '/liascript/chat.html'), 'the DevServer of ben, under the address of the network: ' + lanInside.headers.location)
   assert.strictEqual(JSON.parse((await request('GET', '/class/state', { ...LANHOST, Cookie: cookie }, undefined, LAN)).data).me, 'ben', 'the class channel with the cookie')
   assert.strictEqual((await request('GET', '/', { Host: '127.0.0.1:' + front2, Cookie: cookie, 'X-Lia-Origin': 'https://x.io/share/tab-x', 'Sec-Fetch-Dest': 'iframe' }, undefined, front2)).status, 200, 'the share front takes no cookie')
+
+  // --kit: an author with the Teaching-Agent
+  await request('POST', '/users', ADM, 'name=erik&password=secret1&role=author&kit=1', ADMIN)
+  const erik = (f) => path.join(USERS, 'erik', f)
+  assert.deepStrictEqual(
+    [fs.existsSync(erik('CLAUDE.md')), fs.existsSync(erik('specs/main.md')), fs.existsSync(erik('README.md')), fs.existsSync(erik('.mcp.json'))],
+    [true, true, false, false],
+    'the instructions and specs, not the sample course, not .mcp.json',
+  )
+  fs.writeFileSync(path.join(KITDIR, 'CLAUDE.md'), 'Teaching-Agent v2\n')
+  await request('POST', '/update/erik', ADM, '', ADMIN)
+  assert.strictEqual(fs.readFileSync(erik('CLAUDE.md'), 'utf8'), 'Teaching-Agent v2\n', 'a kit update')
+  assert.ok(JSON.parse(fs.readFileSync(usersFile, 'utf8')).erik.kit, 'users.json knows the kit')
 
   // course updates, file by file against what carl got last
   const carl = path.join(USERS, 'carl')

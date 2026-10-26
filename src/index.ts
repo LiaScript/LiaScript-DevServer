@@ -56,6 +56,8 @@ if (argv.h || argv.help) {
   console.log('    --student-model, --author-model  the model of the agents of')
   console.log('                 that role (ANTHROPIC_MODEL), e.g. haiku; the key')
   console.log('                 comes from ANTHROPIC_API_KEY, else your login')
+  console.log('    --kit        DIR: the Teaching-Agent (its CLAUDE.md, AGENTS.md,')
+  console.log('                 specs/) for authors of --users, chosen per user')
   console.log('    --courses    DIR: its subfolders are the courses the admin')
   console.log('                 page copies for a new user (default: .)')
   console.log('    --share      share it over WebRTC, prints a link for other')
@@ -104,6 +106,7 @@ if (argv.users) {
     .gateway({
       dir: argv.users,
       courses: require('path').resolve(typeof argv.courses == 'string' ? argv.courses : '.'),
+      kit: typeof argv.kit == 'string' ? require('path').resolve(argv.kit) : undefined,
       admin: Number(argv.p || argv.port || 3000),
       agent: typeof argv.agent == 'string' ? argv.agent : 'claude',
       // minimist turns --no-sandbox into sandbox: false

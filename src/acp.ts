@@ -29,11 +29,15 @@ const RULES =
   // --users (src/gateway.ts) says who the user is
   ({
     student: ' The user is a learner: teach, explain and quiz along the course, give hints instead of solutions, and keep to the course.',
-    author: ' The user writes courses: help to plan, write and test them in the course folder.',
+    author:
+      ' The user writes courses in this folder, their own: help to plan, write, test and publish them, and follow the instructions of this folder (CLAUDE.md, AGENTS.md, e.g. the Teaching-Agent). There is no terminal: what those instructions want confirmed in the terminal, confirm in the chat with a form (chat inputs, type buttons) and go on after a yes; git and publishing with the git_ tools after such a yes.',
   }[process.env.LIA_ROLE || ''] || '')
 
 // started by --users for someone elsewhere: nobody there may allow more
 const remote = () => !!server.getState().share || !!process.env.LIA_GATEWAY
+// an author in the sandbox works on their own folder and may use every tool
+// there (the Teaching-Agent runs node scripts); the sandbox is the limit
+const trusted = () => !!process.env.LIA_SANDBOX && process.env.LIA_ROLE === 'author'
 
 // --users (src/gateway.ts) sets LIA_SANDBOX: the agent of a user runs in
 // bubblewrap and sees the system read-only, node and the adapter, and the
@@ -239,6 +243,10 @@ export async function host(which: string) {
     const what = String(call.title || call.kind || 'a tool')
     const name = JSON.stringify(call._meta || {}) + ' ' + what
     if (allow && /mcp__liascript__|\bliascript\b/.test(name)) return { outcome: 'selected', optionId: allow.optionId }
+    if (allow && trusted()) {
+      console.log('🤖 allowed in the sandbox: ' + what)
+      return { outcome: 'selected', optionId: allow.optionId }
+    }
     if (remote() || !options.length) {
       console.error('🤖 refused: ' + what)
       return reject ? { outcome: 'selected', optionId: reject.optionId } : { outcome: 'cancelled' }

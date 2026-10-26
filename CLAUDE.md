@@ -285,6 +285,14 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   Nostr or internet. There the login is a cookie (`lia`, `HttpOnly`, `SameSite=Strict`), the address the one the
   browser used (`x-lia-origin` from `Host`), every `x-lia-*` header of the browser is dropped; without
   `x-lia-web-origin` the DevServer offers no web pages. Plain HTTP: the passwords cross the network unencrypted.
+  `--kit DIR` (the Teaching-Agent, `LiaScript/teaching-agent`): an author created with "mit Teaching-Agent" gets
+  `KIT` of it in their folder (`CLAUDE.md`, `AGENTS.md`, `.codex`, `specs`, `.gitignore`; not the sample course, not
+  `.mcp.json`: its agent has the tools of the gateway), kept up to date like a course (`DIR/.base-kit/<name>`,
+  `syncCourse(…, KIT)`). The Claude adapter loads the project's `CLAUDE.md` (`settingSources` with `project`), its
+  `agent:teaching/…` links arrive as commands, and the instance opens `journal.md` once it exists. An author's agent
+  in the sandbox is allowed every tool (`trusted()` in `acp.ts`: the Teaching-Agent runs node and shell commands),
+  the rules for authors move confirmations "in the terminal" into a chat form. `LIA_CONFIG_DIR`
+  (`DIR/.homes/<name>/.config/liascript`) gives every user their own GitHub login for `git_login`.
   share tab, only the one with that id answers, two logins in one browser never cross.
 - **`src/share.ts` + `share/`** — `--share` (spike, see
   `docs/superpowers/specs/2026-10-26-shared-devserver-webrtc-design.md`): the server for browsers elsewhere over

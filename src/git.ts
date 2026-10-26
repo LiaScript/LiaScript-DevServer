@@ -11,7 +11,9 @@ import * as path from 'path'
 const git = require('isomorphic-git')
 const http = require('isomorphic-git/http/node')
 
-const FILE = path.join(os.homedir(), '.config', 'liascript', 'github.json')
+// --users (src/gateway.ts) gives every user a folder of their own for it,
+// else all of them would push with the GitHub account of the teacher
+const FILE = path.join(process.env.LIA_CONFIG_DIR || path.join(os.homedir(), '.config', 'liascript'), 'github.json')
 const NEW_TOKEN = 'https://github.com/settings/tokens/new?scopes=repo&description=LiaScript%20DevServer'
 
 type Account = { token: string; login: string; name: string; email: string }
