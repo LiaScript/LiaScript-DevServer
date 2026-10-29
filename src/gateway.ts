@@ -218,6 +218,20 @@ const ALL = '@all'
 type Message = { t: string; from: string; to: string; text: string }
 
 // the subfolders of --courses with a Markdown file, the courses to copy
+// A folder the admin page may choose: below the home of the teacher, after
+// every symlink; the real path, or null
+function inHome(p: string): string | null {
+  try {
+    const real = fs.realpathSync(path.resolve(p))
+    const rel = path.relative(fs.realpathSync(os.homedir()), real)
+    return rel.split(path.sep)[0] !== '..' && !path.isAbsolute(rel) && fs.statSync(real).isDirectory() ? real : null
+  } catch (e) {
+    return null
+  }
+}
+const MODELS = ['haiku', 'sonnet', 'opus']
+const OUTSIDE = 'Dieser Ordner liegt außerhalb deines Home-Ordners oder existiert nicht.'
+
 function courseList(root: string): string[] {
   try {
     return fs
@@ -295,7 +309,7 @@ export async function gateway(o: Options) {
     inst.ready = starting = starting.then(async () => {
       while (!(await free(nextPort))) nextPort++
       const port = nextPort++
-      child = spawn(process.execPath, [...self, '--agent', cfg.agent, '-p', String(port), '-i', input], {
+      child = spawn(process.execPath, [...self, '--agent', cfg.agent, '-p', String(port), '-i', input, ...(cfg.web ? [] : ['--proxy', 'off'])], {
         cwd: home,
         env: {
           ...process.env,
@@ -807,6 +821,21 @@ body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-
       return res.end(await rows())
     }
     if (req.method === 'GET' && action === 'chat' && users[who]) return chatPage(res, who)
+    // the folder list of the settings: folders below home only
+    if (req.method === 'GET' && action === 'folders') {
+      const at = inHome(new URL(req.url || '/', 'http://localhost').searchParams.get('path') || os.homedir())
+      if (!at) {
+        res.writeHead(403)
+        return res.end()
+      }
+      const folders = fs
+        .readdirSync(at, { withFileTypes: true })
+        .filter((d) => !d.name.startsWith('.') && d.name !== 'node_modules' && inHome(path.join(at, d.name)))
+        .map((d) => d.name)
+        .sort((a, b) => a.localeCompare(b))
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' })
+      return res.end(JSON.stringify({ path: at, parent: inHome(path.dirname(at)) !== at ? inHome(path.dirname(at)) : null, folders, courses: courseList(at).length }))
+    }
     if (req.method === 'GET' && action === 'class' && who === 'log') {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' })
       return res.end(classLog())
@@ -884,6 +913,31 @@ body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-
         cfg.lan.port = port
       }
       message = await setLan(f.get('on') === '1')
+    } else if (action === 'settings' && who === 'courses') {
+      const at = inHome(String(f.get('path') || ''))
+      if (!at) message = OUTSIDE
+      else (cfg.courses = at), saveConfig(), (message = 'Kurse kommen jetzt aus ' + at + ' (' + courseList(at).length + ').')
+    } else if (action === 'settings' && who === 'kit') {
+      const given = String(f.get('path') || '')
+      const at = given ? inHome(given) : null
+      if (given && !at) message = OUTSIDE
+      else (cfg.kit = at), saveConfig(), (message = at ? 'Der Teaching-Agent kommt aus ' + at + '.' : 'Ohne Teaching-Agent.')
+    } else if (action === 'settings' && who === 'models') {
+      const chosen = (['student', 'author'] as const).map((r) => [r, String(f.get(r) || '')] as const)
+      if (chosen.some(([, m]) => m && !MODELS.includes(m))) message = 'Dieses Modell gibt es in der Liste nicht.'
+      else {
+        cfg.models = Object.fromEntries(chosen.filter(([, m]) => m))
+        saveConfig()
+        message = 'Modelle gespeichert, sie gelten ab dem nächsten Start eines Nutzers.'
+      }
+    } else if (action === 'settings' && who === 'idle') {
+      const minutes = Number(f.get('minutes'))
+      if (!Number.isInteger(minutes) || minutes < 5 || minutes > 240) message = 'Bitte eine Zahl zwischen 5 und 240 Minuten.'
+      else (cfg.idleMinutes = minutes), saveConfig(), (message = 'Ohne offenen Tab stoppt die KI eines Nutzers nach ' + minutes + ' Minuten.')
+    } else if (action === 'settings' && who === 'web') {
+      cfg.web = f.get('on') === '1'
+      saveConfig()
+      message = (cfg.web ? 'Webseiten im Chat sind an' : 'Webseiten im Chat sind aus') + ', ab dem nächsten Start eines Nutzers.'
     } else if (action === 'class' && who === 'say') {
       const to = String(f.get('to') || ALL)
       const text = String(f.get('text') || '').trim()
@@ -913,7 +967,7 @@ body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-
 
   // stop what nobody uses
   const idle = setInterval(() => {
-    for (const [name, inst] of running) if (inst.open <= 0 && Date.now() - inst.last > IDLE_MS) inst.child?.kill(), running.delete(name)
+    for (const [name, inst] of running) if (inst.open <= 0 && Date.now() - inst.last > cfg.idleMinutes * 60 * 1000) inst.child?.kill(), running.delete(name)
   }, 60 * 1000)
   idle.unref()
 
