@@ -142,7 +142,8 @@ async function start() {
       status.hidden = true
       if (!frame) {
         frame = document.createElement('iframe')
-        frame.src = here + '/'
+        // the name of a link of the admin page (&user=), the login fills it in
+        frame.src = here + '/' + (link.get('user') ? '?user=' + encodeURIComponent(link.get('user')) : '')
         document.body.append(frame)
       } else if (lost) {
         // back after a restart: an event stream that failed does not retry

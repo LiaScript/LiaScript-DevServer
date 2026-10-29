@@ -230,6 +230,14 @@ function inHome(p: string): string | null {
   }
 }
 const MODELS = ['haiku', 'sonnet', 'opus']
+const qrcode = require('qrcode-generator')
+// a QR code as SVG, for the phone of a student
+function qr(text: string): string {
+  const code = qrcode(0, 'M')
+  code.addData(text)
+  code.make()
+  return code.createSvgTag({ cellSize: 2, margin: 2, scalable: true })
+}
 const OUTSIDE = 'Dieser Ordner liegt außerhalb deines Home-Ordners oder existiert nicht.'
 
 function courseList(root: string): string[] {
@@ -525,12 +533,13 @@ h1{font-size:1.25rem;margin:0}input,button{font:inherit;padding:10px 12px;border
 button{background:var(--accent);border-color:var(--accent);color:#fff;cursor:pointer}.bad{color:var(--bad);margin:0}</style></head><body>${body}</body></html>`)
   }
 
-  function login(res: http.ServerResponse, base: string, message = '') {
+  // user: the name of a link of the admin page (?user=), never a password
+  function login(res: http.ServerResponse, base: string, message = '', user = '') {
     page(
       res,
       'Anmelden',
       `<form method="post" action="${esc(base)}/lia-login"><h1>LiaScript</h1>
-<input name="name" autocomplete="username" placeholder="Nutzername" required autofocus>
+<input name="name" autocomplete="username" placeholder="Nutzername" required${user ? ` value="${esc(user)}"` : ' autofocus'}>
 <input name="password" type="password" autocomplete="current-password" placeholder="Passwort" required>
 ${message ? `<p class="bad">${esc(message)}</p>` : ''}<button>Anmelden</button></form>`,
       message ? 401 : 200,
@@ -580,7 +589,8 @@ ${message ? `<p class="bad">${esc(message)}</p>` : ''}<button>Anmelden</button><
     if (!name || !users[name]) {
       // a page in the frame gets the login, everything else waits for it
       const dest = String(req.headers['sec-fetch-dest'] || '')
-      if (['document', 'iframe'].includes(dest) || String(req.headers.accept).includes('text/html')) return login(res, base)
+      if (['document', 'iframe'].includes(dest) || String(req.headers.accept).includes('text/html'))
+        return login(res, base, '', new URL(req.url || '/', 'http://x').searchParams.get('user') || '')
       res.writeHead(401)
       return res.end()
     }
@@ -668,6 +678,20 @@ ${message ? `<p class="bad">${esc(message)}</p>` : ''}<button>Anmelden</button><
     return m < 1 ? 'gerade' : 'vor ' + m + ' min'
   }
 
+  // the links of one user: the name filled in, the password typed
+  const linksOf = (name: string) => [
+    ...(link ? [{ where: 'Internet', href: link + '&user=' + encodeURIComponent(name) }] : []),
+    ...lanAddresses.map((a) => ({ where: 'Schulnetz', href: a + '?user=' + encodeURIComponent(name) })),
+  ]
+  const linkCell = (name: string) =>
+    linksOf(name)
+      .map(
+        (l) =>
+          `<div class="ulink"><button type="button" class="qr" title="QR-Code groß zeigen">${qr(l.href)}</button> <small>${esc(l.where)}</small><br><a href="${esc(
+            l.href,
+          )}" target="_blank" rel="noopener">öffnen</a> <button type="button" class="quiet" data-copy="${esc(l.href)}">Link kopieren</button></div>`,
+      )
+      .join('')
   async function rows() {
     const names = Object.keys(users).sort()
     const states = await Promise.all(names.map((n) => (running.get(n) ? stateOf(running.get(n)!) : null)))
@@ -687,7 +711,7 @@ ${message ? `<p class="bad">${esc(message)}</p>` : ''}<button>Anmelden</button><
                 .filter(Boolean)
                 .join(' · ')
           : ''
-        return `<tr${help ? ' class="help"' : ''}><td><b>${esc(n)}</b><br><small>${esc(users[n].role === 'author' ? 'Autor' : 'Schüler')}</small></td>
+        return `<tr${help ? ' class="help"' : ''}><td><b>${esc(n)}</b><br><small>${esc(users[n].role === 'author' ? 'Autor' : 'Schüler')}</small>${linkCell(n)}</td>
 <td>${online ? '🟢 online' : inst ? '<span title="angemeldet, die Seite ist aber zu">🟡 Seite zu</span>' : '⚪ aus'}<br><small>${inst ? esc(ago(inst.last)) : ''}</small></td>
 <td>${
           jobs.get(n)

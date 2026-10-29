@@ -1444,6 +1444,13 @@ async function main() {
   const web3 = await request('GET', '/web?url=' + encodeURIComponent('https://example.org/'), { ...TAB, 'X-Lia-Token': token3, 'X-Lia-Web-Origin': 'https://web.example/tab-x' }, undefined, front3)
   assert.strictEqual(web3.status, 404, 'web pages off: a new DevServer has none')
   await said('/settings/web', 'on=1')
+  // links and QR codes per user, the name filled in
+  const pre = await request('GET', '/?user=' + encodeURIComponent('<b>x'), TAB, undefined, front3)
+  assert.ok(pre.data.includes('value="&#60;b&#62;x"'), 'the name from the link, escaped')
+  const rowsQr = (await request('GET', '/rows', { Host: ADM.Host }, undefined, ADMIN)).data
+  assert.ok(rowsQr.includes('<svg') && rowsQr.includes('&#38;user=anna'), 'a QR code and the share link per user')
+  assert.ok(rowsQr.includes(':' + LAN + '/?user=anna'), 'and the link on the network of the school')
+  assert.ok(!/secret1/.test(rowsQr), 'no password in a link')
   assert.ok((await request('GET', '/', LANHOST, undefined, LAN)).data.includes('/lia-login'), 'LAN as the last start had it')
   gwExit = new Promise((resolve) => gw.on('exit', resolve))
   gw.kill()
