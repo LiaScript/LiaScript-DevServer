@@ -736,17 +736,16 @@ ${message ? `<p class="bad">${esc(message)}</p>` : ''}<button>Anmelden</button><
   // the links of one user: the name filled in, the password typed
   const linksOf = (name: string) => [
     ...(link ? [{ where: 'Internet', href: link + '&user=' + encodeURIComponent(name) }] : []),
-    ...lanAddresses.map((a) => ({ where: 'Schulnetz', href: a + '?user=' + encodeURIComponent(name) })),
+    ...lanAddresses.map((a) => ({ where: lanAddresses.length > 1 ? 'Schulnetz ' + new URL(a).hostname : 'Schulnetz', href: a + '?user=' + encodeURIComponent(name) })),
   ]
-  const linkCell = (name: string) =>
-    linksOf(name)
-      .map(
-        (l) =>
-          `<div class="ulink"><button type="button" class="qr" title="QR-Code groß zeigen">${qr(l.href)}</button> <small>${esc(l.where)}</small><br><a href="${esc(
-            l.href,
-          )}" target="_blank" rel="noopener">öffnen</a> <button type="button" class="quiet" data-copy="${esc(l.href)}">Link kopieren</button></div>`,
-      )
-      .join('')
+  // one QR code (the internet if it is on), a copy button per address
+  const linkCell = (name: string) => {
+    const links = linksOf(name)
+    if (!links.length) return ''
+    return `<div class="ulink"><button type="button" class="qr" title="QR-Code groß zeigen (${esc(links[0].where)})">${qr(links[0].href)}</button> ${links
+      .map((l) => `<button type="button" class="quiet small" data-copy="${esc(l.href)}" title="${esc(l.href)}">Link kopieren${links.length > 1 ? ' (' + esc(l.where) + ')' : ''}</button>`)
+      .join(' ')}</div>`
+  }
   async function rows() {
     const names = Object.keys(users).sort()
     const states = await Promise.all(names.map((n) => (running.get(n) ? stateOf(running.get(n)!) : null)))
@@ -805,6 +804,65 @@ ${message ? `<p class="bad">${esc(message)}</p>` : ''}<button>Anmelden</button><
       .join('')
   }
 
+  // a password just set, shown once to copy: users.json has only its hash
+  let fresh: { name: string; password: string } | null = null
+  function freshBox() {
+    if (!fresh) return ''
+    const f = fresh
+    fresh = null
+    return `<div class="card msg-card">Passwort für <b>${esc(f.name)}</b>: <code>${esc(f.password)}</code> <button type="button" class="quiet" data-copy="${esc(
+      f.password,
+    )}">kopieren</button><br><small>Nur jetzt sichtbar. Danach kennt es auch diese Seite nicht mehr, nur ein neues Passwort hilft.</small></div>`
+  }
+  // Share and LAN with a word on each, the links to copy, open and scan
+  const onOff = (action: string, on: boolean, label: string, warn = '') =>
+    `<form method="post" action="${action}" class="switch"${warn ? ` onsubmit="return this.on.checked||confirm('${esc(warn)}')"` : ''}><label><input type="checkbox" name="on" value="1"${
+      on ? ' checked' : ''
+    } onchange="this.form.requestSubmit()"> <b>${esc(label)}</b> <span class="${on ? 'on' : 'off'}">${on ? 'an' : 'aus'}</span></label></form>`
+  const copyLink = (href: string) =>
+    `<a href="${esc(href)}" target="_blank" rel="noopener">öffnen</a> <button type="button" class="quiet" data-copy="${esc(href)}">Link kopieren</button>`
+  function accessBox() {
+    const close = 'Ausschalten trennt alle offenen Tabs der Schüler. Trotzdem ausschalten?'
+    return `<div class="card"><h2>Zugang</h2>
+${onOff('/settings/share', !!link, 'Zugang über das Internet', close)}
+<p><small>Schüler öffnen den Link von überall, auch auf dem Handy. Die Daten gehen verschlüsselt direkt zu diesem Rechner; er muss dafür laufen.</small></p>
+${
+  link
+    ? `<div class="big-link"><button type="button" class="qr big-qr" title="QR-Code groß zeigen">${qr(link)}</button><div><code>${esc(link)}</code><br>${copyLink(link)}
+<form method="post" action="/settings/share-new" onsubmit="return confirm('Ein neuer Link: der alte geht dann nicht mehr, auch nicht für die Schüler, die ihn schon haben.')" style="display:inline"><button class="quiet">Neuer Link</button></form></div></div>`
+    : ''
+}
+${onOff('/settings/lan', !!lanAddresses.length, 'Im Schulnetz', close)}
+<p><small>Für Räume ohne Internet: Geräte im selben Netz öffnen die Adresse. <b>Passwörter gehen im Schulnetz unverschlüsselt.</b></small></p>
+${lanAddresses.map((a) => `<div><code>${esc(a)}</code> ${copyLink(a)}</div>`).join('')}
+<form method="post" action="/settings/lan" class="row"><input type="hidden" name="on" value="${lanAddresses.length ? '1' : '0'}"><label>Port <input name="port" type="number" min="1" max="65535" value="${
+      cfg.lan.port
+    }" style="width:7em"></label><button class="quiet">ändern</button></form></div>`
+  }
+  // the settings, collapsed, each with what it does
+  function settingsBox() {
+    const option = (v: string, label: string, now?: string) => `<option value="${v}"${(now || '') === v ? ' selected' : ''}>${label}</option>`
+    const models = (role: 'student' | 'author') =>
+      `<select name="${role}">${option('', 'Standard', cfg.models[role])}${option('haiku', 'Haiku (günstig)', cfg.models[role])}${option('sonnet', 'Sonnet', cfg.models[role])}${option(
+        'opus',
+        'Opus (teuer)',
+        cfg.models[role],
+      )}</select>`
+    const folder = (action: string, now: string | null, empty: string) =>
+      `<form method="post" action="${action}" class="row"><input name="path" value="${esc(now || '')}" placeholder="${esc(empty)}" class="path"><button type="button" class="quiet" data-pick>Ordner wählen</button><button>übernehmen</button></form><div class="picker" hidden></div>`
+    return `<details class="card"><summary><b>Einstellungen</b></summary>
+<h3>KI-Modell</h3><p><small>Welche KI Schüler und Autoren bekommen. Haiku ist schnell und günstig, Opus am stärksten und teuersten. Gilt ab dem nächsten Start eines Nutzers.</small></p>${
+      cfg.agent === 'claude'
+        ? `<form method="post" action="/settings/models" class="row"><label>Schüler ${models('student')}</label><label>Autoren ${models('author')}</label><button>speichern</button></form>`
+        : `<p><small>Der Agent ${esc(cfg.agent)} wählt sein Modell selbst.</small></p>`
+    }
+<h3>Webseiten im Chat</h3>${onOff('/settings/web', cfg.web, 'Webseiten im Chat')}<p><small>Ob die KI mit Schülern und Autoren Webseiten im Chat öffnen und gemeinsam lesen darf. Gilt ab dem nächsten Start eines Nutzers.</small></p>
+<h3>Leerlauf</h3><form method="post" action="/settings/idle" class="row"><label>Nach <input name="minutes" type="number" min="5" max="240" value="${cfg.idleMinutes}" style="width:5em"> Minuten</label><button>speichern</button></form><p><small>So lange läuft die KI eines Nutzers weiter, nachdem er seinen Tab geschlossen hat. Kürzer spart Kosten, länger startet schneller wieder.</small></p>
+<h3>Kursordner</h3><p><small>Aus seinen Unterordnern wählst du beim Anlegen eines Nutzers den Kurs; jeder bekommt eine eigene Kopie. Jetzt: ${courseList(cfg.courses).length} Kurse.</small></p>${folder('/settings/courses', cfg.courses, '')}
+<h3>Teaching-Agent</h3><p><small>Der Ordner des Teaching-Agent: Autoren, die du „mit Teaching-Agent“ anlegst, bekommen seine Anweisungen in ihren Ordner. Leer lassen: ohne.</small></p>${folder('/settings/kit', cfg.kit, 'ohne Teaching-Agent')}
+</details>`
+  }
+
   // shown only when something happened, red
   function warningBox() {
     const list = openWarnings()
@@ -836,11 +894,16 @@ input,select,button{font:inherit;padding:6px 10px;border-radius:8px;border:1px s
 button{background:var(--accent);border-color:var(--accent);color:#fff;cursor:pointer}button.danger{background:transparent;color:var(--bad);border-color:var(--bad)}button.quiet{background:transparent;color:var(--fg);border-color:var(--line)}
 .m{border:1px solid var(--line);border-radius:10px;padding:6px 10px;margin:6px 0;white-space:pre-wrap}.m.me{border-color:var(--accent)}#log{max-height:40vh;overflow:auto}
 form.say{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start}form.say textarea{flex:1;min-width:200px;font:inherit;padding:6px 10px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
-form.new{display:flex;flex-wrap:wrap;gap:8px}code{word-break:break-all}.msg{color:var(--accent)}.bad{color:var(--bad);font-weight:600}.warn{background:var(--help);border-color:var(--bad);margin:12px 0}.w{margin-top:8px}.chart rect{fill:var(--accent)}</style></head><body><main>
+form.new{display:flex;flex-wrap:wrap;gap:8px}code{word-break:break-all}.msg{color:var(--accent)}.bad{color:var(--bad);font-weight:600}.warn{background:var(--help);border-color:var(--bad);margin:12px 0}.w{margin-top:8px}.chart rect{fill:var(--accent)}
+.top{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;align-items:start}.top .card{margin:0}.top h2{margin-top:0}
+.switch label{cursor:pointer}.on,.off{display:inline-block;padding:0 8px;border-radius:99px;font-size:.8rem}.on{background:var(--accent);color:#fff}.off{background:var(--line)}
+button.qr{background:#fff;border:1px solid var(--line);padding:2px;width:48px;height:48px;vertical-align:middle}button.qr svg{width:100%;height:100%}
+button.big-qr{width:120px;height:120px}button.qr.big{position:fixed;inset:5vh 0 0 0;margin:auto;width:min(90vw,80vh);height:min(90vw,80vh);z-index:9;box-shadow:0 0 0 100vmax #000a}
+.big-link{display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap}.ulink{margin-top:6px}.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:6px 0}
+input.path{flex:1;min-width:14em}button.small{font-size:.8rem;padding:2px 8px}.picker{display:flex;flex-wrap:wrap;gap:4px;margin:4px 0 8px}.picker div{width:100%}.msg-card{border-color:var(--accent);margin:12px 0}
+details summary{cursor:pointer}h3{font-size:1rem;margin:1.2rem 0 .2rem}</style></head><body><main>
 <h1>LiaScript Klasse</h1>
-${warningBox()}${costBox()}<div class="card"><b>Adresse für die Schüler</b>${link ? `<br>von überall: <code>${esc(link)}</code>` : ''}${
-      lanAddresses.length ? '<br>im Schulnetz: ' + lanAddresses.map((a) => `<code>${esc(a)}</code>`).join(' ') : ''
-    }${link || lanAddresses.length ? '' : '<br><small>noch keine: den Server mit <code>--lan</code> (Schulnetz) oder <code>--share</code> (Internet) starten</small>'}</div>
+${freshBox()}<div class="top">${accessBox()}${warningBox()}${costBox()}</div>
 ${message ? `<p class="msg">${esc(message)}</p>` : ''}${notices
       .slice(-5)
       .reverse()
@@ -864,7 +927,38 @@ ${message ? `<p class="msg">${esc(message)}</p>` : ''}${notices
       .map((c) => `<option>${esc(c)}</option>`)
       .join('')}</select>
 <button>anlegen</button></form></div>
+<h2>&nbsp;</h2>${settingsBox()}
 <script>setInterval(function(){fetch('/class/log').then(function(r){return r.text()}).then(function(t){document.getElementById('log').innerHTML=t})},5000)</script>
+<script>
+document.addEventListener('click', function (e) {
+  var b = e.target.closest('[data-copy]')
+  if (b) navigator.clipboard.writeText(b.dataset.copy).then(function () { var t = b.textContent; b.textContent = 'kopiert ✓'; setTimeout(function () { b.textContent = t }, 1500) })
+  var q = e.target.closest('button.qr')
+  if (q) q.classList.toggle('big')
+  var p = e.target.closest('[data-pick]')
+  if (p) folders(p.form, p.form.path.value)
+})
+// the folders below home, to click through
+function folders(form, at) {
+  var box = form.nextElementSibling
+  fetch('/folders?path=' + encodeURIComponent(at || '')).then(function (r) { return r.ok ? r.json() : fetch('/folders').then(function (r) { return r.json() }) }).then(function (f) {
+    form.path.value = f.path
+    box.hidden = false
+    box.textContent = ''
+    var head = document.createElement('div')
+    head.textContent = f.path + ' · ' + f.courses + ' Kurse'
+    box.append(head)
+    ;(f.parent ? ['..'] : []).concat(f.folders).forEach(function (name) {
+      var b = document.createElement('button')
+      b.type = 'button'
+      b.className = 'quiet'
+      b.textContent = name == '..' ? '⬆ höher' : '📁 ' + name
+      b.onclick = function () { folders(form, name == '..' ? f.parent : f.path + '/' + name) }
+      box.append(b)
+    })
+  })
+}
+</script>
 <script>setInterval(function(){fetch('/rows').then(function(r){return r.text()}).then(function(t){if(!document.activeElement||!document.getElementById('rows').contains(document.activeElement))document.getElementById('rows').innerHTML=t})},5000)</script>
 </main></body></html>`)
   }
@@ -960,6 +1054,7 @@ body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-
         const salt = crypto.randomBytes(16).toString('hex')
         users[name] = { salt, hash: hash(password, salt), role, created: new Date().toISOString(), ...(course ? { course, source: path.join(cfg.courses, course) } : {}), ...(kit ? { kit } : {}) }
         save()
+        fresh = { name, password }
         // the copy in the background, the page shows how far it is
         if (course || kit) void updateCourse(name, true)
         message = name + ' ist angelegt' + (course || kit ? ', ' + [course, kit && 'Teaching-Agent'].filter(Boolean).join(' und ') + ' wird kopiert …' : '.')
@@ -971,6 +1066,7 @@ body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-
         users[who].salt = crypto.randomBytes(16).toString('hex')
         users[who].hash = hash(password, users[who].salt)
         save()
+        fresh = { name: who, password }
         // logged in with the old one: out
         for (const [t, n] of logins) if (n === who) logins.delete(t)
         saveLogins()

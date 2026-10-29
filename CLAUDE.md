@@ -246,7 +246,22 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   clears the progress line. `session/request_permission`: tools of the liascript server are allowed, anything else is
   refused through `--share` and asked as a chat form locally (rarely reached: the hosted rules make the agent refuse
   commands itself).
-- **`src/gateway.ts`** — `--users DIR [--share] [--agent …] [-p admin port]`: one start for many users. A front
+- **`src/gateway.ts`** — `--users DIR [--share] [--agent …] [-p admin port]`: one start for many users. Design of
+  its admin page: `docs/superpowers/specs/2026-10-29-admin-dashboard-design.md`. `--users DIR` alone is enough: the
+  rest is `Config` in `DIR/.gateway.json` (`loadConfig()`: defaults ← saved ← the flags of this start, kept
+  again; never `--no-sandbox` or `--share-new`), and the admin page (opened by `open` when stdout is a TTY) sets it:
+  Share and LAN at runtime (`setShare()`, `setLan()`; `share()` of `share.ts` returns `stop`, which frees the lock;
+  a busy port is a message, no crash), models (`haiku|sonnet|opus` as `ANTHROPIC_MODEL`), web pages (`--proxy
+  off` for new instances), idle minutes, course folder and kit through a folder list below home (`inHome()`:
+  realpath, `GET /folders`). A user's course keeps its path (`source` in `users.json`): another course folder
+  with a course of the same name never replaces the copy. Links per user carry the name (`&user=` in the share
+  fragment, which `lia-share.js` hands to the login, `?user=` on the LAN) with a QR code (`qrcode-generator`, SVG),
+  never a password; a password just set is shown once (`fresh`). Warnings: `refused()` of `mcp.ts` prints
+  `🚫 refused {by, what, reason}` on the instance's stdout (the agent cannot write it, its stdout is the ACP pipe),
+  from a permission `acp.ts` refuses and from the tool `report_refusal` (only with `LIA_GATEWAY`, `RULES` asks for
+  it); the gateway keeps them in `DIR/.class/warnings.jsonl`, done ones in `warnings-done.json`. Costs per day:
+  `acp.ts` adds the difference of every `usage_update` to `.chats/.acp-days.json`, the page charts 7 days.
+  `src/check-acp-stub.js` is the ACP agent of the tests. A front
   server on loopback (random port, `👥 front:`) is what the share link reaches: without a valid `x-lia-token` it
   answers a page with the login (`/lia-login`, scrypt hashes in `DIR/users.json` `0600`, five wrong passwords lock
   a name for a minute), the token lives in the `sessionStorage` of the share tab and `lia-share.js` sends it with

@@ -1474,6 +1474,15 @@ async function main() {
   const costsHtml = await adminHtml()
   assert.ok(/id="today">0,80/.test(costsHtml), 'costs today on the admin page')
   assert.strictEqual((costsHtml.match(/<rect class="day"/g) || []).length, 7, 'a bar per day of the last week')
+  // the page of design A
+  const pageA = await adminHtml()
+  for (const t of ['Zugang über das Internet', 'Im Schulnetz', 'Kosten heute', 'Einstellungen', 'Link kopieren', 'unverschlüsselt', 'Neuer Link', 'KI-Modell', 'Webseiten im Chat', 'Kursordner'])
+    assert.ok(pageA.includes(t), 'admin page: ' + t)
+  assert.ok(!/<script[^>]*src=/.test(pageA), 'no external script')
+  // a new password once, right after it was set, to copy
+  await request('POST', '/password/anna', ADM, 'password=secret9', ADMIN)
+  assert.ok((await adminHtml()).includes('secret9'), 'the new password once')
+  assert.ok(!(await adminHtml()).includes('secret9'), 'and never again')
   assert.ok((await request('GET', '/', LANHOST, undefined, LAN)).data.includes('/lia-login'), 'LAN as the last start had it')
   gwExit = new Promise((resolve) => gw.on('exit', resolve))
   gw.kill()
