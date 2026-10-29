@@ -26,7 +26,9 @@ const LOCK_MS = 60 * 1000
 
 // course: the folder of --courses it got a copy of, if any
 // kit: the user has the tools of --kit (the Teaching-Agent) in their folder
-type User = { salt: string; hash: string; role: string; created: string; course?: string; kit?: boolean }
+// source: the folder of the course when it was given, so another course
+// folder with a course of the same name never replaces the copy
+type User = { salt: string; hash: string; role: string; created: string; course?: string; source?: string; kit?: boolean }
 type Instance = {
   child: ChildProcess
   ready: Promise<number>
@@ -238,6 +240,12 @@ export async function gateway(o: Options) {
     users = JSON.parse(fs.readFileSync(file, 'utf8'))
   } catch (e) {}
   const save = () => fs.writeFileSync(file, JSON.stringify(users, null, 2), { mode: 0o600 })
+  // users of an older version know only the name of their course
+  let named = false
+  for (const u of Object.values(users))
+    if (u.course && !u.source && fs.existsSync(path.join(cfg.courses, u.course))) (u.source = path.join(cfg.courses, u.course)), (named = true)
+  if (named) save()
+  const hasCourse = (name: string) => !!users[name].source && fs.existsSync(users[name].source as string)
 
   if (o.sandbox) {
     try {
@@ -384,8 +392,7 @@ export async function gateway(o: Options) {
       fs.mkdirSync(path.join(dir, name), { recursive: true })
       const step = (done: number, total: number) => ((job.done = done), (job.total = total))
       const none = { updated: [] as string[], added: [] as string[], removed: [] as string[], conflicts: [] as string[] }
-      const course = users[name].course && courseList(cfg.courses).includes(users[name].course as string)
-      const c = course ? await syncCourse(path.join(cfg.courses, users[name].course as string), baseOf(name), path.join(dir, name), undefined, step) : none
+      const c = hasCourse(name) ? await syncCourse(users[name].source as string, baseOf(name), path.join(dir, name), undefined, step) : none
       const k = users[name].kit && cfg.kit ? await syncCourse(cfg.kit, baseKitOf(name), path.join(dir, name), KIT, step) : none
       notice(report(name, what, c, k, first))
     } catch (e: any) {
@@ -824,7 +831,7 @@ body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-
         fs.mkdirSync(path.join(dir, name), { recursive: true })
         const kit = !!cfg.kit && f.get('kit') === '1'
         const salt = crypto.randomBytes(16).toString('hex')
-        users[name] = { salt, hash: hash(password, salt), role, created: new Date().toISOString(), ...(course ? { course } : {}), ...(kit ? { kit } : {}) }
+        users[name] = { salt, hash: hash(password, salt), role, created: new Date().toISOString(), ...(course ? { course, source: path.join(cfg.courses, course) } : {}), ...(kit ? { kit } : {}) }
         save()
         // the copy in the background, the page shows how far it is
         if (course || kit) void updateCourse(name, true)
@@ -844,7 +851,7 @@ body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-
       }
     } else if (action === 'update' && who === 'all') {
       const list = Object.keys(users).filter(
-        (n) => (users[n].course && courseList(cfg.courses).includes(users[n].course as string)) || (users[n].kit && cfg.kit),
+        (n) => hasCourse(n) || (users[n].kit && cfg.kit),
       )
       // one after the other, a class at once would read the course 30 times in parallel
       void (async () => {
@@ -859,6 +866,7 @@ body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-
       if (!courseList(cfg.courses).includes(course)) message = 'Bitte einen Kurs wählen.'
       else {
         users[who].course = course
+        users[who].source = path.join(cfg.courses, course)
         save()
         void updateCourse(who, true)
         message = course + ' wird für ' + who + ' kopiert …'

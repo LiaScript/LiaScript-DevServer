@@ -1270,6 +1270,7 @@ async function main() {
   await settled()
   assert.ok(fs.existsSync(path.join(USERS, 'carl', 'README.md')), 'a copy of the course')
   assert.strictEqual(JSON.parse(fs.readFileSync(usersFile, 'utf8')).carl.course, 'prolog')
+  assert.strictEqual(JSON.parse(fs.readFileSync(usersFile, 'utf8')).carl.source, path.join(COURSES, 'prolog'), 'the path of the course')
   assert.ok((await request('GET', '/rows', { Host: ADM.Host }, undefined, ADMIN)).data.includes('prolog'), 'the list names the course')
   await request('POST', '/users', ADM, 'name=dora&password=secret1&role=student&course=' + encodeURIComponent('../kurse/prolog'), ADMIN)
   assert.ok(!JSON.parse(fs.readFileSync(usersFile, 'utf8')).dora, 'only a course of the list')
@@ -1378,13 +1379,32 @@ async function main() {
   assert.strictEqual(fs.statSync(configFile).mode & 0o777, 0o600, '.gateway.json for the owner only')
   assert.strictEqual(kept.admin, ADMIN, 'the port is kept')
   assert.ok(!('sandbox' in kept), '--no-sandbox is never saved')
+  // users of an older version know only the name of their course
+  const nameOnly = JSON.parse(fs.readFileSync(usersFile, 'utf8'))
+  delete nameOnly.carl.source
+  fs.writeFileSync(usersFile, JSON.stringify(nameOnly))
   gwOut = ''
   gw = gateway(['--users', USERS, '--no-sandbox', '--agent', STUB])
   const front3 = await printed(/front: http:\/\/127\.0\.0\.1:(\d+)/)
   const page3 = (await request('GET', '/', { Host: ADM.Host }, undefined, ADMIN)).data
   assert.ok(page3.includes('<option>prolog</option>'), 'the course folder of the last start')
   assert.ok(page3.includes('mit Teaching-Agent'), 'the kit of the last start')
+  assert.strictEqual(JSON.parse(fs.readFileSync(usersFile, 'utf8')).carl.source, path.join(COURSES, 'prolog'), 'an old entry gets the path of its course')
   assert.ok((await request('GET', '/', LANHOST, undefined, LAN)).data.includes('/lia-login'), 'LAN as the last start had it')
+  gwExit = new Promise((resolve) => gw.on('exit', resolve))
+  gw.kill()
+  await gwExit
+
+  // another course folder with a course of the same name
+  const COURSES2 = path.join(PROJECT, 'kurse2')
+  fs.mkdirSync(path.join(COURSES2, 'prolog'), { recursive: true })
+  fs.writeFileSync(path.join(COURSES2, 'prolog', 'README.md'), '# Fremd\n')
+  gwOut = ''
+  gw = gateway(['--users', USERS, '--courses', COURSES2, '--no-sandbox', '--agent', STUB])
+  await printed(/front: http:\/\/127\.0\.0\.1:(\d+)/)
+  await request('POST', '/update/carl', ADM, '', ADMIN)
+  await settled()
+  assert.ok(!carlFile('README.md').includes('Fremd'), 'an update follows the course carl got, not a course of the same name')
   gwExit = new Promise((resolve) => gw.on('exit', resolve))
   gw.kill()
   await gwExit
