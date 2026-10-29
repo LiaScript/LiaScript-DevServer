@@ -364,6 +364,10 @@ async function main() {
   const report = { type: 'state', context: { file: 'README.md', slide: 3, title: 'T', selection: 'x'.repeat(100000) } }
   assert.strictEqual((await post(report, { Origin: undefined })).status, 403, 'no origin')
   assert.strictEqual((await post(report, { Origin: 'http://evil.com' })).status, 403, 'foreign origin')
+  // hardened Firefox (referrer policy no-referrer) sends Origin: null for its own page too
+  assert.strictEqual((await post(report, { Origin: 'null', 'Sec-Fetch-Site': 'same-origin' })).status, 204, 'Origin null of the page itself')
+  assert.strictEqual((await post(report, { Origin: 'null', 'Sec-Fetch-Site': 'cross-site' })).status, 403, 'Origin null of a sandboxed page elsewhere')
+  assert.strictEqual((await post(report, { Origin: 'null' })).status, 403, 'Origin null alone')
   assert.strictEqual((await post(report, { Host: 'evil.com:' + PORT, Origin: 'http://evil.com:' + PORT })).status, 403, 'rebound host')
   assert.strictEqual((await request('GET', '/', { Host: 'evil.com' })).status, 403, 'rebound host on GET')
   const start = await request('GET', '/', {})
@@ -378,6 +382,11 @@ async function main() {
     'https://liascript.github.io/share/liascript/index.html?https://liascript.github.io/share/README.md',
     'a course of the listing through --share, one slash: //x is a host to new URL()',
   )
+  // the listing stays in the project, and an error shows no path of this computer
+  const above = await request('GET', '/home/..%2f', { 'Sec-Fetch-Dest': 'iframe' })
+  assert.strictEqual(above.status, 404, 'no listing above the project')
+  assert.ok(!/node_modules|ENOENT/.test(above.data), 'no stack trace')
+  assert.ok(!/ENOENT/.test((await request('GET', '/nope.txt', {})).data), 'a missing file shows no path')
   assert.strictEqual((await post({ type: 'bogus' })).status, 400)
   assert.strictEqual((await post(report)).status, 204)
 
@@ -1237,6 +1246,15 @@ async function main() {
   const front = await printed(/front: http:\/\/127\.0\.0\.1:(\d+)/)
   const FORM = { 'Content-Type': 'application/x-www-form-urlencoded' }
   const ADM = { ...FORM, Host: '127.0.0.1:' + ADMIN, Origin: 'http://127.0.0.1:' + ADMIN }
+  // copies and updates run in the background: until the admin page shows none
+  const settled = async () => {
+    for (let i = 0; i < 200; i++) {
+      const rows = (await request('GET', '/rows', { Host: ADM.Host }, undefined, ADMIN)).data
+      if (!/wird kopiert|wird aktualisiert/.test(rows)) return
+      await sleep(50)
+    }
+    throw new Error('a job of the gateway did not end')
+  }
   assert.strictEqual((await request('POST', '/users', { ...FORM, Host: ADM.Host }, 'name=anna&password=secret1&role=student', ADMIN)).status, 403, 'an admin form without Origin')
   assert.strictEqual((await request('GET', '/', { Host: 'evil.com' }, undefined, ADMIN)).status, 403, 'the admin page is for this machine')
   assert.strictEqual((await request('POST', '/users', ADM, 'name=anna&password=secret1&role=student', ADMIN)).status, 303)
@@ -1246,6 +1264,7 @@ async function main() {
   const adminPage = (await request('GET', '/', { Host: ADM.Host }, undefined, ADMIN)).data
   assert.ok(adminPage.includes('<option>prolog</option>') && !adminPage.includes('<option>bilder</option>'), 'the courses: folders with Markdown')
   await request('POST', '/users', ADM, 'name=carl&password=secret1&role=student&course=prolog', ADMIN)
+  await settled()
   assert.ok(fs.existsSync(path.join(USERS, 'carl', 'README.md')), 'a copy of the course')
   assert.strictEqual(JSON.parse(fs.readFileSync(usersFile, 'utf8')).carl.course, 'prolog')
   assert.ok((await request('GET', '/rows', { Host: ADM.Host }, undefined, ADMIN)).data.includes('prolog'), 'the list names the course')
@@ -1308,6 +1327,7 @@ async function main() {
 
   // --kit: an author with the Teaching-Agent
   await request('POST', '/users', ADM, 'name=erik&password=secret1&role=author&kit=1', ADMIN)
+  await settled()
   const erik = (f) => path.join(USERS, 'erik', f)
   assert.deepStrictEqual(
     [fs.existsSync(erik('CLAUDE.md')), fs.existsSync(erik('specs/main.md')), fs.existsSync(erik('README.md')), fs.existsSync(erik('.mcp.json'))],
@@ -1316,6 +1336,7 @@ async function main() {
   )
   fs.writeFileSync(path.join(KITDIR, 'CLAUDE.md'), 'Teaching-Agent v2\n')
   await request('POST', '/update/erik', ADM, '', ADMIN)
+  await settled()
   assert.strictEqual(fs.readFileSync(erik('CLAUDE.md'), 'utf8'), 'Teaching-Agent v2\n', 'a kit update')
   assert.ok(JSON.parse(fs.readFileSync(usersFile, 'utf8')).erik.kit, 'users.json knows the kit')
 
@@ -1326,17 +1347,20 @@ async function main() {
   fs.writeFileSync(path.join(prolog, 'README.md'), '# Prolog 2\n')
   fs.writeFileSync(path.join(prolog, 'neu.md'), 'neu\n')
   await request('POST', '/update/carl', ADM, '', ADMIN)
+  await settled()
   assert.deepStrictEqual([carlFile('README.md'), carlFile('neu.md')], ['# Prolog 2\n', 'neu\n'], 'unchanged files get the new version, new ones come')
   fs.writeFileSync(path.join(carl, 'README.md'), '# Meins\n')
   fs.writeFileSync(path.join(prolog, 'README.md'), '# Prolog 3\n')
   fs.rmSync(path.join(prolog, 'neu.md'))
   await request('POST', '/update/carl', ADM, '', ADMIN)
+  await settled()
   assert.deepStrictEqual(
     [carlFile('README.md'), carlFile('README.update.md'), fs.existsSync(path.join(carl, 'neu.md'))],
     ['# Meins\n', '# Prolog 3\n', false],
     'what carl changed stays, the new version beside it; what the teacher removed goes',
   )
-  assert.ok(!fs.existsSync(path.join(carl, '.base')) && fs.existsSync(path.join(USERS, '.base', 'carl', 'README.md')), 'the base outside the folder of the user')
+  const base = JSON.parse(fs.readFileSync(path.join(USERS, '.base', 'carl'), 'utf8'))
+  assert.ok(!fs.existsSync(path.join(carl, '.base')) && /^[0-9a-f]{40}$/.test(base['README.md']), 'the base: hashes, outside the folder of the user')
   assert.ok(fs.readFileSync(path.join(USERS, '.class', 'messages.jsonl'), 'utf8').includes('README.update.md'), 'carl hears of it in the class channel')
   for (let i = 0; i < 5; i++) await request('POST', '/lia-login', { ...TAB, ...FORM }, 'name=anna&password=nope', front2)
   const locked = await request('POST', '/lia-login', { ...TAB, ...FORM }, 'name=anna&password=secret1', front2)

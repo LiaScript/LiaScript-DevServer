@@ -20,6 +20,14 @@ const open = require('open')
 const reload = require('reload')
 const chokidar = require('chokidar')
 
+// a request of the page itself. A browser with the referrer policy
+// no-referrer (hardened Firefox) sends Origin: null even then, but never
+// leaves out Sec-Fetch-Site, which no page can set.
+export function sameOrigin(req: http.IncomingMessage) {
+  const origin = req.headers.origin
+  return origin === 'http://' + req.headers.host || ((!origin || origin === 'null') && req.headers['sec-fetch-site'] === 'same-origin')
+}
+
 const app: express.Application = express()
 app.use(express.json())
 app.locals.version = packageJson.version
@@ -736,9 +744,11 @@ export async function start(
   app.get('/gotoLine', eventsHandler)
 
   app.get('/home*', function (req: express.Request, res: express.Response) {
-    const currentPath = project.path + '/' + req.params[0]
-
-    const stats = fs.lstatSync(currentPath)
+    const currentPath = path.join(project.path, req.params[0])
+    // %2f arrives decoded: /home/..%2fmia listed the folder of another user
+    const rel = path.relative(project.path, currentPath)
+    const stats = rel.split(path.sep)[0] !== '..' && !path.isAbsolute(rel) && fs.lstatSync(currentPath, { throwIfNoEntry: false })
+    if (!stats) return res.sendStatus(404)
     // agent mode: a folder or course opened in the tab gets the chat shell,
     // in the frame of the shell the listing and the bare player
     const dest = req.headers['sec-fetch-dest']
@@ -899,7 +909,7 @@ export async function start(
     app.post('/agent', function (req: express.Request, res: express.Response) {
       // checked here, because the catch-all below answers the CORS preflight
       // of every path with *
-      if (req.headers.origin !== 'http://' + req.headers.host) {
+      if (!sameOrigin(req)) {
         return res.sendStatus(403)
       }
 
@@ -1150,7 +1160,7 @@ export async function start(
       '/git/:token',
       express.urlencoded({ extended: false }),
       async function (req: express.Request, res: express.Response) {
-        if (req.params.token !== token || req.headers.origin !== 'http://' + req.headers.host) {
+        if (req.params.token !== token || !sameOrigin(req)) {
           return res.sendStatus(403)
         }
         try {
@@ -1210,6 +1220,12 @@ export async function start(
       res.sendFile(req.originalUrl, { root: project.path })
     },
   )
+
+  // errors as a bare status: express' own page shows the paths of this computer
+  app.use(function (err: any, req: express.Request, res: express.Response, next: express.NextFunction) {
+    if (!err.status) console.error(err)
+    res.sendStatus(err.status || 500)
+  })
 
   // the course of --input, else the file listing
   home = project.readme

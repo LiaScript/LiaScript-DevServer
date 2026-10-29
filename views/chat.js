@@ -165,7 +165,7 @@ function translate(root) {
       el.setAttribute(attr, t(el.getAttribute('data-t-' + attr)))
     })
   })
-  root.querySelectorAll('.msg time').forEach(function (el) {
+  root.querySelectorAll('.msg time, #class time').forEach(function (el) {
     el.textContent = clock(el.dateTime)
   })
 }

@@ -104,7 +104,8 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
     restarting an expired Monitor loses nothing. The random token keeps other local users and pages out, a request with an `Origin` is refused. `agentScript` (two script tags injected after
     `gotoScript`: `views/activity.js` and `views/agent.js`, which reuses its `filename__` and `events`) reports slide/title/selection, handles `goto` messages and turns clicks on `agent:` links into
     `command` events. In agent mode the server binds to loopback, checks `Host` on every route and `Origin` on
-    `POST /agent`, and `.md` redirects go to the chat shell instead of the bare player. A folder under `/home` opened
+    `POST /agent` (`sameOrigin()`, also used by `/git` and the admin forms: `Origin: null` counts with
+    `Sec-Fetch-Site: same-origin`, a hardened Firefox with referrer policy `no-referrer` sends it for its own page), and `.md` redirects go to the chat shell instead of the bare player. A folder under `/home` opened
     as a page (`Sec-Fetch-Dest: document`) becomes `chat.html?/home/…`, the listing in the shell's frame; there its
     `.md` links go to the bare player (`Sec-Fetch-Dest: iframe`), `chat.js` reports a listing as `file: ''` with the
     folder as `title` and turns a `goto` with `file` into a player itself. Web pages (`src/web.ts`): the shell can
@@ -275,9 +276,14 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   goes to `@all`, to them or from them. The admin page sends as `@teacher` to all or one, switches `dm`, mutes a
   user and shows every message. `views/class.js` (loaded by `chat.html`, served next to `chat.js`, uses its
   `TEXTS`, `tr`, `t`, `when`) shows the button only where `/class/state` answers: a view in place of the chat
-  (`#panel.class-view`), a badge with the unread messages, and a banner for a message of the teacher.
-  Course updates (`syncCourse()`): no git, file by file against the version a user got last, kept outside the
-  folder in `DIR/.base/<name>`. Unchanged by the user: the new version; changed by the user only: stays; changed by
+  (`#panel.class-view`), a badge with the unread messages, and a banner for a message of the teacher (also what came while the tab was closed: the newest seen is kept in `localStorage`).
+  Course updates (`syncCourse()`, async): no git, file by file against the version a user got last, kept outside
+  the folder as its sha1 hashes in `DIR/.base/<name>` (a JSON file; a full copy until 2026-10-28, which becomes
+  hashes on its first use: some courses have gigabytes). Copies and updates run as background jobs (`jobs`, one per
+  user, a class update one user after the other): the admin page answers at once and shows the progress, the user
+  gets a page that reloads until the course is there, the outcome goes to `notices` on the admin page (errors red,
+  and in the terminal). A synchronous copy of a 3.8 GB course left the gateway deaf for minutes. The admin handler
+  turns every error into a message instead of a request that never ends. Unchanged by the user: the new version; changed by the user only: stays; changed by
   both: stays, the teacher's version goes beside it (`README.update.md`, `beside()`); new in the course: comes;
   removed from the course and unchanged: goes. The admin page updates one user or all (their DevServer stops for
   it) and assigns a course to a user without one; the user hears of it in the class channel.

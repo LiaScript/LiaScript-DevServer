@@ -9,10 +9,12 @@
 import { execFileSync, spawn, ChildProcess } from 'child_process'
 import * as crypto from 'crypto'
 import * as fs from 'fs'
+import * as fsp from 'fs/promises'
 import * as http from 'http'
 import * as net from 'net'
 import * as os from 'os'
 import * as path from 'path'
+import { sameOrigin } from './lib'
 
 const NAME = /^[a-z0-9][a-z0-9_-]{0,31}$/
 const ROLES = ['student', 'author']
@@ -92,11 +94,32 @@ function filesOf(root: string, rel = ''): string[] {
   return out
 }
 
-const same = (a: string, b: string) => {
+// sha1 of a file, streamed (courses of gigabytes), null if it is not there
+function hashOf(file: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    const h = crypto.createHash('sha1')
+    fs.createReadStream(file)
+      .on('error', () => resolve(null))
+      .on('data', (d) => h.update(d))
+      .on('end', () => resolve(h.digest('hex')))
+  })
+}
+
+// what a user got last: path -> sha1. Until 2026-10-28 a full copy of the
+// course (twice the disk, 3.8 GB more per user for a big one), which becomes
+// its hashes on the first use.
+type Manifest = { [path: string]: string }
+async function manifestOf(base: string): Promise<Manifest> {
   try {
-    return fs.readFileSync(a).equals(fs.readFileSync(b))
+    if ((await fsp.stat(base)).isDirectory()) {
+      const m: Manifest = {}
+      for (const p of filesOf(base)) m[p] = (await hashOf(path.join(base, p))) as string
+      await fsp.rm(base, { recursive: true, force: true })
+      return m
+    }
+    return JSON.parse(await fsp.readFile(base, 'utf8'))
   } catch (e) {
-    return false
+    return {}
   }
 }
 
@@ -110,40 +133,44 @@ const KIT = ['CLAUDE.md', 'AGENTS.md', '.codex', 'specs', '.gitignore']
 const beside = (p: string) => p.replace(/(\.[^./]*)?$/, '.update$1')
 
 // A course update for one user, file by file against the version delivered
-// last (base, kept outside the user's folder): what the user did not change
-// gets the teacher's new version, what the user changed stays, and where both
-// changed, the teacher's version goes beside it (beside()). Then base is the
-// new version. Returns what happened, for the teacher and the user.
+// last (base: the hashes of it, a file outside the user's folder): what the
+// user did not change gets the teacher's new version, what the user changed
+// stays, and where both changed, the teacher's version goes beside it
+// (beside()). Then base is the new version. Asynchronous: a course of
+// gigabytes took minutes, in which the gateway answered nobody.
 // only: the entries of source that count (KIT), else all of it
-export function syncCourse(source: string, base: string, work: string, only?: string[]) {
+export async function syncCourse(source: string, base: string, work: string, only?: string[], progress?: (done: number, total: number) => void) {
   const report = { updated: [] as string[], added: [] as string[], removed: [] as string[], conflicts: [] as string[] }
   const of = (p: string) => !only || only.includes(p.split('/')[0])
-  const s = new Set(filesOf(source).filter(of))
-  const b = new Set(filesOf(base))
-  const put = (p: string, to = p) => {
-    fs.mkdirSync(path.dirname(path.join(work, to)), { recursive: true })
-    fs.copyFileSync(path.join(source, p), path.join(work, to))
+  const sources = new Set(filesOf(source).filter(of))
+  const was = await manifestOf(base)
+  const next: Manifest = {}
+  const all = [...new Set([...sources, ...Object.keys(was)])]
+  const put = async (p: string, to = p) => {
+    await fsp.mkdir(path.dirname(path.join(work, to)), { recursive: true })
+    await fsp.copyFile(path.join(source, p), path.join(work, to))
   }
-  for (const p of new Set([...s, ...b])) {
+  let done = 0
+  for (const p of all) {
     const w = path.join(work, p)
-    const has = fs.existsSync(w)
-    if (s.has(p) && b.has(p)) {
-      if (same(path.join(source, p), path.join(base, p))) continue // the teacher changed nothing
-      if (!has || same(w, path.join(base, p))) put(p), report.updated.push(p)
-      else if (!same(w, path.join(source, p))) put(p, beside(p)), report.conflicts.push(p)
-    } else if (s.has(p)) {
-      if (!has) put(p), report.added.push(p)
-      else if (!same(w, path.join(source, p))) put(p, beside(p)), report.conflicts.push(p)
-    } else if (has && same(w, path.join(base, p))) {
-      fs.rmSync(w)
+    if (sources.has(p)) {
+      const now = (await hashOf(path.join(source, p))) as string
+      next[p] = now
+      if (was[p] === now) {
+        // the teacher changed nothing
+      } else {
+        const mine = await hashOf(w)
+        if (mine === null || (was[p] && mine === was[p])) await put(p), (was[p] ? report.updated : report.added).push(p)
+        else if (mine !== now) await put(p, beside(p)), report.conflicts.push(p)
+      }
+    } else if (was[p] && (await hashOf(w)) === was[p]) {
+      await fsp.rm(w)
       report.removed.push(p)
     }
+    if (progress) progress(++done, all.length)
   }
-  fs.rmSync(base, { recursive: true, force: true })
-  fs.mkdirSync(base, { recursive: true })
-  for (const e of only || fs.readdirSync(source)) {
-    if (fs.existsSync(path.join(source, e))) fs.cpSync(path.join(source, e), path.join(base, e), { recursive: true, filter: (src) => !SKIP.test(src) })
-  }
+  await fsp.mkdir(path.dirname(base), { recursive: true })
+  await fsp.writeFile(base, JSON.stringify(next))
   return report
 }
 
@@ -296,22 +323,49 @@ export async function gateway(o: Options) {
   // the version of the course a user got last, outside the user's folder
   const baseOf = (name: string) => path.join(dir, '.base', name)
 
-  // a course update for a user: their DevServer stops (its agent must not
-  // work on files that change), the next request starts it again
+  // what runs in the background per user: copying or updating their course;
+  // the admin page shows it, the user waits for it
+  const jobs = new Map<string, { what: string; done: number; total: number }>()
+  // the outcome of the jobs for the admin page, the newest last
+  const notices: { t: number; text: string; bad?: boolean }[] = []
+  const notice = (text: string, bad = false) => {
+    notices.push({ t: Date.now(), text, bad })
+    if (notices.length > 10) notices.shift()
+    ;(bad ? console.error : console.log)('👥 ' + text)
+  }
+
+  // A course update for a user (also the first copy): their DevServer stops,
+  // its agent must not work on files that change; the next request starts it
+  // again. In the background, a course of gigabytes takes minutes.
   const baseKitOf = (name: string) => path.join(dir, '.base-kit', name)
-  function updateCourse(name: string) {
+  async function updateCourse(name: string, first = false) {
+    if (jobs.has(name)) return
     running.get(name)?.child?.kill()
-    const none = { updated: [] as string[], added: [] as string[], removed: [] as string[], conflicts: [] as string[] }
-    const course = users[name].course && courseList(o.courses).includes(users[name].course as string)
-    const c = course ? syncCourse(path.join(o.courses, users[name].course as string), baseOf(name), path.join(dir, name)) : none
-    const k = users[name].kit && o.kit ? syncCourse(o.kit, baseKitOf(name), path.join(dir, name), KIT) : none
+    const what = [users[name].course && 'Kurs ' + users[name].course, users[name].kit && o.kit && 'Teaching-Agent'].filter(Boolean).join(' und ')
+    const job = { what: first ? what + ' wird kopiert' : what + ' wird aktualisiert', done: 0, total: 0 }
+    jobs.set(name, job)
+    try {
+      fs.mkdirSync(path.join(dir, name), { recursive: true })
+      const step = (done: number, total: number) => ((job.done = done), (job.total = total))
+      const none = { updated: [] as string[], added: [] as string[], removed: [] as string[], conflicts: [] as string[] }
+      const course = users[name].course && courseList(o.courses).includes(users[name].course as string)
+      const c = course ? await syncCourse(path.join(o.courses, users[name].course as string), baseOf(name), path.join(dir, name), undefined, step) : none
+      const k = users[name].kit && o.kit ? await syncCourse(o.kit, baseKitOf(name), path.join(dir, name), KIT, step) : none
+      notice(report(name, what, c, k, first))
+    } catch (e: any) {
+      notice('Fehler bei ' + name + ': ' + e.message, true)
+    } finally {
+      jobs.delete(name)
+    }
+  }
+
+  function report(name: string, what: string, c: any, k: any, first: boolean) {
     const r = {
       updated: [...c.updated, ...k.updated],
       added: [...c.added, ...k.added],
       removed: [...c.removed, ...k.removed],
       conflicts: [...c.conflicts, ...k.conflicts],
     }
-    const what = [course && 'Kurs ' + users[name].course, users[name].kit && o.kit && 'Teaching-Agent'].filter(Boolean).join(' und ')
     const parts = [
       r.updated.length && r.updated.length + ' aktualisiert',
       r.added.length && r.added.length + ' neu',
@@ -322,7 +376,8 @@ export async function gateway(o: Options) {
       (r.conflicts.length
         ? ' Diese Dateien hattest du selbst geändert, sie bleiben so; die neue Version liegt daneben: ' + r.conflicts.map(beside).join(', ')
         : '')
-    if (parts.length || r.conflicts.length) post(TEACHER, name, text)
+    if (!first && (parts.length || r.conflicts.length)) post(TEACHER, name, text)
+    if (first) return name + ': ' + what + ' ist bereit (' + r.added.length + ' Dateien).'
     return name + ': ' + (parts.join(', ') || 'nichts Neues') + (r.conflicts.length ? ', Konflikte: ' + r.conflicts.join(', ') : '')
   }
 
@@ -472,6 +527,22 @@ ${message ? `<p class="bad">${esc(message)}</p>` : ''}<button>Anmelden</button><
       return res.end()
     }
 
+    // the course is still being copied: the user waits for it
+    const job = jobs.get(name)
+    if (job && !(req.url || '').startsWith('/class/')) {
+      const dest = String(req.headers['sec-fetch-dest'] || '')
+      if (!['document', 'iframe'].includes(dest) && !String(req.headers.accept).includes('text/html')) {
+        res.writeHead(503)
+        return res.end()
+      }
+      const share = job.total ? ' (' + Math.floor((job.done * 100) / job.total) + ' %)' : ''
+      return page(
+        res,
+        'Einen Moment',
+        `<form><h1>Einen Moment …</h1><p>Dein Kurs wird vorbereitet${esc(share)}. Die Seite lädt gleich von selbst neu.</p></form><script>setTimeout(function(){location.reload()},3000)</script>`,
+      )
+    }
+
     // the class channel is the gateway's, the rest the user's DevServer
     if ((req.url || '').startsWith('/class/')) return classRoute(name, req, res)
 
@@ -542,18 +613,28 @@ ${message ? `<p class="bad">${esc(message)}</p>` : ''}<button>Anmelden</button><
   async function rows() {
     const names = Object.keys(users).sort()
     const states = await Promise.all(names.map((n) => (running.get(n) ? stateOf(running.get(n)!) : null)))
-    if (!names.length) return '<tr><td colspan="9">Noch keine Nutzer.</td></tr>'
+    if (!names.length) return '<tr><td colspan="9">Noch keine Nutzer, unten unter „Neuer Nutzer“ anlegen.</td></tr>'
     return names
       .map((n, i) => {
         const inst = running.get(n)
         const s = states[i]
         const online = !!inst && inst.open > 0
         const help = s && s.stuck && Date.now() - s.stuck.at < IDLE_MS
-        const where = s ? (s.web ? '🌐 ' + s.web : (s.file || '') + (s.slide ? ' · Folie ' + s.slide : '') + (s.title ? ' · ' + s.title : '')) : ''
+        // the title is "slide · course", the course has a column of its own; README.md says nothing to a teacher
+        const slide = s && String(s.title || '').split(' · ')
+        const where = s
+          ? s.web
+            ? '🌐 ' + s.web
+            : [s.file !== 'README.md' && s.file, s.slide && 'Folie ' + s.slide + (s.title ? ': ' + (slide.length > 1 ? slide.slice(0, -1).join(' · ') : s.title) : '')]
+                .filter(Boolean)
+                .join(' · ')
+          : ''
         return `<tr${help ? ' class="help"' : ''}><td><b>${esc(n)}</b><br><small>${esc(users[n].role === 'author' ? 'Autor' : 'Schüler')}</small></td>
-<td>${online ? '🟢 online' : inst ? '🟡 läuft' : '⚪ aus'}<br><small>${inst ? esc(ago(inst.last)) : ''}</small></td>
+<td>${online ? '🟢 online' : inst ? '<span title="angemeldet, die Seite ist aber zu">🟡 Seite zu</span>' : '⚪ aus'}<br><small>${inst ? esc(ago(inst.last)) : ''}</small></td>
 <td>${
-          users[n].course || users[n].kit
+          jobs.get(n)
+            ? `${esc(jobs.get(n)!.what)}<br><small>${jobs.get(n)!.total ? esc(jobs.get(n)!.done + ' von ' + jobs.get(n)!.total + ' Dateien') : 'beginnt …'}</small>`
+            : users[n].course || users[n].kit
             ? esc(users[n].course || '') +
               (users[n].kit ? `<br><small>+ Teaching-Agent</small>` : '') +
               `<form method="post" action="/update/${esc(n)}"><button class="quiet">aktualisieren</button></form>`
@@ -562,7 +643,7 @@ ${message ? `<p class="bad">${esc(message)}</p>` : ''}<button>Anmelden</button><
                 .join('')}</select><button class="quiet">zuweisen</button></form>`
         }</td>
 <td>${esc(where)}${help ? `<br><b>Braucht Hilfe</b> <small>${esc(ago(s.stuck.at))}, Folie ${esc(s.stuck.slide || '?')}</small>` : ''}</td>
-<td>${s && s.session ? esc(s.session.count) + ' Einträge<br><a href="/chat/' + esc(n) + '" target="_blank">mitlesen</a>' : ''}</td>
+<td>${s && s.session ? esc(s.session.count) + ' Einträge<br>' : ''}<a href="/chat/${esc(n)}" target="_blank">mitlesen</a></td>
 <td>${esc(costOf(n)) || '<small>–</small>'}</td>
 <td><form method="post" action="/password/${esc(n)}"><input name="password" type="password" placeholder="neues Passwort" required minlength="6"><button>setzen</button></form></td>
 <td><form method="post" action="/mute/${esc(n)}"><button class="quiet">${settings.muted.includes(n) ? '🔇 stumm' : '🔈 darf schreiben'}</button></form></td>
@@ -600,12 +681,16 @@ input,select,button{font:inherit;padding:6px 10px;border-radius:8px;border:1px s
 button{background:var(--accent);border-color:var(--accent);color:#fff;cursor:pointer}button.danger{background:transparent;color:var(--bad);border-color:var(--bad)}button.quiet{background:transparent;color:var(--fg);border-color:var(--line)}
 .m{border:1px solid var(--line);border-radius:10px;padding:6px 10px;margin:6px 0;white-space:pre-wrap}.m.me{border-color:var(--accent)}#log{max-height:40vh;overflow:auto}
 form.say{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start}form.say textarea{flex:1;min-width:200px;font:inherit;padding:6px 10px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
-form.new{display:flex;flex-wrap:wrap;gap:8px}code{word-break:break-all}.msg{color:var(--accent)}</style></head><body><main>
+form.new{display:flex;flex-wrap:wrap;gap:8px}code{word-break:break-all}.msg{color:var(--accent)}.bad{color:var(--bad);font-weight:600}</style></head><body><main>
 <h1>LiaScript Klasse</h1>
-<div class="card"><b>Link für alle:</b><br>${link ? `<code>${esc(link)}</code>` : 'nicht geteilt, mit <code>--share</code> starten'}${
-      lanAddresses.length ? '<br><b>Im Schulnetz:</b> ' + lanAddresses.map((a) => `<code>${esc(a)}</code>`).join(' ') : ''
-    }</div>
-${message ? `<p class="msg">${esc(message)}</p>` : ''}
+<div class="card"><b>Adresse für die Schüler</b>${link ? `<br>von überall: <code>${esc(link)}</code>` : ''}${
+      lanAddresses.length ? '<br>im Schulnetz: ' + lanAddresses.map((a) => `<code>${esc(a)}</code>`).join(' ') : ''
+    }${link || lanAddresses.length ? '' : '<br><small>noch keine: den Server mit <code>--lan</code> (Schulnetz) oder <code>--share</code> (Internet) starten</small>'}</div>
+${message ? `<p class="msg">${esc(message)}</p>` : ''}${notices
+      .slice(-5)
+      .reverse()
+      .map((n) => `<p class="${n.bad ? 'bad' : 'msg'}"><small>${esc(new Date(n.t).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }))}</small> ${esc(n.text)}</p>`)
+      .join('')}
 <h2>Nutzer</h2><div class="card"><form method="post" action="/update/all" style="margin-bottom:8px"><button class="quiet">Kurs-Updates an alle verteilen</button></form><table><thead><tr><th>Name</th><th>Status</th><th>Kurs</th><th>Wo</th><th>Chat</th><th>Kosten</th><th>Passwort</th><th>Klasse</th><th></th></tr></thead><tbody id="rows">${table}</tbody></table></div>
 <h2>Klasse</h2><div class="card">
 <form class="say" method="post" action="/class/say"><select name="to"><option value="${ALL}">an alle</option>${Object.keys(users)
@@ -615,8 +700,8 @@ ${message ? `<p class="msg">${esc(message)}</p>` : ''}
 <form method="post" action="/class/dm"><label><input type="checkbox" name="on" value="1"${settings.dm ? ' checked' : ''} onchange="this.form.submit()"> Schüler dürfen einander schreiben</label></form>
 <div id="log">${classLog()}</div></div>
 <h2>Neuer Nutzer</h2><div class="card"><form class="new" method="post" action="/users">
-<input name="name" placeholder="name (a-z, 0-9, - _)" required pattern="[a-z0-9][a-z0-9_-]{0,31}">
-<input name="password" type="password" placeholder="Passwort" required minlength="6">
+<input name="name" placeholder="Name, z. B. mia" required pattern="[A-Za-z0-9][A-Za-z0-9_\\-]{0,31}" title="Buchstaben ohne Umlaute, Ziffern, - und _, keine Leerzeichen">
+<input name="password" type="password" placeholder="Passwort, mind. 6 Zeichen" required minlength="6">
 <select name="role"><option value="student">Schüler</option><option value="author">Autor</option></select>${
       o.kit ? '<label title="Die Anweisungen und Specs des Teaching-Agent in den Ordner, für Autoren"><input type="checkbox" name="kit" value="1"> mit Teaching-Agent</label>' : ''
     }
@@ -640,21 +725,30 @@ ${message ? `<p class="msg">${esc(message)}</p>` : ''}
         .sort((a, b) => b.t - a.t)[0]
       if (latest) entries = JSON.parse(fs.readFileSync(path.join(chats, latest.f), 'utf8')).entries || []
     } catch (e) {}
+    // readable for the teacher: no header comment, a link as its text, no ** of bold
+    const md = (m: string) => String(m || '').replace(/<!--[\s\S]*?-->\s*/g, '').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/\*\*/g, '')
     const text = (e: any) =>
-      e.type === 'user' ? e.text : e.type === 'ai' ? e.markdown : e.type === 'answer' ? JSON.stringify(e.values) : e.label || e.cmd || ''
+      e.type === 'user' ? e.text : e.type === 'ai' ? md(e.markdown) : e.type === 'answer' ? Object.values(e.values || {}).join(', ') : e.label || e.cmd || ''
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' })
     res.end(`<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Chat: ${esc(name)}</title>
 <style>:root{color-scheme:light dark;--bg:#f6f7f9;--fg:#1d2330;--card:#fff;--line:#d6dbe3;--me:#e6f4f1}@media (prefers-color-scheme:dark){:root{--bg:#14171c;--fg:#e6e9ee;--card:#1d2128;--line:#343a45;--me:#173430}}
 body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-serif}main{max-width:760px;margin:0 auto;padding:16px}
 .e{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 14px;margin:8px 0;white-space:pre-wrap}.user{background:var(--me)}small{opacity:.7}</style></head><body><main>
-<h1>Chat von ${esc(name)}</h1>${entries.length ? entries.map((e) => `<div class="e ${esc(e.type)}"><small>${esc(e.type === 'ai' ? (e.agent && e.agent.name) || 'KI' : name)} · ${esc(e.t ? new Date(e.t).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : '')}</small>\n${esc(text(e))}</div>`).join('') : '<p>Noch kein Chat.</p>'}</main></body></html>`)
+<h1>Chat von ${esc(name)}</h1>${entries.length ? entries.map((e) => `<div class="e ${esc(e.type)}"><small>${esc(e.type === 'ai' ? (e.agent && (e.agent.label || e.agent.name)) || 'KI' : name)} · ${esc(e.t ? new Date(e.t).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : '')}</small>\n${esc(text(e))}</div>`).join('') : '<p>Noch kein Chat.</p>'}</main></body></html>`)
   }
 
   let link = ''
-  const admin = http.createServer(async (req, res) => {
+  const admin = http.createServer((req, res) =>
+    adminRoute(req, res).catch((e: any) => {
+      notice('Fehler: ' + e.message, true)
+      if (!res.headersSent) res.writeHead(303, { Location: '/?m=' + encodeURIComponent('Fehler: ' + e.message) })
+      res.end()
+    }),
+  )
+  async function adminRoute(req: http.IncomingMessage, res: http.ServerResponse) {
     const host = String(req.headers.host)
     // this machine only, and forms only from this page
-    if (!['localhost:' + o.admin, '127.0.0.1:' + o.admin].includes(host) || (req.method === 'POST' && req.headers.origin !== 'http://' + host)) {
+    if (!['localhost:' + o.admin, '127.0.0.1:' + o.admin].includes(host) || (req.method === 'POST' && !sameOrigin(req))) {
       res.writeHead(403)
       return res.end()
     }
@@ -691,17 +785,14 @@ body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-
       // only a course of the list: no path from the form ever reaches the disk
       else if (course && !courseList(o.courses).includes(course)) message = 'Den Kurs ' + course + ' gibt es in ' + o.courses + ' nicht.'
       else {
-        const home = path.join(dir, name)
-        // ponytail: a copy; later a git clone, so that an update can merge
-        fs.mkdirSync(home, { recursive: true })
-        if (course) syncCourse(path.join(o.courses, course), baseOf(name), home)
+        fs.mkdirSync(path.join(dir, name), { recursive: true })
         const kit = !!o.kit && f.get('kit') === '1'
-        if (kit) syncCourse(o.kit as string, baseKitOf(name), home, KIT)
         const salt = crypto.randomBytes(16).toString('hex')
         users[name] = { salt, hash: hash(password, salt), role, created: new Date().toISOString(), ...(course ? { course } : {}), ...(kit ? { kit } : {}) }
         save()
-        message =
-          name + ' ist angelegt' + (course ? ', mit einer Kopie von ' + course : '') + (kit ? ', mit dem Teaching-Agent' : '') + '.'
+        // the copy in the background, the page shows how far it is
+        if (course || kit) void updateCourse(name, true)
+        message = name + ' ist angelegt' + (course || kit ? ', ' + [course, kit && 'Teaching-Agent'].filter(Boolean).join(' und ') + ' wird kopiert …' : '.')
       }
     } else if (action === 'password' && users[who]) {
       const password = String(f.get('password') || '')
@@ -716,19 +807,25 @@ body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-
         message = 'Neues Passwort für ' + who + ' gesetzt.'
       }
     } else if (action === 'update' && who === 'all') {
-      message = Object.keys(users)
-        .filter((n) => (users[n].course && courseList(o.courses).includes(users[n].course as string)) || (users[n].kit && o.kit))
-        .map(updateCourse)
-        .join(' · ') || 'Niemand hat einen Kurs.'
+      const list = Object.keys(users).filter(
+        (n) => (users[n].course && courseList(o.courses).includes(users[n].course as string)) || (users[n].kit && o.kit),
+      )
+      // one after the other, a class at once would read the course 30 times in parallel
+      void (async () => {
+        for (const n of list) await updateCourse(n)
+      })()
+      message = list.length ? 'Updates laufen für ' + list.join(', ') + ' …' : 'Niemand hat einen Kurs.'
     } else if (action === 'update' && users[who] && (users[who].course || users[who].kit)) {
-      message = updateCourse(who)
+      void updateCourse(who)
+      message = 'Update für ' + who + ' läuft …'
     } else if (action === 'assign' && users[who] && !users[who].course) {
       const course = String(f.get('course') || '')
       if (!courseList(o.courses).includes(course)) message = 'Bitte einen Kurs wählen.'
       else {
         users[who].course = course
         save()
-        message = updateCourse(who)
+        void updateCourse(who, true)
+        message = course + ' wird für ' + who + ' kopiert …'
       }
     } else if (action === 'class' && who === 'say') {
       const to = String(f.get('to') || ALL)
@@ -750,12 +847,12 @@ body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-
       saveLogins()
       delete users[who]
       save()
-      message = who + ' ist gelöscht, der Ordner ' + path.join(dir, who) + ' bleibt.'
+      message = who + ' ist gelöscht, der Ordner ' + path.join(path.basename(dir), who) + ' bleibt.'
     }
     // after a POST back to the page, so F5 does not send the form again
     res.writeHead(303, { Location: '/?m=' + encodeURIComponent(message) })
     res.end()
-  })
+  }
 
   // stop what nobody uses
   const idle = setInterval(() => {
@@ -784,8 +881,10 @@ body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-
       serve(req, res)
     })
     await new Promise<void>((resolve, reject) => lanFront.once('error', reject).listen(o.lan, '0.0.0.0', resolve))
-    for (const list of Object.values(os.networkInterfaces()))
-      for (const a of list || []) if (a.family === 'IPv4' && !a.internal) lanAddresses.push('http://' + a.address + ':' + o.lan + '/')
+    for (const [name, list] of Object.entries(os.networkInterfaces()))
+      // docker0 and its bridges are no network of the school
+      if (!/^(docker|br-|veth|virbr)/.test(name))
+        for (const a of list || []) if (a.family === 'IPv4' && !a.internal) lanAddresses.push('http://' + a.address + ':' + o.lan + '/')
   }
   console.log('👥 users in ' + dir + ' (' + Object.keys(users).length + ')')
   console.log('👥 admin page: http://localhost:' + o.admin + '/')

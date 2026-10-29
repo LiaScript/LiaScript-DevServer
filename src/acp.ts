@@ -282,6 +282,9 @@ export async function host(which: string) {
     }
     // a learner opens a chat that is still empty (the tab, or + New chat):
     // the tutor greets first and offers the choice of a teacher, once per chat
+      // a greeting cut off this way greets again on the next open (a phone
+      // locked its screen); one that got through has session.count
+      greeted.clear()
     const greet = () => {
       const session: any = server.getState().session || {}
       if (process.env.LIA_ROLE === 'student' && server.getState().chat && !session.count && !greeted.has(session.id)) {

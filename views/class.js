@@ -37,6 +37,12 @@
     var log = document.getElementById('log')
     var open = false
     var unread = 0
+    // the newest message this user saw: what came while the tab was closed counts too
+    var SEEN = 'lia-class-seen-' + state.me
+    var seen = ''
+    try {
+      seen = localStorage.getItem(SEEN) || ''
+    } catch (e) {}
 
     // the button in the bar, with the number of new messages
     var button = document.createElement('button')
@@ -74,8 +80,13 @@
     var list = view.querySelector('.list')
     var form = view.querySelector('form')
 
+    // tr(): the list is drawn before the language of the course is known
     function name(n) {
-      return n === TEACHER ? t('Teacher') : n === ALL ? t('all') : n === state.me ? t('you') : n
+      var key = n === TEACHER ? 'Teacher' : n === ALL ? 'all' : n === state.me ? 'you' : ''
+      var span = document.createElement('span')
+      if (key) tr(span, key)
+      else span.textContent = n
+      return span
     }
 
     function show(m) {
@@ -84,9 +95,8 @@
       var who = document.createElement('small')
       var time = document.createElement('time')
       time.dateTime = m.t
-      time.textContent = when(m.t, { hour: '2-digit', minute: '2-digit' })
-      who.textContent = name(m.from) + ' → ' + name(m.to) + ' · '
-      who.append(time)
+      time.textContent = clock(m.t)
+      who.append(name(m.from), ' → ', name(m.to), ' · ', time)
       var text = document.createElement('div')
       text.textContent = m.text
       row.append(who, text)
@@ -128,6 +138,7 @@
       view.hidden = !on
       button.setAttribute('aria-pressed', on)
       if (on) {
+        markSeen()
         unread = 0
         badge.hidden = true
         banner.hidden = true
@@ -165,7 +176,33 @@
       }
     })
 
+    function arrived(m) {
+      if (m.from == state.me || m.t <= seen) return
+      unread++
+      badge.textContent = unread
+      badge.hidden = false
+      if (m.from == TEACHER) {
+        // tr(): on load the language of the course is not known yet
+        var text = banner.querySelector('.text')
+        var who = document.createElement('b')
+        tr(who, 'Teacher')
+        text.textContent = ''
+        text.append(who, ': ' + m.text)
+        banner.hidden = false
+      }
+    }
+
+    function markSeen() {
+      var last = state.messages[state.messages.length - 1]
+      if (!last) return
+      seen = last.t
+      try {
+        localStorage.setItem(SEEN, seen)
+      } catch (e) {}
+    }
+
     render()
+    state.messages.forEach(arrived)
 
     // live: new messages and changes of the teacher (muted, users may write)
     var stream
@@ -187,15 +224,8 @@
           var none = list.querySelector('.none')
           if (none) none.remove()
           show(msg.message)
-          if (msg.message.from != state.me && !open) {
-            unread++
-            badge.textContent = unread
-            badge.hidden = false
-            if (msg.message.from == TEACHER) {
-              banner.querySelector('.text').textContent = t('Teacher') + ': ' + msg.message.text
-              banner.hidden = false
-            }
-          }
+          if (open) markSeen()
+          else arrived(msg.message)
         }
       }
       // a stream that failed does not try again by itself
