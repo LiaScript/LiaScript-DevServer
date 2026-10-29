@@ -15,6 +15,9 @@ import * as path from 'path'
 import * as zlib from 'zlib'
 import { signal, channel, PING_MS, SILENT_MS, SIGNALING, STUN } from '../share/lia-rtc.mjs'
 
+// share/ of this repository, published by LiaScript/share
+export const PAGE = 'https://liascript.github.io/share/'
+
 // one room per project, kept until the teacher asks for a new link (fresh);
 // turn and signaling: optional servers of its own, instead of those the share
 // page publishes

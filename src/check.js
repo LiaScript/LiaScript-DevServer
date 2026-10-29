@@ -1227,8 +1227,11 @@ async function main() {
   fs.writeFileSync(path.join(KITDIR, '.mcp.json'), '{}\n')
   // a gateway and what it prints: the port of its front and of anna's DevServer
   let gwOut = ''
-  const gateway = () => {
-    const g = spawn(process.execPath, [path.join(ROOT, 'dist/index.js'), '--users', USERS, '--courses', COURSES, '--kit', KITDIR, '-p', ADMIN, '--lan', LAN, '--no-sandbox', '--agent', 'node -e setInterval(Date.now,1e9)'], { cwd: PROJECT, stdio: ['ignore', 'pipe', 'ignore'] })
+  const STUB = 'node -e setInterval(Date.now,1e9)'
+  const FULL = ['--users', USERS, '--courses', COURSES, '--kit', KITDIR, '-p', ADMIN, '--lan', LAN, '--no-sandbox', '--agent', STUB]
+  // HOME: share.json and the folders of the admin page stay in the test
+  const gateway = (args = FULL) => {
+    const g = spawn(process.execPath, [path.join(ROOT, 'dist/index.js'), ...args], { cwd: PROJECT, env: { ...process.env, HOME: PROJECT }, stdio: ['ignore', 'pipe', 'ignore'] })
     // also when an assertion fails: a gateway left behind holds the port
     process.on('exit', () => g.kill())
     g.stdout.on('data', (d) => (gwOut += d))
@@ -1365,6 +1368,23 @@ async function main() {
   for (let i = 0; i < 5; i++) await request('POST', '/lia-login', { ...TAB, ...FORM }, 'name=anna&password=nope', front2)
   const locked = await request('POST', '/lia-login', { ...TAB, ...FORM }, 'name=anna&password=secret1', front2)
   assert.ok(locked.status === 401 && locked.data.includes('warten'), 'five wrong passwords lock the name')
+  gwExit = new Promise((resolve) => gw.on('exit', resolve))
+  gw.kill()
+  await gwExit
+
+  // a short start: the rest comes from what the last start saved
+  const configFile = path.join(USERS, '.gateway.json')
+  const kept = JSON.parse(fs.readFileSync(configFile, 'utf8'))
+  assert.strictEqual(fs.statSync(configFile).mode & 0o777, 0o600, '.gateway.json for the owner only')
+  assert.strictEqual(kept.admin, ADMIN, 'the port is kept')
+  assert.ok(!('sandbox' in kept), '--no-sandbox is never saved')
+  gwOut = ''
+  gw = gateway(['--users', USERS, '--no-sandbox', '--agent', STUB])
+  const front3 = await printed(/front: http:\/\/127\.0\.0\.1:(\d+)/)
+  const page3 = (await request('GET', '/', { Host: ADM.Host }, undefined, ADMIN)).data
+  assert.ok(page3.includes('<option>prolog</option>'), 'the course folder of the last start')
+  assert.ok(page3.includes('mit Teaching-Agent'), 'the kit of the last start')
+  assert.ok((await request('GET', '/', LANHOST, undefined, LAN)).data.includes('/lia-login'), 'LAN as the last start had it')
   gwExit = new Promise((resolve) => gw.on('exit', resolve))
   gw.kill()
   await gwExit

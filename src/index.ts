@@ -8,8 +8,7 @@ import * as server from './lib'
 import { mcp } from './mcp'
 import { host } from './acp'
 
-// share/ of this repository, published by LiaScript/share
-const SHARE_PAGE = 'https://liascript.github.io/share/'
+import { PAGE as SHARE_PAGE } from './share'
 
 function liascript() {
   console.log(' _     _       ____            _       _')
@@ -100,33 +99,29 @@ if (argv.users) {
     console.error('copy a course into it on the admin page when you create the user')
     process.exit(1)
   }
-  const { share, otherOrigin } = require('./share')
-  const page = typeof argv.share == 'string' ? argv.share : SHARE_PAGE
+  // only the flags given: the rest comes from the last start (DIR/.gateway.json)
+  const resolve = require('path').resolve
+  const given: any = {}
+  if (typeof argv.courses == 'string') given.courses = resolve(argv.courses)
+  if (typeof argv.kit == 'string') given.kit = resolve(argv.kit)
+  if (argv.p || argv.port) given.admin = Number(argv.p || argv.port)
+  if (typeof argv.agent == 'string') given.agent = argv.agent
+  const models = Object.fromEntries(['student', 'author'].filter((r) => typeof argv[r + '-model'] == 'string').map((r) => [r, argv[r + '-model']]))
+  if (Object.keys(models).length) given.models = models
+  if (argv.share)
+    given.share = {
+      on: true,
+      ...(typeof argv.share == 'string' ? { page: argv.share } : {}),
+      ...(typeof argv['share-web'] == 'string' ? { web: argv['share-web'] } : {}),
+    }
+  if (argv.lan) given.lan = { on: true, ...(argv.lan !== true ? { port: Number(argv.lan) } : {}) }
   require('./gateway')
     .gateway({
       dir: argv.users,
-      courses: require('path').resolve(typeof argv.courses == 'string' ? argv.courses : '.'),
-      kit: typeof argv.kit == 'string' ? require('path').resolve(argv.kit) : undefined,
-      admin: Number(argv.p || argv.port || 3000),
-      agent: typeof argv.agent == 'string' ? argv.agent : 'claude',
+      given,
       // minimist turns --no-sandbox into sandbox: false
       sandbox: argv.sandbox !== false,
-      lan: argv.lan ? (argv.lan === true ? 8000 : Number(argv.lan)) : undefined,
-      models: Object.fromEntries(
-        ['student', 'author'].filter((r) => typeof argv[r + '-model'] == 'string').map((r) => [r, argv[r + '-model']]),
-      ),
-      share: argv.share && ((front: string) => {
-        const { link, holder } = share({
-          local: front,
-          proxy: front,
-          root: require('path').resolve(argv.users),
-          page,
-          web: typeof argv['share-web'] == 'string' ? argv['share-web'] : otherOrigin(page),
-          fresh: !!argv['share-new'],
-        })
-        if (holder) throw new Error('the instance with pid ' + holder + ' shares this folder already')
-        return link
-      }),
+      fresh: !!argv['share-new'],
     })
     .catch((e: any) => {
       console.error('Error: ', e.message)

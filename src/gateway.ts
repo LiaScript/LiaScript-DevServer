@@ -15,6 +15,7 @@ import * as net from 'net'
 import * as os from 'os'
 import * as path from 'path'
 import { sameOrigin } from './lib'
+import { share, otherOrigin, PAGE } from './share'
 
 const NAME = /^[a-z0-9][a-z0-9_-]{0,31}$/
 const ROLES = ['student', 'author']
@@ -35,16 +36,51 @@ type Instance = {
   last: number
 }
 
-type Options = {
-  dir: string
+// What the admin page sets, kept in DIR/.gateway.json: a short start
+// (--users DIR) takes the last one, flags given at the start win and are
+// kept too. Never kept: --no-sandbox (one start without it would make every
+// later one unsandboxed) and --share-new (a one-off).
+export type Config = {
+  courses: string // the folder whose subfolders the admin page offers as courses
+  kit: string | null // the Teaching-Agent (or another set of agent instructions) for authors
   admin: number // port of the admin page
   agent: string
-  courses: string // the folder whose subfolders the admin page offers as courses
-  kit?: string // --kit: the Teaching-Agent (or another set of agent instructions) for authors
+  models: { student?: string; author?: string } // ANTHROPIC_MODEL per role, e.g. a small one for students
+  share: { on: boolean; page: string; web: string } // web '': the other loopback name of page
+  lan: { on: boolean; port: number } // the front on the network of the school, without share page
+  web: boolean // web pages in the chat
+  idleMinutes: number
+}
+
+export function loadConfig(dir: string, given: Partial<Config>): Config {
+  const file = path.join(dir, '.gateway.json')
+  let saved: Partial<Config> = {}
+  try {
+    saved = JSON.parse(fs.readFileSync(file, 'utf8'))
+  } catch (e) {}
+  const cfg: Config = {
+    courses: process.cwd(),
+    kit: null,
+    admin: 3000,
+    agent: 'claude',
+    web: true,
+    idleMinutes: 15,
+    ...saved,
+    ...given,
+    models: { ...saved.models, ...given.models },
+    share: { on: false, page: PAGE, web: '', ...saved.share, ...given.share },
+    lan: { on: false, port: 8000, ...saved.lan, ...given.lan },
+  }
+  fs.mkdirSync(dir, { recursive: true })
+  fs.writeFileSync(file, JSON.stringify(cfg, null, 2), { mode: 0o600 })
+  return cfg
+}
+
+type Options = {
+  dir: string
+  given: Partial<Config> // the flags of this start
   sandbox: boolean // every agent in bubblewrap (src/acp.ts), off only with --no-sandbox
-  models: { [role: string]: string } // ANTHROPIC_MODEL per role, e.g. a small one for students
-  share?: (front: string) => string // starts the share host, returns the link
-  lan?: number // the port of the front on the network of the school (--lan), without share page
+  fresh: boolean // --share-new: a new link, the old one stops working
 }
 
 const esc = (s: any) => String(s).replace(/[&<>"']/g, (c) => '&#' + c.charCodeAt(0) + ';')
@@ -195,7 +231,7 @@ function courseList(root: string): string[] {
 
 export async function gateway(o: Options) {
   const dir = path.resolve(o.dir)
-  fs.mkdirSync(dir, { recursive: true })
+  const cfg = loadConfig(dir, o.given)
   const file = path.join(dir, 'users.json')
   let users: { [name: string]: User } = {}
   try {
@@ -250,7 +286,7 @@ export async function gateway(o: Options) {
     inst.ready = starting = starting.then(async () => {
       while (!(await free(nextPort))) nextPort++
       const port = nextPort++
-      child = spawn(process.execPath, [...self, '--agent', o.agent, '-p', String(port), '-i', input], {
+      child = spawn(process.execPath, [...self, '--agent', cfg.agent, '-p', String(port), '-i', input], {
         cwd: home,
         env: {
           ...process.env,
@@ -260,7 +296,7 @@ export async function gateway(o: Options) {
           LIA_ROLE: users[name].role,
           // the GitHub login of git_login (src/git.ts), the user's own
           LIA_CONFIG_DIR: path.join(dir, '.homes', name, '.config', 'liascript'),
-          ...(o.models[users[name].role] ? { ANTHROPIC_MODEL: o.models[users[name].role] } : {}),
+          ...(cfg.models[users[name].role as 'student' | 'author'] ? { ANTHROPIC_MODEL: cfg.models[users[name].role as 'student' | 'author'] } : {}),
           ...(o.sandbox ? { LIA_SANDBOX: '1', LIA_AGENT_HOME: path.join(dir, '.homes', name) } : {}),
         },
         stdio: ['ignore', 'pipe', 'inherit'],
@@ -341,16 +377,16 @@ export async function gateway(o: Options) {
   async function updateCourse(name: string, first = false) {
     if (jobs.has(name)) return
     running.get(name)?.child?.kill()
-    const what = [users[name].course && 'Kurs ' + users[name].course, users[name].kit && o.kit && 'Teaching-Agent'].filter(Boolean).join(' und ')
+    const what = [users[name].course && 'Kurs ' + users[name].course, users[name].kit && cfg.kit && 'Teaching-Agent'].filter(Boolean).join(' und ')
     const job = { what: first ? what + ' wird kopiert' : what + ' wird aktualisiert', done: 0, total: 0 }
     jobs.set(name, job)
     try {
       fs.mkdirSync(path.join(dir, name), { recursive: true })
       const step = (done: number, total: number) => ((job.done = done), (job.total = total))
       const none = { updated: [] as string[], added: [] as string[], removed: [] as string[], conflicts: [] as string[] }
-      const course = users[name].course && courseList(o.courses).includes(users[name].course as string)
-      const c = course ? await syncCourse(path.join(o.courses, users[name].course as string), baseOf(name), path.join(dir, name), undefined, step) : none
-      const k = users[name].kit && o.kit ? await syncCourse(o.kit, baseKitOf(name), path.join(dir, name), KIT, step) : none
+      const course = users[name].course && courseList(cfg.courses).includes(users[name].course as string)
+      const c = course ? await syncCourse(path.join(cfg.courses, users[name].course as string), baseOf(name), path.join(dir, name), undefined, step) : none
+      const k = users[name].kit && cfg.kit ? await syncCourse(cfg.kit, baseKitOf(name), path.join(dir, name), KIT, step) : none
       notice(report(name, what, c, k, first))
     } catch (e: any) {
       notice('Fehler bei ' + name + ': ' + e.message, true)
@@ -638,7 +674,7 @@ ${message ? `<p class="bad">${esc(message)}</p>` : ''}<button>Anmelden</button><
             ? esc(users[n].course || '') +
               (users[n].kit ? `<br><small>+ Teaching-Agent</small>` : '') +
               `<form method="post" action="/update/${esc(n)}"><button class="quiet">aktualisieren</button></form>`
-            : `<form method="post" action="/assign/${esc(n)}"><select name="course"><option value="">–</option>${courseList(o.courses)
+            : `<form method="post" action="/assign/${esc(n)}"><select name="course"><option value="">–</option>${courseList(cfg.courses)
                 .map((c) => `<option>${esc(c)}</option>`)
                 .join('')}</select><button class="quiet">zuweisen</button></form>`
         }</td>
@@ -703,9 +739,9 @@ ${message ? `<p class="msg">${esc(message)}</p>` : ''}${notices
 <input name="name" placeholder="Name, z. B. mia" required pattern="[A-Za-z0-9][A-Za-z0-9_\\-]{0,31}" title="Buchstaben ohne Umlaute, Ziffern, - und _, keine Leerzeichen">
 <input name="password" type="password" placeholder="Passwort, mind. 6 Zeichen" required minlength="6">
 <select name="role"><option value="student">Schüler</option><option value="author">Autor</option></select>${
-      o.kit ? '<label title="Die Anweisungen und Specs des Teaching-Agent in den Ordner, für Autoren"><input type="checkbox" name="kit" value="1"> mit Teaching-Agent</label>' : ''
+      cfg.kit ? '<label title="Die Anweisungen und Specs des Teaching-Agent in den Ordner, für Autoren"><input type="checkbox" name="kit" value="1"> mit Teaching-Agent</label>' : ''
     }
-<select name="course" title="Kopie eines Kurses aus ${esc(o.courses)}"><option value="">ohne Kurs (leerer Ordner)</option>${courseList(o.courses)
+<select name="course" title="Kopie eines Kurses aus ${esc(cfg.courses)}"><option value="">ohne Kurs (leerer Ordner)</option>${courseList(cfg.courses)
       .map((c) => `<option>${esc(c)}</option>`)
       .join('')}</select>
 <button>anlegen</button></form></div>
@@ -748,7 +784,7 @@ body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-
   async function adminRoute(req: http.IncomingMessage, res: http.ServerResponse) {
     const host = String(req.headers.host)
     // this machine only, and forms only from this page
-    if (!['localhost:' + o.admin, '127.0.0.1:' + o.admin].includes(host) || (req.method === 'POST' && !sameOrigin(req))) {
+    if (!['localhost:' + cfg.admin, '127.0.0.1:' + cfg.admin].includes(host) || (req.method === 'POST' && !sameOrigin(req))) {
       res.writeHead(403)
       return res.end()
     }
@@ -783,10 +819,10 @@ body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-
       else if (password.length < 6) message = 'Das Passwort braucht mindestens 6 Zeichen.'
       else if (!ROLES.includes(role)) message = 'Unbekannte Rolle.'
       // only a course of the list: no path from the form ever reaches the disk
-      else if (course && !courseList(o.courses).includes(course)) message = 'Den Kurs ' + course + ' gibt es in ' + o.courses + ' nicht.'
+      else if (course && !courseList(cfg.courses).includes(course)) message = 'Den Kurs ' + course + ' gibt es in ' + cfg.courses + ' nicht.'
       else {
         fs.mkdirSync(path.join(dir, name), { recursive: true })
-        const kit = !!o.kit && f.get('kit') === '1'
+        const kit = !!cfg.kit && f.get('kit') === '1'
         const salt = crypto.randomBytes(16).toString('hex')
         users[name] = { salt, hash: hash(password, salt), role, created: new Date().toISOString(), ...(course ? { course } : {}), ...(kit ? { kit } : {}) }
         save()
@@ -808,7 +844,7 @@ body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-
       }
     } else if (action === 'update' && who === 'all') {
       const list = Object.keys(users).filter(
-        (n) => (users[n].course && courseList(o.courses).includes(users[n].course as string)) || (users[n].kit && o.kit),
+        (n) => (users[n].course && courseList(cfg.courses).includes(users[n].course as string)) || (users[n].kit && cfg.kit),
       )
       // one after the other, a class at once would read the course 30 times in parallel
       void (async () => {
@@ -820,7 +856,7 @@ body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-
       message = 'Update für ' + who + ' läuft …'
     } else if (action === 'assign' && users[who] && !users[who].course) {
       const course = String(f.get('course') || '')
-      if (!courseList(o.courses).includes(course)) message = 'Bitte einen Kurs wählen.'
+      if (!courseList(cfg.courses).includes(course)) message = 'Bitte einen Kurs wählen.'
       else {
         users[who].course = course
         save()
@@ -867,36 +903,42 @@ body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-
 
   await new Promise<void>((resolve) => front.listen(0, '127.0.0.1', resolve))
   const frontOrigin = 'http://127.0.0.1:' + (front.address() as net.AddressInfo).port
-  await new Promise<void>((resolve, reject) => admin.once('error', reject).listen(o.admin, '127.0.0.1', resolve))
-  link = o.share ? o.share(frontOrigin) : ''
+  await new Promise<void>((resolve, reject) => admin.once('error', reject).listen(cfg.admin, '127.0.0.1', resolve))
+  if (cfg.share.on) {
+    const shared = share({ local: frontOrigin, proxy: frontOrigin, root: dir, page: cfg.share.page, web: cfg.share.web || otherOrigin(cfg.share.page), fresh: o.fresh })
+    if ('holder' in shared) throw new Error('the instance with pid ' + shared.holder + ' shares this folder already')
+    link = shared.link
+  }
   // --lan: the same front for browsers on the network of the school, no
   // share page and no internet needed. What only the share host may say is
   // dropped; the address is the one the browser used.
   const lanAddresses: string[] = []
-  if (o.lan) {
+  if (cfg.lan.on) {
     const lanFront = http.createServer((req, res) => {
       for (const h of ['x-lia-origin', 'x-lia-web-origin', 'x-lia-web', 'x-lia-token', 'x-lia-lan']) delete req.headers[h]
       req.headers['x-lia-lan'] = '1'
       req.headers['x-lia-origin'] = 'http://' + req.headers.host
       serve(req, res)
     })
-    await new Promise<void>((resolve, reject) => lanFront.once('error', reject).listen(o.lan, '0.0.0.0', resolve))
+    await new Promise<void>((resolve, reject) => lanFront.once('error', reject).listen(cfg.lan.port, '0.0.0.0', resolve))
     for (const [name, list] of Object.entries(os.networkInterfaces()))
       // docker0 and its bridges are no network of the school
       if (!/^(docker|br-|veth|virbr)/.test(name))
-        for (const a of list || []) if (a.family === 'IPv4' && !a.internal) lanAddresses.push('http://' + a.address + ':' + o.lan + '/')
+        for (const a of list || []) if (a.family === 'IPv4' && !a.internal) lanAddresses.push('http://' + a.address + ':' + cfg.lan.port + '/')
   }
   console.log('👥 users in ' + dir + ' (' + Object.keys(users).length + ')')
-  console.log('👥 admin page: http://localhost:' + o.admin + '/')
-  console.log('📚 courses from ' + o.courses + ' (' + courseList(o.courses).length + ')')
-  if (o.kit) console.log('🧰 kit for authors: ' + o.kit + ' (' + KIT.filter((e) => fs.existsSync(path.join(o.kit as string, e))).join(', ') + ')')
+  console.log('👥 admin page: http://localhost:' + cfg.admin + '/')
+  console.log('📚 courses from ' + cfg.courses + ' (' + courseList(cfg.courses).length + ')')
+  if (cfg.kit) console.log('🧰 kit for authors: ' + cfg.kit + ' (' + KIT.filter((e) => fs.existsSync(path.join(cfg.kit as string, e))).join(', ') + ')')
   console.log(o.sandbox ? '🔒 every agent in bubblewrap, in the folder of its user' : '⚠️  no sandbox: the agents can read everything this user can')
-  if (o.agent == 'claude' && !process.env.ANTHROPIC_API_KEY) {
+  if (cfg.agent == 'claude' && !process.env.ANTHROPIC_API_KEY) {
     console.log('⚠️  no ANTHROPIC_API_KEY: every agent uses your own Claude login, and its limits')
   }
-  for (const [role, model] of Object.entries(o.models)) console.log('🧠 ' + role + ': ' + model)
+  for (const [role, model] of Object.entries(cfg.models)) console.log('🧠 ' + role + ': ' + model)
   // reachable through the share link, or on this machine with the headers it sets
   console.log('👥 front: ' + frontOrigin)
   if (link) console.log('🔗 share: ' + link)
   for (const a of lanAddresses) console.log('🏫 on the network of the school: ' + a)
+  // the teacher need not type the address; not in a script (check.js)
+  if (process.stdout.isTTY) require('open')('http://localhost:' + cfg.admin + '/')
 }
