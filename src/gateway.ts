@@ -705,6 +705,29 @@ ${message ? `<p class="bad">${esc(message)}</p>` : ''}<button>Anmelden</button><
     }
   }
 
+  // what all agents cost per day (src/acp.ts writes it per user)
+  const daysOf = (name: string): { [day: string]: { [currency: string]: number } } => {
+    try {
+      return JSON.parse(fs.readFileSync(path.join(dir, name, '.chats', '.acp-days.json'), 'utf8'))
+    } catch (e) {
+      return {}
+    }
+  }
+  const money = (amount: number, currency: string) => amount.toLocaleString('de-DE', { style: 'currency', currency, maximumFractionDigits: 2 })
+  function costBox() {
+    const sum: { [day: string]: { [currency: string]: number } } = {}
+    for (const name of Object.keys(users))
+      for (const [day, c] of Object.entries(daysOf(name))) for (const [cur, a] of Object.entries(c)) ((sum[day] = sum[day] || {}), (sum[day][cur] = (sum[day][cur] || 0) + a))
+    const week = [...Array(7)].map((_, i) => new Date(Date.now() - (6 - i) * 864e5).toLocaleDateString('sv'))
+    // shortcut: one currency in the chart, the adapters report USD; sum per currency if another comes
+    const currency = Object.keys(sum[week[6]] || Object.values(sum).pop() || { USD: 0 })[0] || 'USD'
+    const values = week.map((d) => (sum[d] && sum[d][currency]) || 0)
+    const top = Math.max(...values, 0.01)
+    const bars = values
+      .map((v, i) => `<rect class="day" x="${i * 14}" y="${40 - Math.round((v / top) * 40)}" width="10" height="${Math.max(1, Math.round((v / top) * 40))}"><title>${esc(week[i] + ': ' + money(v, currency))}</title></rect>`)
+      .join('')
+    return `<div class="card"><b>Kosten heute: <span id="today">${esc(money(values[6], currency))}</span></b><br><svg class="chart" viewBox="0 0 94 40" width="188" height="80" role="img" aria-label="Kosten der letzten 7 Tage">${bars}</svg><br><small>letzte 7 Tage, alle Nutzer</small></div>`
+  }
   const ago = (t: number) => {
     const m = Math.round((Date.now() - t) / 60000)
     return m < 1 ? 'gerade' : 'vor ' + m + ' min'
@@ -813,9 +836,9 @@ input,select,button{font:inherit;padding:6px 10px;border-radius:8px;border:1px s
 button{background:var(--accent);border-color:var(--accent);color:#fff;cursor:pointer}button.danger{background:transparent;color:var(--bad);border-color:var(--bad)}button.quiet{background:transparent;color:var(--fg);border-color:var(--line)}
 .m{border:1px solid var(--line);border-radius:10px;padding:6px 10px;margin:6px 0;white-space:pre-wrap}.m.me{border-color:var(--accent)}#log{max-height:40vh;overflow:auto}
 form.say{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start}form.say textarea{flex:1;min-width:200px;font:inherit;padding:6px 10px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
-form.new{display:flex;flex-wrap:wrap;gap:8px}code{word-break:break-all}.msg{color:var(--accent)}.bad{color:var(--bad);font-weight:600}.warn{background:var(--help);border-color:var(--bad);margin:12px 0}.w{margin-top:8px}</style></head><body><main>
+form.new{display:flex;flex-wrap:wrap;gap:8px}code{word-break:break-all}.msg{color:var(--accent)}.bad{color:var(--bad);font-weight:600}.warn{background:var(--help);border-color:var(--bad);margin:12px 0}.w{margin-top:8px}.chart rect{fill:var(--accent)}</style></head><body><main>
 <h1>LiaScript Klasse</h1>
-${warningBox()}<div class="card"><b>Adresse für die Schüler</b>${link ? `<br>von überall: <code>${esc(link)}</code>` : ''}${
+${warningBox()}${costBox()}<div class="card"><b>Adresse für die Schüler</b>${link ? `<br>von überall: <code>${esc(link)}</code>` : ''}${
       lanAddresses.length ? '<br>im Schulnetz: ' + lanAddresses.map((a) => `<code>${esc(a)}</code>`).join(' ') : ''
     }${link || lanAddresses.length ? '' : '<br><small>noch keine: den Server mit <code>--lan</code> (Schulnetz) oder <code>--share</code> (Internet) starten</small>'}</div>
 ${message ? `<p class="msg">${esc(message)}</p>` : ''}${notices

@@ -160,6 +160,12 @@ export async function host(which: string) {
   try {
     spent = JSON.parse(fs.readFileSync(costs, 'utf8'))
   } catch (e) {}
+  // and per day (local date), for the chart of the admin page
+  const daysFile = path.join(process.cwd(), '.chats', '.acp-days.json')
+  let days: { [day: string]: { [currency: string]: number } } = {}
+  try {
+    days = JSON.parse(fs.readFileSync(daysFile, 'utf8'))
+  } catch (e) {}
 
   // the turn that runs: its text, and how many chat messages it found
   let turn: { session: string; text: string; before: number } | null = null
@@ -182,9 +188,18 @@ export async function host(which: string) {
     (method, params) => {
       const cost = method === 'session/update' && params.update && params.update.sessionUpdate === 'usage_update' && params.update.cost
       if (cost && typeof cost.amount === 'number') {
-        spent[params.sessionId] = { amount: cost.amount, currency: String(cost.currency || 'USD') }
+        const currency = String(cost.currency || 'USD')
+        // the agent reports what the session cost so far: the day gets the difference
+        const more = cost.amount - (spent[params.sessionId]?.amount || 0)
+        spent[params.sessionId] = { amount: cost.amount, currency }
         fs.mkdirSync(path.dirname(costs), { recursive: true })
         fs.writeFileSync(costs, JSON.stringify(spent))
+        if (more > 0) {
+          const day = new Date().toLocaleDateString('sv') // YYYY-MM-DD, local
+          days[day] = days[day] || {}
+          days[day][currency] = (days[day][currency] || 0) + more
+          fs.writeFileSync(daysFile, JSON.stringify(days))
+        }
       }
       if (method !== 'session/update' || !turn || params.sessionId !== turn.session) return
       // a sign of life: the chat shows Thinking… instead of Waiting…
