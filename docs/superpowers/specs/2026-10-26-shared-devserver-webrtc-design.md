@@ -139,6 +139,19 @@ liascript.github.io/share, Kurs, Chat, Zustand beim Agenten.
    Quiz als `activity`.
 3. Echt: Handy im Mobilfunknetz über die GitHub-Pages-Seite (NAT, ggf. TURN).
 
+**Nachtrag (2026-10-29): ohne Trystero.** Die Verbindung kam mehrfach nicht zustande.
+Wahrscheinliche Ursache (y-generic, `webrtc-mobile-resilience-research`, F3): Trystero öffnet
+einen abgerissenen Nostr-Relay-Socket neu, schickt sein Abo aber nicht noch einmal; ein Host, der
+Stunden läuft, hört dann keinen Tab mehr. Jetzt `share/lia-rtc.mjs` auf beiden Seiten:
+y-webrtc-Signalling über `WEBRTC_SIGNALING_SERVERS` (`signaling.json` der Seite), jede Nachricht
+mit dem Schlüssel des Links versiegelt (AES-GCM), Abo bei jedem `open`, direkt
+`RTCPeerConnection`/werift, Ping auf dem Kanal und neues Wählen unter neuer ID. PeerJS und
+simple-peer verworfen: simple-peer feuert auf werift nie `connect` (`getStats`-Länge), PeerJS
+braucht im Node Browser-Globals, signalisiert unverschlüsselt und sperrt eine abgestürzte Host-ID
+60 s. Getestet: Chromium und Firefox headless gegen den eigenen Signalling-Server, direkt und
+nur über TURN (`&relay`), Host-Neustart (Tab nach 8–10 s zurück), `check.js` (falscher
+Schlüssel, Neustart des Signalling-Servers). Ungetestet: echtes Handy, WLAN-Wechsel.
+
 ## Meilenstein 1b: Agent im Server (`--agent`)
 
 `liadev --agent claude` startet den Agenten per ACP selbst (`src/acp.ts`), die Werkzeuge

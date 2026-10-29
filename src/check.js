@@ -1369,8 +1369,113 @@ async function main() {
   gw.kill()
   await gwExit
 
+  await checkShare()
+
   fs.rmSync(PROJECT, { recursive: true, force: true })
   console.log('ok')
+}
+
+// --share: a y-webrtc signalling server on loopback, the host and a werift
+// tab that speaks share/lia-rtc.mjs like the share page
+async function checkShare() {
+  const WS = require('ws')
+  const { RTCPeerConnection } = require('werift')
+  const rtc = await import(path.join(ROOT, 'share/lia-rtc.mjs'))
+  const SIG = 4711
+  const PAGE = 4712
+  function signalling() {
+    const wss = new WS.Server({ port: SIG, host: '127.0.0.1' })
+    const topics = new Map()
+    wss.on('connection', (ws) => {
+      ws.on('message', (raw) => {
+        const m = JSON.parse(raw)
+        if (m.type == 'subscribe') for (const t of m.topics) (topics.get(t) || topics.set(t, new Set()).get(t)).add(ws)
+        else if (m.type == 'publish') for (const c of topics.get(m.topic) || []) c.send(JSON.stringify(m))
+        else if (m.type == 'ping') ws.send('{"type":"pong"}')
+      })
+      ws.on('close', () => topics.forEach((set) => set.delete(ws)))
+    })
+    return wss
+  }
+  let wss = signalling()
+  // the share page publishes its servers
+  const page = http
+    .createServer((req, res) => res.end(req.url == '/signaling.json' ? JSON.stringify(['ws://127.0.0.1:' + SIG]) : '[]'))
+    .listen(PAGE, '127.0.0.1')
+  const HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'liascript-share-'))
+  const host = spawn(process.execPath, [path.join(ROOT, 'dist/index.js'), '-p', 4713, '-i', path.join(ROOT, 'README.md'), '--share', 'http://127.0.0.1:' + PAGE + '/'], { cwd: HOME, env: { ...process.env, HOME } })
+  let out = ''
+  host.stdout.on('data', (d) => (out += d))
+  host.stderr.on('data', (d) => (out += d))
+  const until = async (f, what, ms = 10000) => {
+    for (const t = Date.now(); Date.now() - t < ms; await sleep(100)) if (await f()) return
+    throw new Error('--share: ' + what + '\n' + out)
+  }
+  await until(() => /signalling:/.test(out), 'no host')
+  const link = new URLSearchParams(/share: (\S+)/.exec(out)[1].split('#')[1])
+
+  // a tab: offer, answer, a channel that GETs a path
+  async function tab(key) {
+    const me = Math.random().toString(36).slice(2)
+    const pc = new RTCPeerConnection({ iceServers: [] })
+    const dc = pc.createDataChannel('lia')
+    const open = new Promise((resolve) => (dc.onopen = resolve))
+    const answers = new Map()
+    const ch = rtc.channel(
+      dc,
+      (m) => (m.kind == 'ping' ? ch.json({ kind: 'pong' }) : m.kind == 'res' && answers.get(m.id)(m)),
+      () => {},
+    )
+    let from = null
+    let answered = null
+    const sig = await rtc.signal({
+      urls: ['ws://127.0.0.1:' + SIG],
+      room: link.get('room'),
+      key,
+      WebSocket: WS,
+      onMessage(m) {
+        if (m.to != me) return
+        if (m.sdp?.type == 'answer' && !from) (from = m.from), (answered = pc.setRemoteDescription(m.sdp))
+        else if (m.candidate && m.from == from) answered.then(() => pc.addIceCandidate(m.candidate))
+      },
+    })
+    pc.onicecandidate = ({ candidate }) => candidate && sig.send({ from: me, candidate })
+    await sleep(300)
+    await pc.setLocalDescription(await pc.createOffer())
+    sig.send({ from: me, sdp: pc.localDescription })
+    let id = 0
+    const get = (p) =>
+      new Promise((resolve) => {
+        answers.set(++id, (m) => m.status && resolve(m.status))
+        ch.json({ kind: 'req', id, method: 'GET', path: p, headers: [], origin: 'http://x' })
+      })
+    const linked = await Promise.race([open.then(() => true), sleep(5000).then(() => false)])
+    return { linked, get, close: () => (pc.close(), sig.close()) }
+  }
+
+  try {
+    const a = await tab(link.get('key'))
+    assert.ok(a.linked, 'a tab with the key of the link gets a channel')
+    assert.strictEqual(await a.get('/'), 302, 'a request through the channel')
+    const b = await tab('0'.repeat(32))
+    assert.strictEqual(b.linked, false, 'a tab with another key gets no answer')
+    b.close()
+    // Trystero lost the room here: the host subscribes again
+    for (const c of wss.clients) c.terminate()
+    await new Promise((resolve) => wss.close(resolve))
+    wss = signalling()
+    await sleep(2500)
+    const c = await tab(link.get('key'))
+    assert.ok(c.linked, 'a new tab after a restart of the signalling server')
+    assert.strictEqual(await a.get('/'), 302, 'the first channel lives on meanwhile')
+    a.close()
+    c.close()
+  } finally {
+    host.kill()
+    page.close()
+    wss.close()
+    fs.rmSync(HOME, { recursive: true, force: true })
+  }
 }
 
 main().catch(die)

@@ -1,10 +1,11 @@
-// --share: this server for browsers elsewhere, over WebRTC (spike, see
+// --share: this server for browsers elsewhere, over WebRTC (see
 // docs/superpowers/specs/2026-10-26-shared-devserver-webrtc-design.md).
-// The page share/index.html joins the room, its service worker hands every
+// The page share/index.html dials this host, its service worker hands every
 // request of the UI to it, it sends them here over the data channel, and this
-// host replays them on the local server and streams the answer back. Trystero
-// (like the LiaScript classroom) finds the peers over public Nostr relays,
-// which see only the encrypted handshake; the data itself is DTLS end to end.
+// host replays them on the local server and streams the answer back. The
+// signalling (share/lia-rtc.mjs, the same module as the page's) goes over
+// the y-webrtc servers of WEBRTC_SIGNALING_SERVERS, sealed with the key of
+// the link; the data itself is DTLS end to end.
 // Web pages come through a second page under another origin (web), so that a
 // page never reaches the chat; its requests go to the proxy of lib.ts.
 import * as crypto from 'crypto'
@@ -12,17 +13,15 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import * as zlib from 'zlib'
-
-export const APP = 'liascript-devserver-share'
+import { signal, channel, PING_MS, SILENT_MS, SIGNALING, STUN } from '../share/lia-rtc.mjs'
 
 // one room per project, kept until the teacher asks for a new link (fresh);
-// turn: optional TURN servers for networks that block direct connections
+// turn and signaling: optional servers of its own, instead of those the share
+// page publishes
 const FILE = path.join(os.homedir(), '.config', 'liascript', 'share.json')
 
 // request headers of the browser worth passing on, the rest is its business
 const PASS = ['accept', 'accept-language', 'content-type', 'cache-control', 'if-none-match', 'if-modified-since', 'range', 'last-event-id']
-// a body goes in pieces of this size, Trystero splits them further
-const CHUNK = 64 * 1024
 // text worth packing: scripts shrink to about a quarter
 const PACK = /^(text\/|application\/(javascript|json|xml|x-ndjson)|image\/svg)/
 // what fetch decoded already or the page has to compute itself
@@ -38,14 +37,15 @@ type Options = {
 }
 
 // Returns the link to hand out: room and key travel in the fragment, which no
-// server gets to see. The key encrypts the handshake and keeps out who does
-// not have the link.
+// server gets to see. The key seals the signalling and keeps out who does not
+// have the link.
 export function share(o: Options) {
   // parcel hoists every require( to the top of the bundle, this one it
   // cannot see: WebRTC loads only with --share
   const load = require('module').createRequire(__filename)
-  const { joinRoom } = load('@trystero-p2p/nostr')
   const { RTCPeerConnection } = load('werift')
+  // Node 20 has no WebSocket of its own
+  const WebSocket = (globalThis as any).WebSocket || load('ws')
 
   let saved: any = {}
   try {
@@ -63,56 +63,134 @@ export function share(o: Options) {
   const holder = claim(path.join(path.dirname(FILE), 'share-' + room + '.pid'))
   if (holder) return { holder }
 
-  // the room opens once the TURN servers are known, the link is ready now
-  turn(o.page, saved.turn).then((ice) => {
-    if (ice.length) console.log('🔗 TURN: ' + ice.map((s: any) => [].concat(s.urls).join(' ')).join(', '))
-    serve(joinRoom({ appId: APP, password: key, rtcPolyfill: RTCPeerConnection, ...(ice.length ? { turnConfig: ice } : {}) }, room), o)
-  })
+  // the room opens once the servers are known, the link is ready now
+  Promise.all([
+    Array.isArray(saved.turn) ? saved.turn : published(o.page, 'ice.json'),
+    Array.isArray(saved.signaling) && saved.signaling.length ? saved.signaling : published(o.page, 'signaling.json'),
+  ])
+    .then(([ice, urls]) => {
+      if (!urls.length) urls = SIGNALING
+      if (!ice.length) ice = STUN
+      if (ice.length) console.log('🔗 TURN: ' + ice.map((s: any) => [].concat(s.urls).join(' ')).join(', '))
+      console.log('🔗 signalling: ' + urls.join(', '))
+      return host({ ice, urls, room, key, RTCPeerConnection, WebSocket }, o)
+    })
+    .catch((e) => console.error('🔗 not shared:', e.message))
 
   return { link: o.page + '#room=' + room + '&key=' + key + (o.proxy && o.web ? '&web=' + encodeURIComponent(o.web) : '') }
 }
 
-// TURN servers: those of share.json, else the ones the share page publishes
-// (ice.json, from the secret ICE_SERVERS of its repository). Then both ends
-// can relay, a phone behind the NAT of its carrier needs that.
-async function turn(page: string, own: any): Promise<any[]> {
-  if (Array.isArray(own)) return own
+// A list the share page publishes, written from a secret of its repository:
+// ice.json (WEBRTC_ICE_SERVERS, TURN for a phone behind the NAT of its
+// carrier) and signaling.json (WEBRTC_SIGNALING_SERVERS)
+async function published(page: string, file: string): Promise<any[]> {
   try {
-    const r = await fetch(new URL('ice.json', page), { signal: AbortSignal.timeout(5000) })
-    const ice = r.ok ? await r.json() : []
-    return Array.isArray(ice) ? ice : []
+    const r = await fetch(new URL(file, page), { signal: AbortSignal.timeout(5000) })
+    const list = r.ok ? await r.json() : []
+    return Array.isArray(list) ? list : []
   } catch (e) {
     return []
   }
 }
 
-function serve(peers: any, o: Options) {
-  const hello = peers.makeAction('hello')
-  const req = peers.makeAction('req')
-  const res = peers.makeAction('res')
-  const abort = peers.makeAction('abort')
-  const open = new Map<string, AbortController>()
-
-  // other browsers in the room are peers too, this tells them who serves
-  peers.onPeerJoin = (peerId: string) => {
-    console.log('🔗 shared with', peerId)
-    hello.send({ host: true }, { target: peerId })
+// Answers every offer sealed with the key: one connection per browser tab.
+// The tab dials again under a new id when its link dies, the old entry goes
+// when its connection fails or its channel stays silent.
+async function host(c: any, o: Options) {
+  const me = crypto.randomBytes(8).toString('hex')
+  const peers = new Map<string, { pc: any; ready: Promise<void> }>()
+  const drop = (from: string, pc: any) => {
+    if (peers.get(from)?.pc != pc) return
+    peers.delete(from)
+    console.log('🔗 left', from)
+    try {
+      pc.close()
+    } catch (e) {}
   }
-  peers.onPeerLeave = (peerId: string) => {
-    console.log('🔗 left', peerId)
-    for (const [k, ctl] of open) if (k.startsWith(peerId + ':')) ctl.abort()
+  let sig: any = null
+  sig = await signal({
+    urls: c.urls,
+    room: c.room,
+    key: c.key,
+    WebSocket: c.WebSocket,
+    // waiting tabs dial at once, also after a restart of this host
+    onOpen: () => sig?.send({ from: me, hello: true }),
+    onMessage(m: any) {
+      if (!m || typeof m.from != 'string' || m.from == me || (m.to && m.to != me)) return
+      const known = peers.get(m.from)
+      if (m.sdp?.type == 'offer') {
+        // the same offer over a second server
+        if (known) return
+        const pc = new c.RTCPeerConnection({ iceServers: c.ice })
+        const early: any[] = []
+        let answered = false
+        pc.onicecandidate = ({ candidate }: any) => {
+          if (!candidate) return
+          const msg = { from: me, to: m.from, candidate }
+          answered ? sig.send(msg) : early.push(msg)
+        }
+        pc.ondatachannel = ({ channel: dc }: any) => serve(dc, () => drop(m.from, pc), o)
+        pc.onconnectionstatechange = () => ['failed', 'closed'].includes(pc.connectionState) && drop(m.from, pc)
+        const ready = (async () => {
+          await pc.setRemoteDescription(m.sdp)
+          await pc.setLocalDescription(await pc.createAnswer())
+          await sig.send({ from: me, to: m.from, sdp: pc.localDescription })
+          answered = true
+          for (const msg of early) sig.send(msg)
+        })()
+        peers.set(m.from, { pc, ready })
+        console.log('🔗 shared with', m.from)
+        ready.catch((e) => (console.error('🔗', m.from, e.message), drop(m.from, pc)))
+        // a tab that never gets through
+        setTimeout(() => pc.connectionState != 'connected' && drop(m.from, pc), 30000)
+      } else if (m.candidate && known) {
+        known.ready.then(() => known.pc.addIceCandidate(m.candidate)).catch(() => {})
+      }
+    },
+  })
+}
+
+// One data channel: requests come as their body pieces first, then their
+// head ({kind: 'req'}); answers go back as head, pieces and end.
+function serve(dc: any, drop: () => void, o: Options) {
+  const open = new Map<number, AbortController>()
+  const bodies = new Map<number, Uint8Array[]>()
+  let heard = Date.now()
+  const ch = channel(
+    dc,
+    (m: any) => {
+      heard = Date.now()
+      if (m?.kind == 'ping') ch.json({ kind: 'pong' }).catch(() => {})
+      else if (m?.kind == 'abort') open.get(m.id)?.abort()
+      else if (m?.kind == 'req') request(m, bodies.get(m.id))
+    },
+    (id: number, bytes: Uint8Array) => {
+      heard = Date.now()
+      if (!bodies.has(id)) bodies.set(id, [])
+      bodies.get(id)!.push(bytes)
+    },
+  )
+  // a channel that stays silent is dead: a phone slept or changed its network
+  const ping = setInterval(() => {
+    if (Date.now() - heard > SILENT_MS) return close()
+    ch.json({ kind: 'ping' }).catch(() => {})
+  }, PING_MS)
+  function close() {
+    clearInterval(ping)
+    for (const ctl of open.values()) ctl.abort()
+    open.clear()
+    drop()
   }
+  dc.onclose = close
 
-  abort.onMessage = (data: any, { peerId }: any) => open.get(peerId + ':' + data?.id)?.abort()
+  const send = (m: any) => ch.json({ kind: 'res', ...m })
 
-  // a request comes as its metadata, or as its body with the metadata attached
-  req.onMessage = async (data: any, { peerId, metadata }: any) => {
-    const body = metadata ? data : undefined
-    const m = metadata || data
-    const id = m?.id
-    const to = { target: peerId }
+  async function request(m: any, parts?: Uint8Array[]) {
+    const id = m.id
+    bodies.delete(id)
+    const body = parts ? Buffer.concat(parts) : undefined
     const ctl = new AbortController()
-    open.set(peerId + ':' + id, ctl)
+    open.set(id, ctl)
     try {
       // a web page goes to the proxy, which serves only GET
       const base = m.web ? o.proxy : o.local
@@ -137,35 +215,35 @@ function serve(peers: any, o: Options) {
       const r = await fetch(url, {
         method: String(m.method || 'GET'),
         headers,
-        body: body && m.method != 'GET' && m.method != 'HEAD' ? Buffer.from(body) : undefined,
+        body: body && m.method != 'GET' && m.method != 'HEAD' ? body : undefined,
         redirect: 'manual',
         signal: ctl.signal,
       })
       const type = r.headers.get('content-type') || ''
       const head = { id, status: r.status, headers: [...r.headers].filter(([k]) => !DROP.includes(k)) }
-      // One send at a time keeps the order, Trystero chunks and waits for the
-      // channel to drain. An event stream goes on as it comes. Anything else
-      // is read at once: a phone reads slowly, and a Node server closes the
-      // connection 5 s (keepAliveTimeout) after it has handed over the last
-      // byte, also when the reader has not taken the rest yet; the end of
-      // big scripts was missing.
-      // ponytail: a whole file in memory, stream big media if it ever comes
+      // The channel keeps the order and waits while its buffer is full. An
+      // event stream goes on as it comes. Anything else is read at once: a
+      // phone reads slowly, and a Node server closes the connection 5 s
+      // (keepAliveTimeout) after it has handed over the last byte, also when
+      // the reader has not taken the rest yet; the end of big scripts was
+      // missing.
+      // shortcut: a whole file in memory, stream big media if it ever comes
       if (/^text\/event-stream/.test(type)) {
-        await res.send(head, to)
-        if (r.body) for await (const chunk of r.body as any) await res.send(chunk, { ...to, metadata: { id } })
+        await send(head)
+        if (r.body) for await (const chunk of r.body as any) await ch.body(id, chunk)
       } else {
-        let body = Buffer.from(await r.arrayBuffer())
+        let bytes: Uint8Array = Buffer.from(await r.arrayBuffer())
         // packed for a page that can unpack it (m.gzip, DecompressionStream)
-        const gzip = !!m.gzip && body.length > 1024 && PACK.test(type)
-        if (gzip) body = zlib.gzipSync(body)
-        await res.send(gzip ? { ...head, gzip } : head, to)
-        for (let i = 0; i < body.length; i += CHUNK) await res.send(body.subarray(i, i + CHUNK), { ...to, metadata: { id } })
+        const gzip = !!m.gzip && bytes.length > 1024 && PACK.test(type)
+        if (gzip) bytes = zlib.gzipSync(bytes)
+        await send(gzip ? { ...head, gzip } : head)
+        await ch.body(id, bytes)
       }
-      await res.send({ id, end: true }, to)
+      await send({ id, end: true })
     } catch (e: any) {
-      if (!ctl.signal.aborted) await res.send({ id, error: e.message }, to).catch(() => {})
+      if (!ctl.signal.aborted) await send({ id, error: e.message }).catch(() => {})
     } finally {
-      open.delete(peerId + ':' + id)
+      open.delete(id)
     }
   }
 }

@@ -38,6 +38,10 @@ const RULES =
 const CHOOSE =
   'call find_teacher (if get_state.teachers lists ids, only those; if get_state.teacher names one, take it with set_agent and offer no choice), then ONE chat call: markdown with a short greeting in the language of the course and one line per person, plus inputs: [{id: "teacher", type: "teacher", options: [3 or 4 ids]}]. End your turn there; the choice comes as your next prompt, then set_agent with that persona and greet as that person, closing with [Lehrer wechseln](agent:/choose-teacher) in the language of the course.'
 const GREET = 'The learner opened this chat and has not written yet. Greet them and let them choose who teaches them: ' + CHOOSE
+// an author: the Teaching-Agent (--kit) starts with its On Activation, as in a terminal
+const GREET_AUTHOR =
+  'The author opened this chat and has not written yet. Start as the instructions of this folder say for a new session (CLAUDE.md, AGENTS.md: e.g. On Activation of the Teaching-Agent), then greet them with ONE chat call in the language of the course: who you are, where the project stands, and the next steps as numbered options or as the agent: links of those instructions.'
+const GREETING: Record<string, string> = { student: GREET, author: GREET_AUTHOR }
 
 // started by --users for someone elsewhere: nobody there may allow more
 const remote = () => !!server.getState().share || !!process.env.LIA_GATEWAY
@@ -278,18 +282,20 @@ export async function host(which: string) {
     // the chat closed: stop what runs for it
     if (event.type === 'connection' && !event.params.chat) {
       if (turn) agent.notify('session/cancel', { sessionId: turn.session })
-      return
-    }
-    // a learner opens a chat that is still empty (the tab, or + New chat):
-    // the tutor greets first and offers the choice of a teacher, once per chat
       // a greeting cut off this way greets again on the next open (a phone
       // locked its screen); one that got through has session.count
       greeted.clear()
+      return
+    }
+    // a user opens a chat that is still empty (the tab, or + New chat): the
+    // agent greets first, once per chat; the tutor offers the choice of a
+    // teacher, an author's agent starts as its instructions say
     const greet = () => {
       const session: any = server.getState().session || {}
-      if (process.env.LIA_ROLE === 'student' && server.getState().chat && !session.count && !greeted.has(session.id)) {
+      const greeting = GREETING[process.env.LIA_ROLE || '']
+      if (greeting && server.getState().chat && !session.count && !greeted.has(session.id)) {
         greeted.add(session.id)
-        queue(() => prompt(GREET))
+        queue(() => prompt(greeting))
       }
     }
     if (event.type === 'connection') {

@@ -20,7 +20,8 @@ node src/check.js  # end-to-end check of --mcp against the BUILT dist/index.js, 
 `build` always runs `shebang` and `lib` afterward. There is no separate lint or test script. The only automated
 check is `src/check.js`: it spawns `dist/index.js --mcp` in a temporary project folder (the chats land in its
 `.chats/`, not in the repo), speaks JSON-RPC to it and treats every stdout line as protocol, so it also fails on a
-stray `console.log`. It also runs `views/teachers.js` in a `vm` sandbox and renders every persona. Never call the `chat` or `goto` tool in it without a fake SSE
+stray `console.log`. It also runs `views/teachers.js` in a `vm` sandbox and renders every persona. `--share` it runs against a y-webrtc signalling server of
+its own on loopback, with a werift tab that speaks `share/lia-rtc.mjs` (wrong key, restart of the signalling). Never call the `chat` or `goto` tool in it without a fake SSE
 client connected, they open a real browser otherwise. There's no dedicated `tsconfig.json`; `lib` compiles
 `src/lib.ts` directly via CLI flags (`--module commonjs -d --outDir dist`).
 
@@ -299,6 +300,9 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   in the sandbox is allowed every tool (`trusted()` in `acp.ts`: the Teaching-Agent runs node and shell commands),
   the rules for authors move confirmations "in the terminal" into a chat form. `LIA_CONFIG_DIR`
   (`DIR/.homes/<name>/.config/liascript`) gives every user their own GitHub login for `git_login`.
+  An author's new, empty chat becomes `GREET_AUTHOR` the same way: the agent starts as the folder's instructions
+  say (the On Activation of the Teaching-Agent) and greets with the next steps; without it the author had to write
+  first and the Teaching-Agent never activated.
   Learners choose their teacher: a new, empty chat of a student (the tab or `+ New chat`, `greet()` in `acp.ts`,
   once per chat) becomes the prompt `GREET`, the click on `agent:/choose-teacher` adds `CHOOSE`: both spell out the
   calls (`find_teacher`, one `chat` with a `teacher` form, end the turn, then `set_agent persona`), Haiku left out
@@ -310,15 +314,31 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   share tab, only the one with that id answers, two logins in one browser never cross.
 - **`src/share.ts` + `share/`** — `--share` (spike, see
   `docs/superpowers/specs/2026-10-26-shared-devserver-webrtc-design.md`): the server for browsers elsewhere over
-  WebRTC. Trystero (`@trystero-p2p/nostr`, the strategy of the LiaScript classroom) with `werift` as
-  `RTCPeerConnection` (`node-datachannel` never connected two Node peers); `index.ts` loads it only with the flag,
-  through `createRequire`, because parcel hoists every `require(` to the top of the bundle. Room and key are kept per
-  project folder in `~/.config/liascript/share.json` (`0600`, optional `turn` for `turnConfig`), the link survives a
-  restart until `--share-new`. `share/` is a static page without build (Trystero from jsDelivr) for an origin of its
-  own: `lia-share.js` joins the room of the fragment (`#room=…&key=…&web=…`, the key encrypts the handshake) and
+  WebRTC, without a library: `share/lia-rtc.mjs` is the one module both ends use (the share page, `share.ts`
+  through parcel, `check.js`). Signalling goes over the y-webrtc protocol (`subscribe`/`publish`/`ping`) to every
+  server of `signaling.json` (from the secret `WEBRTC_SIGNALING_SERVERS`, else `signaling` in `share.json`, else
+  `SIGNALING`, the public `wss://y-webrtc-eu.fly.dev`), each message sealed with AES-GCM under the key of the link,
+  so the server never sees an SDP (no man in the middle). Every socket `open` subscribes again and a socket silent
+  for 30 s is dropped and dialed anew: Trystero, before this, re-opened a Nostr relay socket without its
+  subscription, and a host that ran for hours heard no tab any more (y-generic, F3 of its mobile resilience
+  research). `werift` is the `RTCPeerConnection` of the host (`node-datachannel` never connected two Node peers;
+  simple-peer never fires `connect` on werift, whose `getStats(selector)` has length 1; werift takes only the first
+  TURN entry), `ws` its WebSocket under Node 20; `index.ts` loads `share.ts` only with the flag, through
+  `createRequire`, because parcel hoists every `require(` to the top of the bundle. Room and key are kept per
+  project folder in `~/.config/liascript/share.json` (`0600`, optional `turn` and `signaling` lists), the link
+  survives a restart until `--share-new`. The host announces itself (`hello`) on every subscribe, answers every
+  offer sealed with the key (one connection per tab id, trickle ICE, its candidates only after the answer), pings
+  every channel every 5 s (`PING_MS`) and drops one silent for 15 s (`SILENT_MS`) or not connected after 30 s.
+  The tab dials under a new id each time: no answer in 8 s, a channel silent for 15 s (Chrome leaves a dead link in
+  ICE `disconnected` for good), a `hello` of another host (a restart), or no pong 3 s after `online`, a
+  `navigator.connection` change or the page becoming visible (`back()`, which also redials the signalling at once).
+  On the channel: JSON heads (`kind: req|res|abort|ping|pong`), binary pieces of 16 KB with the request id in their
+  first 4 bytes; a request sends its body pieces first, its head starts it. `&relay` in the link forces TURN,
+  `&debug` shows a log. `share/` is a static page without build for an origin of its
+  own: `lia-share.js` dials the host in the room of the fragment (`#room=…&key=…&web=…`) and
   shows `/` in a frame, `lia-share-sw.js` hands every other request of that origin to it, and the answer streams
-  back (SSE works). A new host peer (restart) fails the open requests and reloads the frame, a failed EventSource does
-  not retry. The host replays a request with `fetch` against the local server, `Origin` set to it, `X-Lia-Origin`
+  back (SSE works). A lost link fails the open requests and the frame reloads once it is back, a failed EventSource
+  does not retry. The host replays a request with `fetch` against the local server, `Origin` set to it, `X-Lia-Origin`
   the page (`originOf()` in `lib.ts` puts it into the `/` redirect, the listing and the `.md` redirect). Live reload:
   the `reload` WebSocket does not pass, so `reloadNow()` also writes `{reload: true}` to every stream of a remote
   client (`x-lia-origin`), `gotoScript` reloads on it, and the player of a remote client gets no `reload.js`. Web
@@ -335,11 +355,11 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   the path before `/liascript/`, `''` locally) and the service worker strips it again. It only takes the share page
   itself as carrier, not another tab of liascript.github.io. There is no second origin under liascript.github.io,
   so web pages are off through it (`/web` 404, `{proxy: 'off'}` in the replay) until `--share-web` names one.
-  TURN: the workflow of `LiaScript/share` (`.github/workflows/pages.yml`, only there, `cp share/*` keeps it)
-  publishes the page and writes `ice.json` from the organization secret `WEBRTC_ICE_SERVERS` (a JSON list of
-  RTCIceServer, the same as in the LiaScript build). `lia-share.js` and the host (`turn()` in `share.ts`, unless
-  `share.json` has its own `turn`) pass it to Trystero as `turnConfig`: a phone behind the NAT of its carrier
-  needs a relay.
+  TURN and signalling: the workflow of `LiaScript/share` (`.github/workflows/pages.yml`, only there, `cp share/*`
+  keeps it) publishes the page and writes `ice.json` and `signaling.json` from the organization secrets
+  `WEBRTC_ICE_SERVERS` (a JSON list of RTCIceServer, the same as in the LiaScript build) and
+  `WEBRTC_SIGNALING_SERVERS` (a JSON list of `wss://` URLs). The tab and the host (`published()` in `share.ts`,
+  unless `share.json` has its own) use them: a phone behind the NAT of its carrier needs a relay.
   Transfer: the host reads every answer but an event stream at once (`arrayBuffer()`): over a phone it read for
   20 to 30 s, and a Node server closes the connection `keepAliveTimeout` (5 s) after it handed over the last byte,
   the end of big scripts was missing ("terminated"). Text goes packed with gzip when the page says it can unpack
