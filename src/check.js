@@ -1228,7 +1228,10 @@ async function main() {
   // a gateway and what it prints: the port of its front and of anna's DevServer
   let gwOut = ''
   const STUB = 'node -e setInterval(Date.now,1e9)'
-  const FULL = ['--users', USERS, '--courses', COURSES, '--kit', KITDIR, '-p', ADMIN, '--lan', LAN, '--no-sandbox', '--agent', STUB]
+  // share through a signalling server and a share page of the test, no network
+  const gwSignalling = signallingServer(4721)
+  const gwPage = sharePage(4722, 4721)
+  const FULL = ['--users', USERS, '--courses', COURSES, '--kit', KITDIR, '-p', ADMIN, '--lan', LAN, '--share', 'http://127.0.0.1:4722/', '--no-sandbox', '--agent', STUB]
   // HOME: share.json and the folders of the admin page stay in the test
   const gateway = (args = FULL) => {
     const g = spawn(process.execPath, [path.join(ROOT, 'dist/index.js'), ...args], { cwd: PROJECT, env: { ...process.env, HOME: PROJECT }, stdio: ['ignore', 'pipe', 'ignore'] })
@@ -1390,6 +1393,27 @@ async function main() {
   assert.ok(page3.includes('<option>prolog</option>'), 'the course folder of the last start')
   assert.ok(page3.includes('mit Teaching-Agent'), 'the kit of the last start')
   assert.strictEqual(JSON.parse(fs.readFileSync(usersFile, 'utf8')).carl.source, path.join(COURSES, 'prolog'), 'an old entry gets the path of its course')
+  // share and LAN switched on the admin page
+  const locks = () => fs.readdirSync(path.join(PROJECT, '.config', 'liascript')).filter((f) => f.startsWith('share-'))
+  const adminHtml = async () => (await request('GET', '/', { Host: ADM.Host }, undefined, ADMIN)).data
+  assert.ok((await adminHtml()).includes('#room='), 'share as the last start had it')
+  await request('POST', '/settings/share', ADM, 'on=0', ADMIN)
+  assert.ok(!(await adminHtml()).includes('#room='), 'share off: no link')
+  assert.deepStrictEqual(locks(), [], 'share off: the lock is gone')
+  await request('POST', '/settings/share', ADM, 'on=1', ADMIN)
+  assert.ok((await adminHtml()).includes('#room=') && locks().length == 1, 'share on again')
+  assert.strictEqual(JSON.parse(fs.readFileSync(configFile, 'utf8')).share.on, true, 'kept')
+  await request('POST', '/settings/lan', ADM, 'on=0', ADMIN)
+  await assert.rejects(request('GET', '/', LANHOST, undefined, LAN), 'LAN off: nobody answers')
+  await request('POST', '/settings/lan', ADM, 'on=1', ADMIN)
+  assert.ok((await request('GET', '/', LANHOST, undefined, LAN)).data.includes('/lia-login'), 'LAN on again')
+  await request('POST', '/settings/lan', ADM, 'on=0', ADMIN)
+  const busy = http.createServer().listen(LAN)
+  await new Promise((resolve) => busy.once('listening', resolve))
+  assert.ok(/belegt/.test(decodeURIComponent((await request('POST', '/settings/lan', ADM, 'on=1', ADMIN)).headers.location)), 'a busy port: a message, no crash')
+  busy.close()
+  assert.strictEqual((await request('GET', '/', { Host: ADM.Host }, undefined, ADMIN)).status, 200, 'the gateway still answers')
+  await request('POST', '/settings/lan', ADM, 'on=1', ADMIN)
   assert.ok((await request('GET', '/', LANHOST, undefined, LAN)).data.includes('/lia-login'), 'LAN as the last start had it')
   gwExit = new Promise((resolve) => gw.on('exit', resolve))
   gw.kill()
@@ -1408,12 +1432,33 @@ async function main() {
   gwExit = new Promise((resolve) => gw.on('exit', resolve))
   gw.kill()
   await gwExit
+  gwSignalling.close()
+  gwPage.close()
 
   await checkShare()
 
   fs.rmSync(PROJECT, { recursive: true, force: true })
   console.log('ok')
 }
+
+// a y-webrtc signalling server on loopback, and a share page that names it
+function signallingServer(port) {
+  const WS = require('ws')
+  const wss = new WS.Server({ port, host: '127.0.0.1' })
+  const topics = new Map()
+  wss.on('connection', (ws) => {
+    ws.on('message', (raw) => {
+      const m = JSON.parse(raw)
+      if (m.type == 'subscribe') for (const t of m.topics) (topics.get(t) || topics.set(t, new Set()).get(t)).add(ws)
+      else if (m.type == 'publish') for (const c of topics.get(m.topic) || []) c.send(JSON.stringify(m))
+      else if (m.type == 'ping') ws.send('{"type":"pong"}')
+    })
+    ws.on('close', () => topics.forEach((set) => set.delete(ws)))
+  })
+  return wss
+}
+const sharePage = (port, sig) =>
+  http.createServer((req, res) => res.end(req.url == '/signaling.json' ? JSON.stringify(['ws://127.0.0.1:' + sig]) : '[]')).listen(port, '127.0.0.1')
 
 // --share: a y-webrtc signalling server on loopback, the host and a werift
 // tab that speaks share/lia-rtc.mjs like the share page
@@ -1423,25 +1468,9 @@ async function checkShare() {
   const rtc = await import(path.join(ROOT, 'share/lia-rtc.mjs'))
   const SIG = 4711
   const PAGE = 4712
-  function signalling() {
-    const wss = new WS.Server({ port: SIG, host: '127.0.0.1' })
-    const topics = new Map()
-    wss.on('connection', (ws) => {
-      ws.on('message', (raw) => {
-        const m = JSON.parse(raw)
-        if (m.type == 'subscribe') for (const t of m.topics) (topics.get(t) || topics.set(t, new Set()).get(t)).add(ws)
-        else if (m.type == 'publish') for (const c of topics.get(m.topic) || []) c.send(JSON.stringify(m))
-        else if (m.type == 'ping') ws.send('{"type":"pong"}')
-      })
-      ws.on('close', () => topics.forEach((set) => set.delete(ws)))
-    })
-    return wss
-  }
+  const signalling = () => signallingServer(SIG)
   let wss = signalling()
-  // the share page publishes its servers
-  const page = http
-    .createServer((req, res) => res.end(req.url == '/signaling.json' ? JSON.stringify(['ws://127.0.0.1:' + SIG]) : '[]'))
-    .listen(PAGE, '127.0.0.1')
+  const page = sharePage(PAGE, SIG)
   const HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'liascript-share-'))
   const host = spawn(process.execPath, [path.join(ROOT, 'dist/index.js'), '-p', 4713, '-i', path.join(ROOT, 'README.md'), '--share', 'http://127.0.0.1:' + PAGE + '/'], { cwd: HOME, env: { ...process.env, HOME } })
   let out = ''

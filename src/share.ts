@@ -63,10 +63,13 @@ export function share(o: Options) {
   const { room, key } = saved.rooms[o.root]
   // one host per room: VS Code starts a workspace .mcp.json for Copilot next
   // to Claude Code, and two hosts in one room take the browser from each other
-  const holder = claim(path.join(path.dirname(FILE), 'share-' + room + '.pid'))
+  const lock = path.join(path.dirname(FILE), 'share-' + room + '.pid')
+  const holder = claim(lock)
   if (holder) return { holder }
 
   // the room opens once the servers are known, the link is ready now
+  let stopped = false
+  let close: (() => void) | null = null
   Promise.all([
     Array.isArray(saved.turn) ? saved.turn : published(o.page, 'ice.json'),
     Array.isArray(saved.signaling) && saved.signaling.length ? saved.signaling : published(o.page, 'signaling.json'),
@@ -78,9 +81,18 @@ export function share(o: Options) {
       console.log('🔗 signalling: ' + urls.join(', '))
       return host({ ice, urls, room, key, RTCPeerConnection, WebSocket }, o)
     })
+    .then((closer) => (stopped ? closer?.() : (close = closer || null)))
     .catch((e) => console.error('🔗 not shared:', e.message))
 
-  return { link: o.page + '#room=' + room + '&key=' + key + (o.proxy && o.web ? '&web=' + encodeURIComponent(o.web) : '') }
+  return {
+    link: o.page + '#room=' + room + '&key=' + key + (o.proxy && o.web ? '&web=' + encodeURIComponent(o.web) : ''),
+    // the admin page of --users switches it off: tabs lose their link, the room is free again
+    stop() {
+      stopped = true
+      close?.()
+      unlock(lock)
+    },
+  }
 }
 
 // A list the share page publishes, written from a secret of its repository:
@@ -99,7 +111,7 @@ async function published(page: string, file: string): Promise<any[]> {
 // Answers every offer sealed with the key: one connection per browser tab.
 // The tab dials again under a new id when its link dies, the old entry goes
 // when its connection fails or its channel stays silent.
-async function host(c: any, o: Options) {
+async function host(c: any, o: Options): Promise<() => void> {
   const me = crypto.randomBytes(8).toString('hex')
   const peers = new Map<string, { pc: any; ready: Promise<void> }>()
   const drop = (from: string, pc: any) => {
@@ -111,6 +123,7 @@ async function host(c: any, o: Options) {
     } catch (e) {}
   }
   let sig: any = null
+  const channels = new Set<() => void>()
   sig = await signal({
     urls: c.urls,
     room: c.room,
@@ -132,7 +145,11 @@ async function host(c: any, o: Options) {
           const msg = { from: me, to: m.from, candidate }
           answered ? sig.send(msg) : early.push(msg)
         }
-        pc.ondatachannel = ({ channel: dc }: any) => serve(dc, () => drop(m.from, pc), o)
+        pc.ondatachannel = ({ channel: dc }: any) => {
+          const close = serve(dc, () => drop(m.from, pc), o)
+          channels.add(close)
+          dc.addEventListener('close', () => channels.delete(close))
+        }
         pc.onconnectionstatechange = () => ['failed', 'closed'].includes(pc.connectionState) && drop(m.from, pc)
         const ready = (async () => {
           await pc.setRemoteDescription(m.sdp)
@@ -151,6 +168,11 @@ async function host(c: any, o: Options) {
       }
     },
   })
+  return () => {
+    sig.close()
+    for (const close of [...channels]) close()
+    for (const [from, { pc }] of peers) drop(from, pc)
+  }
 }
 
 // One data channel: requests come as their body pieces first, then their
@@ -249,6 +271,7 @@ function serve(dc: any, drop: () => void, o: Options) {
       open.delete(id)
     }
   }
+  return close
 }
 
 // Takes the room for this process, or returns the pid of the one that has it.
@@ -262,12 +285,14 @@ function claim(lock: string) {
     if (pid != process.pid && alive(pid)) return pid
     fs.writeFileSync(lock, String(process.pid))
   }
-  process.on('exit', () => {
-    try {
-      if (fs.readFileSync(lock, 'utf8') == String(process.pid)) fs.unlinkSync(lock)
-    } catch (e) {}
-  })
+  process.on('exit', () => unlock(lock))
   return 0
+}
+
+function unlock(lock: string) {
+  try {
+    if (fs.readFileSync(lock, 'utf8') == String(process.pid)) fs.unlinkSync(lock)
+  } catch (e) {}
 }
 
 function alive(pid: number) {

@@ -234,6 +234,7 @@ function courseList(root: string): string[] {
 export async function gateway(o: Options) {
   const dir = path.resolve(o.dir)
   const cfg = loadConfig(dir, o.given)
+  const saveConfig = () => fs.writeFileSync(path.join(dir, '.gateway.json'), JSON.stringify(cfg, null, 2), { mode: 0o600 })
   const file = path.join(dir, 'users.json')
   let users: { [name: string]: User } = {}
   try {
@@ -871,6 +872,18 @@ body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-
         void updateCourse(who, true)
         message = course + ' wird für ' + who + ' kopiert …'
       }
+    } else if (action === 'settings' && who === 'share') {
+      message = setShare(f.get('on') === '1')
+    } else if (action === 'settings' && who === 'share-new') {
+      message = setShare(true, true)
+    } else if (action === 'settings' && who === 'lan') {
+      const port = Number(f.get('port') || cfg.lan.port)
+      if (Number.isInteger(port) && port > 0 && port < 65536 && port !== cfg.lan.port) {
+        // a new port: the old server goes first
+        if (lanFront) await setLan(false)
+        cfg.lan.port = port
+      }
+      message = await setLan(f.get('on') === '1')
     } else if (action === 'class' && who === 'say') {
       const to = String(f.get('to') || ALL)
       const text = String(f.get('text') || '').trim()
@@ -912,27 +925,61 @@ body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-
   await new Promise<void>((resolve) => front.listen(0, '127.0.0.1', resolve))
   const frontOrigin = 'http://127.0.0.1:' + (front.address() as net.AddressInfo).port
   await new Promise<void>((resolve, reject) => admin.once('error', reject).listen(cfg.admin, '127.0.0.1', resolve))
-  if (cfg.share.on) {
-    const shared = share({ local: frontOrigin, proxy: frontOrigin, root: dir, page: cfg.share.page, web: cfg.share.web || otherOrigin(cfg.share.page), fresh: o.fresh })
-    if ('holder' in shared) throw new Error('the instance with pid ' + shared.holder + ' shares this folder already')
-    link = shared.link
+  // Share and LAN, switched on the admin page too: off ends the open tabs
+  let stopShare: (() => void) | null = null
+  function setShare(on: boolean, fresh = false): string {
+    if (stopShare && (!on || fresh)) stopShare(), (stopShare = null), (link = '')
+    if (on && !stopShare) {
+      const shared = share({ local: frontOrigin, proxy: frontOrigin, root: dir, page: cfg.share.page, web: cfg.share.web || otherOrigin(cfg.share.page), fresh })
+      if ('holder' in shared) return 'Ein anderes Programm (pid ' + shared.holder + ') teilt diesen Klassenordner schon.'
+      link = shared.link
+      stopShare = shared.stop
+    }
+    cfg.share.on = on
+    saveConfig()
+    return on ? (fresh ? 'Neuer Link: der alte geht nicht mehr.' : 'Zugang über das Internet ist an.') : 'Zugang über das Internet ist aus.'
   }
   // --lan: the same front for browsers on the network of the school, no
   // share page and no internet needed. What only the share host may say is
   // dropped; the address is the one the browser used.
   const lanAddresses: string[] = []
+  let lanFront: http.Server | null = null
+  async function setLan(on: boolean): Promise<string> {
+    if (lanFront && !on) {
+      lanFront.close()
+      lanFront.closeAllConnections()
+      lanFront = null
+      lanAddresses.length = 0
+    }
+    if (on && !lanFront) {
+      const server = http.createServer((req, res) => {
+        for (const h of ['x-lia-origin', 'x-lia-web-origin', 'x-lia-web', 'x-lia-token', 'x-lia-lan']) delete req.headers[h]
+        req.headers['x-lia-lan'] = '1'
+        req.headers['x-lia-origin'] = 'http://' + req.headers.host
+        serve(req, res)
+      })
+      try {
+        await new Promise<void>((resolve, reject) => server.once('error', reject).listen(cfg.lan.port, '0.0.0.0', resolve))
+      } catch (e: any) {
+        return e.code === 'EADDRINUSE' ? 'Port ' + cfg.lan.port + ' ist belegt, ein anderes Programm nutzt ihn. Bitte einen anderen Port wählen.' : 'Schulnetz geht nicht: ' + e.message
+      }
+      lanFront = server
+      for (const [name, list] of Object.entries(os.networkInterfaces()))
+        // docker0 and its bridges are no network of the school
+        if (!/^(docker|br-|veth|virbr)/.test(name))
+          for (const a of list || []) if (a.family === 'IPv4' && !a.internal) lanAddresses.push('http://' + a.address + ':' + cfg.lan.port + '/')
+    }
+    cfg.lan.on = on
+    saveConfig()
+    return on ? 'Zugang im Schulnetz ist an.' : 'Zugang im Schulnetz ist aus.'
+  }
+  if (cfg.share.on) {
+    const said = setShare(true, o.fresh)
+    if (!link) throw new Error(said)
+  }
   if (cfg.lan.on) {
-    const lanFront = http.createServer((req, res) => {
-      for (const h of ['x-lia-origin', 'x-lia-web-origin', 'x-lia-web', 'x-lia-token', 'x-lia-lan']) delete req.headers[h]
-      req.headers['x-lia-lan'] = '1'
-      req.headers['x-lia-origin'] = 'http://' + req.headers.host
-      serve(req, res)
-    })
-    await new Promise<void>((resolve, reject) => lanFront.once('error', reject).listen(cfg.lan.port, '0.0.0.0', resolve))
-    for (const [name, list] of Object.entries(os.networkInterfaces()))
-      // docker0 and its bridges are no network of the school
-      if (!/^(docker|br-|veth|virbr)/.test(name))
-        for (const a of list || []) if (a.family === 'IPv4' && !a.internal) lanAddresses.push('http://' + a.address + ':' + cfg.lan.port + '/')
+    const said = await setLan(true)
+    if (!lanFront) console.log('⚠️  ' + said)
   }
   console.log('👥 users in ' + dir + ' (' + Object.keys(users).length + ')')
   console.log('👥 admin page: http://localhost:' + cfg.admin + '/')
