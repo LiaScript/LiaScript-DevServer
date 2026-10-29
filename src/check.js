@@ -162,6 +162,7 @@ async function main() {
   const names = msg.result.tools.map((t) => t.name)
   for (const name of ['get_state', 'goto', 'wait_for_event', 'chat', 'set_agent', 'find_teacher', 'read_chat', 'outline', 'read_section', 'write_section', 'run_in_page']) assert.ok(names.includes(name), name)
   assert.ok(/persona/.test(msg.result.tools.filter((t) => t.name === 'read_chat')[0].description), 'read_chat tells about the persona')
+  assert.ok(!names.includes('report_refusal'), 'report_refusal only under --users')
   for (const t of msg.result.tools) {
     assert.ok(t.description.length <= LIMIT, 'the description of ' + t.name + ' has ' + t.description.length + ' characters')
   }
@@ -1227,7 +1228,8 @@ async function main() {
   fs.writeFileSync(path.join(KITDIR, '.mcp.json'), '{}\n')
   // a gateway and what it prints: the port of its front and of anna's DevServer
   let gwOut = ''
-  const STUB = 'node -e setInterval(Date.now,1e9)'
+  // an ACP agent of the test: a command the server refuses, a refusal of its own, costs
+  const STUB = 'node ' + path.join(ROOT, 'src/check-acp-stub.js')
   // share through a signalling server and a share page of the test, no network
   const gwSignalling = signallingServer(4721)
   const gwPage = sharePage(4722, 4721)
@@ -1451,6 +1453,19 @@ async function main() {
   assert.ok(rowsQr.includes('<svg') && rowsQr.includes('&#38;user=anna'), 'a QR code and the share link per user')
   assert.ok(rowsQr.includes(':' + LAN + '/?user=anna'), 'and the link on the network of the school')
   assert.ok(!/secret1/.test(rowsQr), 'no password in a link')
+  // warnings: anna writes, her agent tries a command and refuses something itself
+  assert.strictEqual((await request('POST', '/agent', { ...TAB, ...JSON_, 'X-Lia-Token': token3, Origin: 'http://127.0.0.1:' + front3 }, JSON.stringify({ type: 'chat', params: { text: 'hi' } }), front3)).status, 204)
+  const warningsFile = path.join(USERS, '.class', 'warnings.jsonl')
+  const warningsOf = () => (fs.existsSync(warningsFile) ? fs.readFileSync(warningsFile, 'utf8').trim().split('\n').map(JSON.parse) : [])
+  for (let i = 0; i < 100 && warningsOf().length < 2; i++) await sleep(100)
+  const warnings = warningsOf()
+  assert.strictEqual(fs.statSync(warningsFile).mode & 0o777, 0o600, 'warnings for the owner only')
+  assert.ok(warnings.some((w) => w.name === 'anna' && w.by === 'server' && /passwd/.test(w.what)), 'a refused permission')
+  assert.ok(warnings.some((w) => w.name === 'anna' && w.by === 'agent' && /outside/.test(w.reason)), 'a refusal the agent reported')
+  assert.ok((await adminHtml()).includes('cat /etc/passwd'), 'the admin page shows it')
+  const serverWarning = warnings.find((w) => w.by === 'server')
+  await request('POST', '/warnings/' + serverWarning.id + '/done', ADM, '', ADMIN)
+  assert.ok(!(await adminHtml()).includes('cat /etc/passwd'), 'done: gone from the page')
   assert.ok((await request('GET', '/', LANHOST, undefined, LAN)).data.includes('/lia-login'), 'LAN as the last start had it')
   gwExit = new Promise((resolve) => gw.on('exit', resolve))
   gw.kill()

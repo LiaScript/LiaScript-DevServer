@@ -340,8 +340,13 @@ export async function gateway(o: Options) {
       // the DevServer moves to the next free port if it has to, it says which
       return new Promise<number>((resolve, reject) => {
         let out = ''
+        let partial = ''
         child.stdout!.on('data', (d) => {
           out += d
+          // a line of refused() of src/mcp.ts: a warning for the admin page
+          const lines = (partial + d).split('\n')
+          partial = lines.pop() || ''
+          for (const line of lines) if (line.startsWith('🚫 refused ')) warn(name, line.slice('🚫 refused '.length))
           process.stdout.write(d.toString().replace(/^(?=.)/gm, '   ' + name + ' | '))
           const m = /local:\s+http:\/\/[^:/]+:(\d+)/.exec(out)
           if (m && !inst.port) {
@@ -465,6 +470,33 @@ export async function gateway(o: Options) {
     settings = { ...settings, ...JSON.parse(fs.readFileSync(settingsFile, 'utf8')) }
   } catch (e) {}
   const saveSettings = () => fs.writeFileSync(settingsFile, JSON.stringify(settings), { mode: 0o600 })
+
+  // What the AI of a user refused (src/mcp.ts refused()), for the admin page
+  type Warning = { id: string; name: string; t: number; by: string; what: string; reason: string }
+  const warningsFile = path.join(classDir, 'warnings.jsonl')
+  const doneFile = path.join(classDir, 'warnings-done.json')
+  let warnings: Warning[] = []
+  let done: string[] = []
+  try {
+    warnings = fs.readFileSync(warningsFile, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l))
+  } catch (e) {}
+  try {
+    done = JSON.parse(fs.readFileSync(doneFile, 'utf8'))
+  } catch (e) {}
+  function warn(name: string, json: string) {
+    let w: any
+    try {
+      w = JSON.parse(json)
+    } catch (e) {
+      return
+    }
+    if (!['server', 'agent'].includes(w.by)) return
+    const warning: Warning = { id: crypto.randomBytes(6).toString('hex'), name, t: Date.now(), by: w.by, what: String(w.what || '').slice(0, 300), reason: String(w.reason || '').slice(0, 300) }
+    warnings.push(warning)
+    fs.appendFileSync(warningsFile, JSON.stringify(warning) + '\n', { mode: 0o600 })
+    console.log('🚫 ' + name + ': ' + warning.what)
+  }
+  const openWarnings = () => warnings.filter((w) => !done.includes(w.id))
   const listeners: { name: string; res: http.ServerResponse }[] = []
   const sees = (m: Message, name: string) => m.to === ALL || m.to === name || m.from === name
   const classState = (name: string) => ({
@@ -750,6 +782,24 @@ ${message ? `<p class="bad">${esc(message)}</p>` : ''}<button>Anmelden</button><
       .join('')
   }
 
+  // shown only when something happened, red
+  function warningBox() {
+    const list = openWarnings()
+    if (!list.length) return ''
+    return `<div class="card warn"><b>⚠ ${list.length} ${list.length === 1 ? 'Warnung' : 'Warnungen'}</b>${list
+      .slice(-10)
+      .reverse()
+      .map(
+        (w) =>
+          `<div class="w"><b>${esc(w.name)}</b> <small>${esc(new Date(w.t).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }))} · ${
+            w.by === 'server' ? 'vom Klassenserver abgelehnt' : 'von der KI abgelehnt'
+          }</small><br>${esc(w.what)}<br><small>${esc(w.reason)}</small><br><a href="/chat/${esc(w.name)}" target="_blank" rel="noopener">Chat ansehen</a> <form method="post" action="/warnings/${esc(
+            w.id,
+          )}/done" style="display:inline"><button class="quiet">erledigt</button></form></div>`,
+      )
+      .join('')}</div>`
+  }
+
   function adminPage(res: http.ServerResponse, link: string, table: string, message = '') {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' })
     res.end(`<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>LiaScript Klasse</title>
@@ -763,9 +813,9 @@ input,select,button{font:inherit;padding:6px 10px;border-radius:8px;border:1px s
 button{background:var(--accent);border-color:var(--accent);color:#fff;cursor:pointer}button.danger{background:transparent;color:var(--bad);border-color:var(--bad)}button.quiet{background:transparent;color:var(--fg);border-color:var(--line)}
 .m{border:1px solid var(--line);border-radius:10px;padding:6px 10px;margin:6px 0;white-space:pre-wrap}.m.me{border-color:var(--accent)}#log{max-height:40vh;overflow:auto}
 form.say{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start}form.say textarea{flex:1;min-width:200px;font:inherit;padding:6px 10px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
-form.new{display:flex;flex-wrap:wrap;gap:8px}code{word-break:break-all}.msg{color:var(--accent)}.bad{color:var(--bad);font-weight:600}</style></head><body><main>
+form.new{display:flex;flex-wrap:wrap;gap:8px}code{word-break:break-all}.msg{color:var(--accent)}.bad{color:var(--bad);font-weight:600}.warn{background:var(--help);border-color:var(--bad);margin:12px 0}.w{margin-top:8px}</style></head><body><main>
 <h1>LiaScript Klasse</h1>
-<div class="card"><b>Adresse für die Schüler</b>${link ? `<br>von überall: <code>${esc(link)}</code>` : ''}${
+${warningBox()}<div class="card"><b>Adresse für die Schüler</b>${link ? `<br>von überall: <code>${esc(link)}</code>` : ''}${
       lanAddresses.length ? '<br>im Schulnetz: ' + lanAddresses.map((a) => `<code>${esc(a)}</code>`).join(' ') : ''
     }${link || lanAddresses.length ? '' : '<br><small>noch keine: den Server mit <code>--lan</code> (Schulnetz) oder <code>--share</code> (Internet) starten</small>'}</div>
 ${message ? `<p class="msg">${esc(message)}</p>` : ''}${notices
@@ -962,6 +1012,10 @@ body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-
       cfg.web = f.get('on') === '1'
       saveConfig()
       message = (cfg.web ? 'Webseiten im Chat sind an' : 'Webseiten im Chat sind aus') + ', ab dem nächsten Start eines Nutzers.'
+    } else if (action === 'warnings' && /\/done$/.test(req.url || '') && warnings.some((w) => w.id === who)) {
+      if (!done.includes(who)) done.push(who)
+      fs.writeFileSync(doneFile, JSON.stringify(done), { mode: 0o600 })
+      message = 'Warnung erledigt.'
     } else if (action === 'class' && who === 'say') {
       const to = String(f.get('to') || ALL)
       const text = String(f.get('text') || '').trim()

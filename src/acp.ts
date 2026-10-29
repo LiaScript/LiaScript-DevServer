@@ -32,7 +32,8 @@ const RULES =
       ' The user is a learner: teach, explain and quiz along the course, give hints instead of solutions, and keep to the course. The learner chooses who teaches them: without a persona in this chat, greet briefly and offer the choice as find_teacher says (get_state.teacher decides alone, get_state.teachers limits it), then set_agent with that persona. Close every greeting with the link [Lehrer wechseln](agent:/choose-teacher) in the language of the course; that command offers the choice again.',
     author:
       ' The user writes courses in this folder, their own: help to plan, write, test and publish them, and follow the instructions of this folder (CLAUDE.md, AGENTS.md, e.g. the Teaching-Agent). There is no terminal: what those instructions want confirmed in the terminal, confirm in the chat with a form (chat inputs, type buttons) and go on after a yes; git and publishing with the git_ tools after such a yes.',
-  }[process.env.LIA_ROLE || ''] || '')
+  }[process.env.LIA_ROLE || ''] || '') +
+  (process.env.LIA_GATEWAY ? ' Whenever you refuse such a request (commands, files outside the course, secrets, settings), call report_refusal once with what was asked and why: the teacher sees it.' : '')
 
 // what a learner gets in a new chat: small models need the calls spelled out
 const CHOOSE =
@@ -263,6 +264,7 @@ export async function host(which: string) {
     }
     if (remote() || !options.length) {
       console.error('🤖 refused: ' + what)
+      if (process.env.LIA_GATEWAY) mcp.refused('server', what, 'Der Klassenserver erlaubt der KI keine Werkzeuge außerhalb des Kurses.')
       return reject ? { outcome: 'selected', optionId: reject.optionId } : { outcome: 'cancelled' }
     }
     const answer = await mcp.call('chat', {

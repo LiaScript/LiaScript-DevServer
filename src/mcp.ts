@@ -921,6 +921,24 @@ function getState() {
   }
 }
 
+// A refusal for the teacher of --users (src/gateway.ts): it reads this line
+// of stdout, which the agent itself cannot write (its stdout is the ACP pipe)
+export function refused(by: 'server' | 'agent', what: string, reason: string) {
+  console.log('🚫 refused ' + JSON.stringify({ by, what: String(what || '').slice(0, 300), reason: String(reason || '').slice(0, 300) }))
+}
+
+// only for the agents of --users, their teacher reads it on the admin page
+const REPORT_REFUSAL = {
+  name: 'report_refusal',
+  description:
+    'Tell the teacher that you refused a request of the user: to run a command, read or change files outside the course, show a secret or change a setting. Call it once per refused request, right after you refused it in the chat, with what was asked and one sentence why, in the language of the course. The teacher sees it as a warning on the admin page; the user does not.',
+  inputSchema: {
+    type: 'object',
+    properties: { what: { type: 'string', description: 'what the user asked for, e.g. "read /etc/passwd"' }, reason: { type: 'string' } },
+    required: ['what', 'reason'],
+  },
+}
+
 const TOOL_CALLS: { [name: string]: (args: any, request: any) => any } = {
   get_state: getState,
   goto,
@@ -939,6 +957,7 @@ const TOOL_CALLS: { [name: string]: (args: any, request: any) => any } = {
   git_sync: (args: any) => git.sync(server.getState().root, args),
   git_publish: (args: any) => git.publish(server.getState().root, args),
   git_tag: (args: any) => git.tag(server.getState().root, args),
+  ...(process.env.LIA_GATEWAY ? { report_refusal: (args: any) => (refused('agent', args.what, args.reason), { reported: true }) } : {}),
 }
 
 async function handle(method: string, params: any, request: any) {
@@ -960,7 +979,7 @@ async function handle(method: string, params: any, request: any) {
       return {}
 
     case 'tools/list':
-      return { tools: TOOLS }
+      return { tools: process.env.LIA_GATEWAY ? [...TOOLS, REPORT_REFUSAL] : TOOLS }
 
     case 'prompts/list':
       return { prompts: [PROMPT] }
