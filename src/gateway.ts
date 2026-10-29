@@ -52,6 +52,9 @@ export type Config = {
   lan: { on: boolean; port: number } // the front on the network of the school, without share page
   web: boolean // web pages in the chat
   idleMinutes: number
+  // the admin page wants it as a cookie: the agents of authors run on this
+  // machine with a network, and can forge Host and Origin
+  key: string
 }
 
 export function loadConfig(dir: string, given: Partial<Config>): Config {
@@ -67,6 +70,7 @@ export function loadConfig(dir: string, given: Partial<Config>): Config {
     agent: 'claude',
     web: true,
     idleMinutes: 15,
+    key: crypto.randomBytes(16).toString('hex'),
     ...saved,
     ...given,
     models: { ...saved.models, ...given.models },
@@ -832,10 +836,10 @@ ${
 <form method="post" action="/settings/share-new" onsubmit="return confirm('Ein neuer Link: der alte geht dann nicht mehr, auch nicht für die Schüler, die ihn schon haben.')" style="display:inline"><button class="quiet">Neuer Link</button></form></div></div>`
     : ''
 }
-${onOff('/settings/lan', !!lanAddresses.length, 'Im Schulnetz', close)}
+${onOff('/settings/lan', !!lanFront, 'Im Schulnetz', close)}
 <p><small>Für Räume ohne Internet: Geräte im selben Netz öffnen die Adresse. <b>Passwörter gehen im Schulnetz unverschlüsselt.</b></small></p>
 ${lanAddresses.map((a) => `<div><code>${esc(a)}</code> ${copyLink(a)}</div>`).join('')}
-<form method="post" action="/settings/lan" class="row"><input type="hidden" name="on" value="${lanAddresses.length ? '1' : '0'}"><label>Port <input name="port" type="number" min="1" max="65535" value="${
+<form method="post" action="/settings/lan" class="row"><input type="hidden" name="on" value="${lanFront ? '1' : '0'}"><label>Port <input name="port" type="number" min="1" max="65535" value="${
       cfg.lan.port
     }" style="width:7em"></label><button class="quiet">ändern</button></form></div>`
   }
@@ -959,6 +963,7 @@ function folders(form, at) {
   })
 }
 </script>
+<script>setInterval(function(){var top=document.querySelector('.top');fetch('/top').then(function(r){return r.text()}).then(function(t){if(!top.contains(document.activeElement))top.innerHTML=t})},5000)</script>
 <script>setInterval(function(){fetch('/rows').then(function(r){return r.text()}).then(function(t){if(!document.activeElement||!document.getElementById('rows').contains(document.activeElement))document.getElementById('rows').innerHTML=t})},5000)</script>
 </main></body></html>`)
   }
@@ -1001,11 +1006,26 @@ body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-
       res.writeHead(403)
       return res.end()
     }
+    // the address with the key of the terminal becomes a cookie, nothing works without it
+    const key = new URL(req.url || '/', 'http://localhost').searchParams.get('k')
+    if (req.method === 'GET' && key === cfg.key) {
+      res.writeHead(303, { Location: '/', 'Set-Cookie': 'lia-admin=' + cfg.key + '; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000' })
+      return res.end()
+    }
+    if (/(?:^|;\s*)lia-admin=([0-9a-f]+)/.exec(String(req.headers.cookie || ''))?.[1] !== cfg.key) {
+      res.writeHead(403, { 'Content-Type': 'text/html; charset=utf-8' })
+      return res.end('<!doctype html><meta charset="utf-8"><p style="font:16px system-ui;margin:2rem">Bitte die Adresse mit dem Schlüssel öffnen, die im Terminal steht (<code>…/?k=…</code>).</p>')
+    }
     const [, action, who] = /^\/(\w+)?\/?([^/?]*)/.exec(req.url || '') || []
 
     if (req.method === 'GET' && !action) {
       const message = new URL(req.url || '/', 'http://localhost').searchParams.get('m') || ''
       return rows().then((t) => adminPage(res, link, t, message))
+    }
+    // the top of the page, polled like the rows: new warnings show up at once
+    if (req.method === 'GET' && action === 'top') {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' })
+      return res.end(accessBox() + warningBox() + costBox())
     }
     if (req.method === 'GET' && action === 'rows') {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' })
@@ -1233,7 +1253,8 @@ body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-
     if (!lanFront) console.log('⚠️  ' + said)
   }
   console.log('👥 users in ' + dir + ' (' + Object.keys(users).length + ')')
-  console.log('👥 admin page: http://localhost:' + cfg.admin + '/')
+  const adminUrl = 'http://localhost:' + cfg.admin + '/?k=' + cfg.key
+  console.log('👥 admin page: ' + adminUrl)
   console.log('📚 courses from ' + cfg.courses + ' (' + courseList(cfg.courses).length + ')')
   if (cfg.kit) console.log('🧰 kit for authors: ' + cfg.kit + ' (' + KIT.filter((e) => fs.existsSync(path.join(cfg.kit as string, e))).join(', ') + ')')
   console.log(o.sandbox ? '🔒 every agent in bubblewrap, in the folder of its user' : '⚠️  no sandbox: the agents can read everything this user can')
@@ -1246,5 +1267,9 @@ body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-
   if (link) console.log('🔗 share: ' + link)
   for (const a of lanAddresses) console.log('🏫 on the network of the school: ' + a)
   // the teacher need not type the address; not in a script (check.js)
-  if (process.stdout.isTTY) require('open')('http://localhost:' + cfg.admin + '/')
+  // a machine without xdg-open (over ssh) must not end the gateway
+  if (process.stdout.isTTY)
+    require('open')(adminUrl)
+      .then((child: any) => child.on('error', () => {}))
+      .catch(() => {})
 }

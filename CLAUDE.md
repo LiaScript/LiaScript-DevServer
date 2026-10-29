@@ -249,7 +249,9 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
 - **`src/gateway.ts`** — `--users DIR [--share] [--agent …] [-p admin port]`: one start for many users. Design of
   its admin page: `docs/superpowers/specs/2026-10-29-admin-dashboard-design.md`. `--users DIR` alone is enough: the
   rest is `Config` in `DIR/.gateway.json` (`loadConfig()`: defaults ← saved ← the flags of this start, kept
-  again; never `--no-sandbox` or `--share-new`), and the admin page (opened by `open` when stdout is a TTY) sets it:
+  again; never `--no-sandbox` or `--share-new`), and the admin page (opened by `open` when stdout is a TTY) sets it.
+  The admin page wants `cfg.key` as the cookie `lia-admin` (the terminal prints `/?k=<key>`, which sets it): the
+  agents of authors run on this machine with a network and could forge `Host` and `Origin`. It sets:
   Share and LAN at runtime (`setShare()`, `setLan()`; `share()` of `share.ts` returns `stop`, which frees the lock;
   a busy port is a message, no crash), models (`haiku|sonnet|opus` as `ANTHROPIC_MODEL`), web pages (`--proxy
   off` for new instances), idle minutes, course folder and kit through a folder list below home (`inHome()`:

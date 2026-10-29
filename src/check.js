@@ -1253,11 +1253,21 @@ async function main() {
   let gw = gateway()
   const front = await printed(/front: http:\/\/127\.0\.0\.1:(\d+)/)
   const FORM = { 'Content-Type': 'application/x-www-form-urlencoded' }
-  const ADM = { ...FORM, Host: '127.0.0.1:' + ADMIN, Origin: 'http://127.0.0.1:' + ADMIN }
+  // the admin page wants its key: an agent on this machine can forge Host and Origin
+  const adminKey = JSON.parse(fs.readFileSync(path.join(USERS, '.gateway.json'), 'utf8')).key
+  const ADM = { ...FORM, Host: '127.0.0.1:' + ADMIN, Origin: 'http://127.0.0.1:' + ADMIN, Cookie: 'lia-admin=' + adminKey }
+  const ADMG = { Host: ADM.Host, Cookie: ADM.Cookie }
+  assert.strictEqual((await request('GET', '/', { Host: ADM.Host }, undefined, ADMIN)).status, 403, 'the admin page wants its key')
+  const { Cookie: _key, ...noKey } = ADM
+  assert.strictEqual((await request('POST', '/settings/courses', noKey, 'path=/tmp', ADMIN)).status, 403, 'a local process with Host and Origin but no key')
+  const keyed = await request('GET', '/?k=' + adminKey, { Host: ADM.Host }, undefined, ADMIN)
+  assert.ok(keyed.status === 303 && /lia-admin=[0-9a-f]{32}; HttpOnly; SameSite=Strict/.test(String(keyed.headers['set-cookie'])), 'the key of the terminal becomes a cookie')
+  assert.ok(!(await request('GET', '/?k=00', { Host: ADM.Host }, undefined, ADMIN)).headers['set-cookie'], 'no cookie for a wrong key')
+  assert.ok(gwOut.includes('?k=' + adminKey), 'the terminal names the address with the key')
   // copies and updates run in the background: until the admin page shows none
   const settled = async () => {
     for (let i = 0; i < 200; i++) {
-      const rows = (await request('GET', '/rows', { Host: ADM.Host }, undefined, ADMIN)).data
+      const rows = (await request('GET', '/rows', ADMG, undefined, ADMIN)).data
       if (!/wird kopiert|wird aktualisiert/.test(rows)) return
       await sleep(50)
     }
@@ -1269,14 +1279,14 @@ async function main() {
   const usersFile = path.join(USERS, 'users.json')
   assert.strictEqual(fs.statSync(usersFile).mode & 0o777, 0o600, 'users.json for the owner only')
   assert.ok(!fs.readFileSync(usersFile, 'utf8').includes('secret1'), 'no password in users.json')
-  const adminPage = (await request('GET', '/', { Host: ADM.Host }, undefined, ADMIN)).data
+  const adminPage = (await request('GET', '/', ADMG, undefined, ADMIN)).data
   assert.ok(adminPage.includes('<option>prolog</option>') && !adminPage.includes('<option>bilder</option>'), 'the courses: folders with Markdown')
   await request('POST', '/users', ADM, 'name=carl&password=secret1&role=student&course=prolog', ADMIN)
   await settled()
   assert.ok(fs.existsSync(path.join(USERS, 'carl', 'README.md')), 'a copy of the course')
   assert.strictEqual(JSON.parse(fs.readFileSync(usersFile, 'utf8')).carl.course, 'prolog')
   assert.strictEqual(JSON.parse(fs.readFileSync(usersFile, 'utf8')).carl.source, path.join(COURSES, 'prolog'), 'the path of the course')
-  assert.ok((await request('GET', '/rows', { Host: ADM.Host }, undefined, ADMIN)).data.includes('prolog'), 'the list names the course')
+  assert.ok((await request('GET', '/rows', ADMG, undefined, ADMIN)).data.includes('prolog'), 'the list names the course')
   await request('POST', '/users', ADM, 'name=dora&password=secret1&role=student&course=' + encodeURIComponent('../kurse/prolog'), ADMIN)
   assert.ok(!JSON.parse(fs.readFileSync(usersFile, 'utf8')).dora, 'only a course of the list')
   const TAB = { 'X-Lia-Origin': 'https://liascript.github.io/share/tab-x', 'Sec-Fetch-Dest': 'iframe' }
@@ -1320,7 +1330,7 @@ async function main() {
   assert.deepStrictEqual((await classOf(benToken)).messages.map((m) => m.from + ':' + m.text), ['anna:Hallo Ben', '@teacher:Pause'], 'the teacher to all')
   await request('POST', '/mute/anna', ADM, '', ADMIN)
   assert.strictEqual((await say(token, '@teacher', 'noch eine')).status, 403, 'a muted user writes nothing')
-  assert.ok((await request('GET', '/class/log', { Host: ADM.Host }, undefined, ADMIN)).data.includes('Ich habe eine Frage'), 'the teacher reads all')
+  assert.ok((await request('GET', '/class/log', ADMG, undefined, ADMIN)).data.includes('Ich habe eine Frage'), 'the teacher reads all')
   assert.strictEqual(fs.statSync(path.join(USERS, '.class', 'messages.jsonl')).mode & 0o777, 0o600)
   // --lan: the same front on the network, the login a cookie, the addresses those the browser used
   const LANHOST = { Host: '127.0.0.1:' + LAN, Accept: 'text/html' }
@@ -1391,13 +1401,13 @@ async function main() {
   gwOut = ''
   gw = gateway(['--users', USERS, '--no-sandbox', '--agent', STUB])
   const front3 = await printed(/front: http:\/\/127\.0\.0\.1:(\d+)/)
-  const page3 = (await request('GET', '/', { Host: ADM.Host }, undefined, ADMIN)).data
+  const page3 = (await request('GET', '/', ADMG, undefined, ADMIN)).data
   assert.ok(page3.includes('<option>prolog</option>'), 'the course folder of the last start')
   assert.ok(page3.includes('mit Teaching-Agent'), 'the kit of the last start')
   assert.strictEqual(JSON.parse(fs.readFileSync(usersFile, 'utf8')).carl.source, path.join(COURSES, 'prolog'), 'an old entry gets the path of its course')
   // share and LAN switched on the admin page
   const locks = () => fs.readdirSync(path.join(PROJECT, '.config', 'liascript')).filter((f) => f.startsWith('share-'))
-  const adminHtml = async () => (await request('GET', '/', { Host: ADM.Host }, undefined, ADMIN)).data
+  const adminHtml = async () => (await request('GET', '/', ADMG, undefined, ADMIN)).data
   assert.ok((await adminHtml()).includes('#room='), 'share as the last start had it')
   await request('POST', '/settings/share', ADM, 'on=0', ADMIN)
   assert.ok(!(await adminHtml()).includes('#room='), 'share off: no link')
@@ -1414,7 +1424,7 @@ async function main() {
   await new Promise((resolve) => busy.once('listening', resolve))
   assert.ok(/belegt/.test(decodeURIComponent((await request('POST', '/settings/lan', ADM, 'on=1', ADMIN)).headers.location)), 'a busy port: a message, no crash')
   busy.close()
-  assert.strictEqual((await request('GET', '/', { Host: ADM.Host }, undefined, ADMIN)).status, 200, 'the gateway still answers')
+  assert.strictEqual((await request('GET', '/', ADMG, undefined, ADMIN)).status, 200, 'the gateway still answers')
   await request('POST', '/settings/lan', ADM, 'on=1', ADMIN)
   // models, web pages, idle time and folders
   const said = async (url, body) => decodeURIComponent((await request('POST', url, ADM, body, ADMIN)).headers.location.split('m=')[1] || '')
@@ -1429,10 +1439,10 @@ async function main() {
   assert.strictEqual(kept3().kit, null, 'no Teaching-Agent')
   await said('/settings/kit', 'path=' + encodeURIComponent(KITDIR))
   assert.strictEqual(kept3().kit, fs.realpathSync(KITDIR), 'the Teaching-Agent again')
-  const folders = JSON.parse((await request('GET', '/folders?path=' + encodeURIComponent(PROJECT), { Host: ADM.Host }, undefined, ADMIN)).data)
+  const folders = JSON.parse((await request('GET', '/folders?path=' + encodeURIComponent(PROJECT), ADMG, undefined, ADMIN)).data)
   assert.ok(folders.folders.includes('kurse') && !folders.folders.includes('etc-link'), 'the folders below home, no way out')
-  assert.strictEqual(JSON.parse((await request('GET', '/folders?path=' + encodeURIComponent(COURSES), { Host: ADM.Host }, undefined, ADMIN)).data).courses, 1, 'how many courses a folder has')
-  assert.strictEqual((await request('GET', '/folders?path=/etc', { Host: ADM.Host }, undefined, ADMIN)).status, 403, 'no listing outside home')
+  assert.strictEqual(JSON.parse((await request('GET', '/folders?path=' + encodeURIComponent(COURSES), ADMG, undefined, ADMIN)).data).courses, 1, 'how many courses a folder has')
+  assert.strictEqual((await request('GET', '/folders?path=/etc', ADMG, undefined, ADMIN)).status, 403, 'no listing outside home')
   await said('/settings/models', 'student=haiku&author=')
   assert.deepStrictEqual(kept3().models, { student: 'haiku' }, 'a model per role')
   assert.ok(/nicht/.test(await said('/settings/models', 'student=gpt-5')), 'only the models of the list')
@@ -1449,7 +1459,7 @@ async function main() {
   // links and QR codes per user, the name filled in
   const pre = await request('GET', '/?user=' + encodeURIComponent('<b>x'), TAB, undefined, front3)
   assert.ok(pre.data.includes('value="&#60;b&#62;x"'), 'the name from the link, escaped')
-  const rowsQr = (await request('GET', '/rows', { Host: ADM.Host }, undefined, ADMIN)).data
+  const rowsQr = (await request('GET', '/rows', ADMG, undefined, ADMIN)).data
   assert.ok(rowsQr.includes('<svg') && rowsQr.includes('&#38;user=anna'), 'a QR code and the share link per user')
   assert.ok(rowsQr.includes(':' + LAN + '/?user=anna'), 'and the link on the network of the school')
   assert.ok(!/secret1/.test(rowsQr), 'no password in a link')
@@ -1463,6 +1473,7 @@ async function main() {
   assert.ok(warnings.some((w) => w.name === 'anna' && w.by === 'server' && /passwd/.test(w.what)), 'a refused permission')
   assert.ok(warnings.some((w) => w.name === 'anna' && w.by === 'agent' && /outside/.test(w.reason)), 'a refusal the agent reported')
   assert.ok((await adminHtml()).includes('cat /etc/passwd'), 'the admin page shows it')
+  assert.ok((await request('GET', '/top', ADMG, undefined, ADMIN)).data.includes('cat /etc/passwd'), 'an open page gets new warnings with its poll')
   const serverWarning = warnings.find((w) => w.by === 'server')
   await request('POST', '/warnings/' + serverWarning.id + '/done', ADM, '', ADMIN)
   assert.ok(!(await adminHtml()).includes('cat /etc/passwd'), 'done: gone from the page')
