@@ -1487,9 +1487,23 @@ async function main() {
   assert.strictEqual((costsHtml.match(/<rect class="day"/g) || []).length, 7, 'a bar per day of the last week')
   // the page of design A
   const pageA = await adminHtml()
-  for (const t of ['Zugang über das Internet', 'Im Schulnetz', 'Kosten heute', 'Einstellungen', 'Link kopieren', 'unverschlüsselt', 'Neuer Link', 'KI-Modell', 'Webseiten im Chat', 'Kursordner'])
+  for (const t of ['Zugang über das Internet', 'Im lokalen Netz', 'Kosten heute', 'Einstellungen', 'Link kopieren', 'unverschlüsselt', 'Neuer Link', 'KI-Modell', 'Webseiten im Chat', 'Kursordner'])
     assert.ok(pageA.includes(t), 'admin page: ' + t)
-  assert.ok(!/<script[^>]*src=/.test(pageA), 'no external script')
+  assert.ok(!/<script[^>]*src="(https?:)?\/\//.test(pageA) && !/<link[^>]*href="(https?:)?\/\//.test(pageA), 'no script or style of another server')
+  // English: the browser's language, or the switch of the page as a cookie
+  const pageEn = (await request('GET', '/', { ...ADMG, 'Accept-Language': 'en-GB,en;q=0.9' }, undefined, ADMIN)).data
+  for (const t of ['Internet access', 'Local network', 'Cost today', 'Settings', 'Copy link', 'unencrypted', 'AI model'])
+    assert.ok(pageEn.includes(t), 'admin page in English: ' + t)
+  const switched = await request('GET', '/lang/en', ADMG, undefined, ADMIN)
+  assert.ok(switched.status === 303 && /lia-lang=en/.test(String(switched.headers['set-cookie'])), 'the language switch is a cookie')
+  const pageCookie = await request('GET', '/', { ...ADMG, Cookie: ADMG.Cookie + '; lia-lang=en' }, undefined, ADMIN)
+  assert.ok(pageCookie.data.includes('Internet access'), 'the cookie wins over no Accept-Language')
+  assert.ok(/script-src 'self'/.test(String(pageCookie.headers['content-security-policy'])) && !/<script>|\son\w+="|\sstyle="/.test(pageCookie.data), 'a CSP, no inline script or style')
+  for (const [file, type] of [['admin.css', 'text/css'], ['admin.js', 'text/javascript'], ['geist.woff2', 'font/woff2'], ['icon.svg', 'image/svg+xml']]) {
+    const r = await request('GET', '/static/' + file, { Host: ADM.Host }, undefined, ADMIN)
+    assert.ok(r.status === 200 && String(r.headers['content-type']).startsWith(type), 'the page serves ' + file)
+  }
+  assert.strictEqual((await request('GET', '/static/..%2Fgateway.json', { Host: ADM.Host }, undefined, ADMIN)).status, 403, 'only the files of the page')
   // a new password once, right after it was set, to copy
   await request('POST', '/password/anna', ADM, 'password=secret9', ADMIN)
   assert.ok((await adminHtml()).includes('secret9'), 'the new password once')

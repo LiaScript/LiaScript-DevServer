@@ -247,7 +247,13 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   refused through `--share` and asked as a chat form locally (rarely reached: the hosted rules make the agent refuse
   commands itself).
 - **`src/gateway.ts`** — `--users DIR [--share] [--agent …] [-p admin port]`: one start for many users. Design of
-  its admin page: `docs/superpowers/specs/2026-10-29-admin-dashboard-design.md`. `--users DIR` alone is enough: the
+  its admin page: `docs/superpowers/specs/2026-10-29-admin-dashboard-design.md`. The page is still built as HTML
+  strings in `gateway.ts`, in German or English (`src/admin-texts.ts`: cookie `lia-lang` of its switch `/lang/de|en`,
+  else `Accept-Language`, none = German, which `check.js` relies on); look and behaviour are `views/admin/`
+  (`admin.css`, `admin.js`, the font Geist, OFL), served at `/static/*` with a CSP that allows no inline script or
+  style, icons are Phosphor paths in `src/icons.ts`. Light or dark: the system's, or the sun/moon switch of the bar
+  (cookie `lia-theme`, the server writes `data-theme` on `<html>`, no flash). Below 1100 px the users table becomes
+  cards. `--users DIR` alone is enough: the
   rest is `Config` in `DIR/.gateway.json` (`loadConfig()`: defaults ← saved ← the flags of this start, kept
   again; never `--no-sandbox` or `--share-new`), and the admin page (opened by `open` when stdout is a TTY) sets it.
   The admin page wants `cfg.key` as the cookie `lia-admin` (the terminal prints `/?k=<key>`, which sets it): the

@@ -16,6 +16,9 @@ import * as os from 'os'
 import * as path from 'path'
 import { sameOrigin } from './lib'
 import { share, otherOrigin, PAGE } from './share'
+import { TEXTS, langOf } from './admin-texts'
+import type { Texts } from './admin-texts'
+import { icon, FAVICON } from './icons'
 
 const NAME = /^[a-z0-9][a-z0-9_-]{0,31}$/
 const ROLES = ['student', 'author']
@@ -234,6 +237,9 @@ function inHome(p: string): string | null {
   }
 }
 const MODELS = ['haiku', 'sonnet', 'opus']
+// the files of the admin page (views/admin, shipped like every view)
+const ADMIN_VIEWS = path.join(__dirname, '..', 'views', 'admin')
+const STATIC: { [file: string]: string } = { 'admin.css': 'text/css; charset=utf-8', 'admin.js': 'text/javascript; charset=utf-8', 'geist.woff2': 'font/woff2' }
 const qrcode = require('qrcode-generator')
 // a QR code as SVG, for the phone of a student
 function qr(text: string): string {
@@ -242,7 +248,6 @@ function qr(text: string): string {
   code.make()
   return code.createSvgTag({ cellSize: 2, margin: 2, scalable: true })
 }
-const OUTSIDE = 'Dieser Ordner liegt außerhalb deines Home-Ordners oder existiert nicht.'
 
 function courseList(root: string): string[] {
   try {
@@ -401,13 +406,14 @@ export async function gateway(o: Options) {
 
   // what runs in the background per user: copying or updating their course;
   // the admin page shows it, the user waits for it
-  const jobs = new Map<string, { what: string; done: number; total: number }>()
+  const jobs = new Map<string, { course: string; kit: boolean; first: boolean; done: number; total: number }>()
   // the outcome of the jobs for the admin page, the newest last
-  const notices: { t: number; text: string; bad?: boolean }[] = []
-  const notice = (text: string, bad = false) => {
+  // (words in the language of the page that shows it, English in the terminal)
+  const notices: { t: number; text: (L: Texts) => string; bad?: boolean }[] = []
+  const notice = (text: (L: Texts) => string, bad = false) => {
     notices.push({ t: Date.now(), text, bad })
     if (notices.length > 10) notices.shift()
-    ;(bad ? console.error : console.log)('👥 ' + text)
+    ;(bad ? console.error : console.log)('👥 ' + text(TEXTS.en))
   }
 
   // A course update for a user (also the first copy): their DevServer stops,
@@ -417,8 +423,9 @@ export async function gateway(o: Options) {
   async function updateCourse(name: string, first = false) {
     if (jobs.has(name)) return
     running.get(name)?.child?.kill()
+    // German for the class channel of the user, as before
     const what = [users[name].course && 'Kurs ' + users[name].course, users[name].kit && cfg.kit && 'Teaching-Agent'].filter(Boolean).join(' und ')
-    const job = { what: first ? what + ' wird kopiert' : what + ' wird aktualisiert', done: 0, total: 0 }
+    const job = { course: users[name].course || '', kit: !!(users[name].kit && cfg.kit), first, done: 0, total: 0 }
     jobs.set(name, job)
     try {
       fs.mkdirSync(path.join(dir, name), { recursive: true })
@@ -426,15 +433,16 @@ export async function gateway(o: Options) {
       const none = { updated: [] as string[], added: [] as string[], removed: [] as string[], conflicts: [] as string[] }
       const c = hasCourse(name) ? await syncCourse(users[name].source as string, baseOf(name), path.join(dir, name), undefined, step) : none
       const k = users[name].kit && cfg.kit ? await syncCourse(cfg.kit, baseKitOf(name), path.join(dir, name), KIT, step) : none
-      notice(report(name, what, c, k, first))
+      notice(report(name, what, c, k, first, job))
     } catch (e: any) {
-      notice('Fehler bei ' + name + ': ' + e.message, true)
+      notice((L) => L.errorAt(name, e.message), true)
     } finally {
       jobs.delete(name)
     }
   }
 
-  function report(name: string, what: string, c: any, k: any, first: boolean) {
+  // the user hears of an update in the class channel; the admin page gets a notice
+  function report(name: string, what: string, c: any, k: any, first: boolean, job: { course: string; kit: boolean }): (L: Texts) => string {
     const r = {
       updated: [...c.updated, ...k.updated],
       added: [...c.added, ...k.added],
@@ -452,8 +460,14 @@ export async function gateway(o: Options) {
         ? ' Diese Dateien hattest du selbst geändert, sie bleiben so; die neue Version liegt daneben: ' + r.conflicts.map(beside).join(', ')
         : '')
     if (!first && (parts.length || r.conflicts.length)) post(TEACHER, name, text)
-    if (first) return name + ': ' + what + ' ist bereit (' + r.added.length + ' Dateien).'
-    return name + ': ' + (parts.join(', ') || 'nichts Neues') + (r.conflicts.length ? ', Konflikte: ' + r.conflicts.join(', ') : '')
+    const words = (L: Texts) => [job.course && L.course(job.course), job.kit && 'Teaching-Agent'].filter(Boolean).join(L.and)
+    if (first) return (L) => L.ready(name, words(L), r.added.length)
+    return (L) =>
+      name +
+      ': ' +
+      ([r.updated.length && L.updated(r.updated.length), r.added.length && L.added(r.added.length), r.removed.length && L.removed(r.removed.length)].filter(Boolean).join(', ') ||
+        L.nothingNew) +
+      (r.conflicts.length ? ', ' + L.conflicts(r.conflicts.join(', ')) : '')
   }
 
   // ------------------------------------------------------------ the class channel
@@ -680,6 +694,9 @@ ${message ? `<p class="bad">${esc(message)}</p>` : ''}<button>Anmelden</button><
   const front = http.createServer(serve)
 
   // ------------------------------------------------------------ the admin page
+  // Built on the server in the language of the request (src/admin-texts.ts).
+  // Look and behaviour live in views/admin/ (admin.css, admin.js, the font):
+  // the page sends a CSP without inline script or style.
 
   async function stateOf(inst: Instance): Promise<any> {
     if (!inst.port) return null
@@ -693,22 +710,24 @@ ${message ? `<p class="bad">${esc(message)}</p>` : ''}<button>Anmelden</button><
       return null
     }
   }
+  // every user, sorted, with what their DevServer reports
+  async function snapshot() {
+    const names = Object.keys(users).sort()
+    const states = await Promise.all(names.map((n) => (running.get(n) ? stateOf(running.get(n)!) : null)))
+    return { names, states }
+  }
+  const stuck = (s: any) => !!(s && s.stuck && Date.now() - s.stuck.at < IDLE_MS)
 
   // what the agents of a user cost, all their sessions (src/acp.ts writes it)
-  const costOf = (name: string) => {
+  const costsOf = (name: string) => {
+    const sum: { [currency: string]: number } = {}
     try {
-      const sum: { [currency: string]: number } = {}
       for (const c of Object.values(JSON.parse(fs.readFileSync(path.join(dir, name, '.chats', '.acp-costs.json'), 'utf8'))) as any[]) {
         sum[c.currency] = (sum[c.currency] || 0) + c.amount
       }
-      return Object.entries(sum)
-        .map(([currency, amount]) => amount.toLocaleString('de-DE', { style: 'currency', currency, maximumFractionDigits: 4 }))
-        .join(', ')
-    } catch (e) {
-      return ''
-    }
+    } catch (e) {}
+    return sum
   }
-
   // what all agents cost per day (src/acp.ts writes it per user)
   const daysOf = (name: string): { [day: string]: { [currency: string]: number } } => {
     try {
@@ -717,258 +736,434 @@ ${message ? `<p class="bad">${esc(message)}</p>` : ''}<button>Anmelden</button><
       return {}
     }
   }
-  const money = (amount: number, currency: string) => amount.toLocaleString('de-DE', { style: 'currency', currency, maximumFractionDigits: 2 })
-  function costBox() {
+  const money = (L: Texts, amount: number, currency: string, digits = 2) =>
+    amount.toLocaleString(L.locale, { style: 'currency', currency, maximumFractionDigits: digits })
+  const when = (L: Texts, t: number | string) => new Date(t).toLocaleString(L.locale, { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+  const ago = (L: Texts, t: number) => {
+    const m = Math.round((Date.now() - t) / 60000)
+    return m < 1 ? L.justNow : m < 60 ? L.minAgo(m) : L.hAgo(Math.floor(m / 60))
+  }
+  // a button with an icon; the label stays visible, a tablet has no tooltips
+  const btn = (cls: string, ico: string, label: string, more = '') => `<button class="btn ${cls}"${more}>${icon(ico)}<span>${esc(label)}</span></button>`
+  const extLink = (cls: string, href: string, ico: string, label: string) =>
+    `<a class="btn ${cls}" href="${esc(href)}" target="_blank" rel="noopener">${icon(ico)}<span>${esc(label)}</span></a>`
+  // a QR code as a button: admin.js shows it large (projector, print)
+  const qrButton = (L: Texts, cls: string, href: string, title: string) =>
+    `<button type="button" class="qr ${cls}" data-qr data-qr-title="${esc(title)}" data-qr-link="${esc(href)}" aria-label="${esc(L.showQr + ': ' + title)}">${qr(href)}</button>`
+  // a switch that sends its form at once (admin.js); off may ask first
+  const switchForm = (L: Texts, action: string, on: boolean, label: string, confirmOff = '') =>
+    `<form method="post" action="${action}" class="switch"${confirmOff ? ` data-confirm-off="${esc(confirmOff)}"` : ''}><label><input type="checkbox" role="switch" name="on" value="1"${
+      on ? ' checked' : ''
+    }><span class="track" aria-hidden="true"></span><span class="strong">${esc(label)}</span><span class="badge ${on ? 'on' : 'off'}">${esc(on ? L.on : L.off)}</span></label><noscript>${btn(
+      'quiet sm',
+      'check',
+      L.save,
+    )}</noscript></form>`
+
+  // the hero: get the class in, the one thing this page is for
+  function accessSection(L: Texts) {
+    const on = !!link
+    const [h1, h2] = on ? L.heroOn : L.heroOff
+    const share = on
+      ? `<div class="card share">
+${qrButton(L, 'qr-hero', link, L.linkFor)}
+<div class="share-info">
+${switchForm(L, '/settings/share', true, L.share, L.confirmOff)}
+<p class="t-sm muted">${esc(L.shareHint)}</p>
+<p class="label">${esc(L.linkFor)}</p>
+<code class="link">${esc(link)}</code>
+<div class="actions">${btn('primary', 'copy', L.copyLink, ` type="button" data-copy="${esc(link)}"`)}${extLink('quiet', link, 'arrow-square-out', L.open)}<form method="post" action="/settings/share-new" data-confirm="${esc(
+          L.confirmNewLink,
+        )}">${btn('quiet', 'arrows-clockwise', L.newLink)}</form></div>
+</div></div>`
+      : `<div class="card share share-off">
+<form method="post" action="/settings/share"><input type="hidden" name="on" value="1">${btn('primary', 'globe', L.shareCta)}</form>
+<p class="t-sm muted">${esc(L.shareNote)}</p>
+</div>`
+    const lan = `<div class="card lan">
+${switchForm(L, '/settings/lan', !!lanFront, L.lan, L.confirmOff)}
+<p class="t-sm muted">${esc(L.lanHelp)} <strong class="danger-text">${esc(L.lanWarn)}</strong></p>
+${lanAddresses
+  .map(
+    (a) =>
+      `<div class="addr">${qrButton(L, 'qr-sm', a, L.lanShort)}<code>${esc(a)}</code><div class="actions">${btn('quiet sm', 'copy', L.copy, ` type="button" data-copy="${esc(a)}"`)}${extLink(
+        'quiet sm',
+        a,
+        'arrow-square-out',
+        L.open,
+      )}</div></div>`,
+  )
+  .join('')}
+<form method="post" action="/settings/lan" class="row"><input type="hidden" name="on" value="${lanFront ? '1' : '0'}"><label class="inline t-sm">${esc(
+      L.port,
+    )} <input name="port" type="number" min="1" max="65535" value="${cfg.lan.port}" class="w-port"></label>${btn('quiet sm', 'check', L.change)}</form>
+</div>`
+    return `<section id="access" class="hero" aria-labelledby="hero-h">
+<div class="hero-text"><h1 id="hero-h" class="grad">${esc(h1)}<br>${esc(h2)}</h1><p class="lead">${esc(on ? L.leadOn : L.leadOff)}</p></div>
+<div class="access">${share}${lan}</div>
+</section>`
+  }
+
+  // shown only when something happened, red
+  function warningCard(L: Texts) {
+    const list = openWarnings()
+    if (!list.length) return ''
+    return `<section class="card warn" aria-labelledby="warn-h"><div class="warn-head">${icon('warning')}<h2 id="warn-h">${esc(L.warnings(list.length))}</h2></div>
+<p class="t-sm muted">${esc(L.warningsLead)}</p><ul class="wlist">${list
+      .slice(-10)
+      .reverse()
+      .map(
+        (w) =>
+          `<li><p><strong>${esc(w.name)}</strong> <span class="t-sm muted">${esc(when(L, w.t))} · ${esc(w.by === 'server' ? L.byServer : L.byAi)}</span></p><p class="t-sm">${esc(
+            w.what,
+          )}</p><p class="t-sm muted">${esc(w.reason)}</p><div class="actions">${extLink('quiet sm', '/chat/' + w.name, 'chat-circle-text', L.viewChat)}<form method="post" action="/warnings/${esc(
+            w.id,
+          )}/done">${btn('quiet sm', 'check', L.markDone)}</form></div></li>`,
+      )
+      .join('')}</ul></section>`
+  }
+
+  // the costs of all users, today big and the last 7 days as bars
+  function costCard(L: Texts) {
     const sum: { [day: string]: { [currency: string]: number } } = {}
     for (const name of Object.keys(users))
       for (const [day, c] of Object.entries(daysOf(name))) for (const [cur, a] of Object.entries(c)) ((sum[day] = sum[day] || {}), (sum[day][cur] = (sum[day][cur] || 0) + a))
-    const week = [...Array(7)].map((_, i) => new Date(Date.now() - (6 - i) * 864e5).toLocaleDateString('sv'))
+    const dates = [...Array(7)].map((_, i) => new Date(Date.now() - (6 - i) * 864e5))
+    const week = dates.map((d) => d.toLocaleDateString('sv'))
     // shortcut: one currency in the chart, the adapters report USD; sum per currency if another comes
     const currency = Object.keys(sum[week[6]] || Object.values(sum).pop() || { USD: 0 })[0] || 'USD'
     const values = week.map((d) => (sum[d] && sum[d][currency]) || 0)
     const top = Math.max(...values, 0.01)
     const bars = values
-      .map((v, i) => `<rect class="day" x="${i * 14}" y="${40 - Math.round((v / top) * 40)}" width="10" height="${Math.max(1, Math.round((v / top) * 40))}"><title>${esc(week[i] + ': ' + money(v, currency))}</title></rect>`)
+      .map((v, i) => {
+        const h = Math.max(1, Math.round((v / top) * 40))
+        return `<rect class="day" x="${i * 14}" y="${40 - h}" width="10" height="${h}" rx="1"${i === 6 ? ' data-today' : ''}><title>${esc(
+          dates[i].toLocaleDateString(L.locale, { weekday: 'short', day: 'numeric', month: 'short' }) + ': ' + money(L, v, currency),
+        )}</title></rect>`
+      })
       .join('')
-    return `<div class="card"><b>Kosten heute: <span id="today">${esc(money(values[6], currency))}</span></b><br><svg class="chart" viewBox="0 0 94 40" width="188" height="80" role="img" aria-label="Kosten der letzten 7 Tage">${bars}</svg><br><small>letzte 7 Tage, alle Nutzer</small></div>`
+    return `<div class="card stat cost"><p class="k">${icon('coins')}${esc(L.costToday)}</p><p class="v"><span id="today">${esc(money(L, values[6], currency))}</span></p>
+<svg class="chart" viewBox="0 0 94 40" preserveAspectRatio="none" role="img" aria-label="${esc(L.chartLabel)}">${bars}</svg>
+<p class="days" aria-hidden="true">${dates.map((d) => `<span>${esc(d.toLocaleDateString(L.locale, { weekday: 'narrow' }))}</span>`).join('')}</p>
+<p class="t-xs muted">${esc(L.last7)}</p></div>`
   }
-  const ago = (t: number) => {
-    const m = Math.round((Date.now() - t) / 60000)
-    return m < 1 ? 'gerade' : 'vor ' + m + ' min'
+
+  // the numbers of the class: online, stuck, costs, what the jobs reported
+  async function statsRow(L: Texts) {
+    const { names, states } = await snapshot()
+    const online = names.filter((n) => (running.get(n)?.open || 0) > 0).length
+    const help = names.filter((n, i) => stuck(states[i]))
+    return `<div class="stats">
+<div class="card stat" data-online="${online}" data-online-label="${esc(L.online(online))}"><p class="k">${icon('users')}${esc(L.onlineNow)}</p><p class="v">${online}</p><p class="t-sm muted">${esc(
+      L.ofUsers(names.length),
+    )}</p></div>
+<div class="card stat${help.length ? ' alert' : ''}"><p class="k">${icon('lifebuoy')}${esc(L.needHelp)}</p><p class="v">${help.length}</p><p class="t-sm muted">${
+      help.length ? help.map((n) => `<a href="#u-${esc(n)}">${esc(n)}</a>`).join(', ') : esc(L.nobodyStuck)
+    }</p></div>
+${costCard(L)}
+<div class="card stat recent"><p class="k">${icon('arrows-clockwise')}${esc(L.recent)}</p>${
+      notices.length
+        ? `<ul>${notices
+            .slice(-5)
+            .reverse()
+            .map(
+              (n) =>
+                `<li${n.bad ? ' class="bad"' : ''}><time class="t-xs muted">${esc(new Date(n.t).toLocaleTimeString(L.locale, { hour: '2-digit', minute: '2-digit' }))}</time> <span class="t-sm">${esc(
+                  n.text(L),
+                )}</span></li>`,
+            )
+            .join('')}</ul>`
+        : `<p class="t-sm muted">${esc(L.recentEmpty)}</p>`
+    }</div>
+</div>`
+  }
+
+  // all of the top: the page polls it, new warnings show up at once
+  async function topPart(L: Texts) {
+    return accessSection(L) + warningCard(L) + (await statsRow(L))
   }
 
   // the links of one user: the name filled in, the password typed
-  const linksOf = (name: string) => [
-    ...(link ? [{ where: 'Internet', href: link + '&user=' + encodeURIComponent(name) }] : []),
-    ...lanAddresses.map((a) => ({ where: lanAddresses.length > 1 ? 'Schulnetz ' + new URL(a).hostname : 'Schulnetz', href: a + '?user=' + encodeURIComponent(name) })),
+  const linksOf = (L: Texts, name: string) => [
+    ...(link ? [{ where: L.internet, href: link + '&user=' + encodeURIComponent(name) }] : []),
+    ...lanAddresses.map((a) => ({ where: lanAddresses.length > 1 ? L.lanWhere(new URL(a).hostname) : L.lanShort, href: a + '?user=' + encodeURIComponent(name) })),
   ]
-  // one QR code (the internet if it is on), a copy button per address
-  const linkCell = (name: string) => {
-    const links = linksOf(name)
-    if (!links.length) return ''
-    return `<div class="ulink"><button type="button" class="qr" title="QR-Code groß zeigen (${esc(links[0].where)})">${qr(links[0].href)}</button> ${links
-      .map((l) => `<button type="button" class="quiet small" data-copy="${esc(l.href)}" title="${esc(l.href)}">Link kopieren${links.length > 1 ? ' (' + esc(l.where) + ')' : ''}</button>`)
-      .join(' ')}</div>`
+  // the name cell: one QR code (the internet if it is on) left, name, role
+  // and a copy button per address right of it
+  const whoCell = (L: Texts, name: string, head: string) => {
+    const links = linksOf(L, name)
+    if (!links.length) return `<div class="who"><div>${head}</div></div>`
+    return `<div class="who">${qrButton(L, 'qr-sm', links[0].href, name + ' · ' + links[0].where)}<div>${head}<div class="ulink">${links
+      .map((l) => btn('quiet xs', 'copy', links.length > 1 ? l.where : L.copyLink, ` type="button" data-copy="${esc(l.href)}" title="${esc(L.copyLink + ': ' + l.href)}"`))
+      .join('')}</div></div></div>`
   }
-  async function rows() {
-    const names = Object.keys(users).sort()
-    const states = await Promise.all(names.map((n) => (running.get(n) ? stateOf(running.get(n)!) : null)))
-    if (!names.length) return '<tr><td colspan="9">Noch keine Nutzer, unten unter „Neuer Nutzer“ anlegen.</td></tr>'
+  const what = (L: Texts, course: string, kit: boolean) => [course && L.course(course), kit && 'Teaching-Agent'].filter(Boolean).join(L.and)
+  // a thin bar, drawn in SVG: the page allows no inline style
+  const bar = (part: number) => `<svg class="bar" viewBox="0 0 100 4" preserveAspectRatio="none" aria-hidden="true"><rect class="track" width="100" height="4" rx="2"/><rect width="${Math.max(
+    2,
+    Math.round(part * 100),
+  )}" height="4" rx="2"/></svg>`
+
+  async function rows(L: Texts) {
+    const { names, states } = await snapshot()
+    if (!names.length)
+      return `<tr class="empty"><td colspan="7"><div class="empty-state">${icon('user-plus', 'icon big')}<p class="t-lg strong">${esc(L.noUsers)}</p><p class="t-sm muted">${esc(
+        L.noUsersLead,
+      )}</p><a class="btn quiet sm" href="#new">${esc(L.newUser)}</a></div></td></tr>`
+    const total = (c: { [currency: string]: number }) => Object.values(c).reduce((a, b) => a + b, 0)
+    const most = Math.max(0.0001, ...names.map((n) => total(costsOf(n))))
+    const courses = courseList(cfg.courses)
     return names
       .map((n, i) => {
         const inst = running.get(n)
         const s = states[i]
         const online = !!inst && inst.open > 0
-        const help = s && s.stuck && Date.now() - s.stuck.at < IDLE_MS
+        const help = stuck(s)
+        const job = jobs.get(n)
+        const costs = costsOf(n)
         // the title is "slide · course", the course has a column of its own; README.md says nothing to a teacher
         const slide = s && String(s.title || '').split(' · ')
         const where = s
           ? s.web
-            ? '🌐 ' + s.web
-            : [s.file !== 'README.md' && s.file, s.slide && 'Folie ' + s.slide + (s.title ? ': ' + (slide.length > 1 ? slide.slice(0, -1).join(' · ') : s.title) : '')]
+            ? s.web
+            : [s.file !== 'README.md' && s.file, s.slide && L.slide(s.slide) + (s.title ? ': ' + (slide.length > 1 ? slide.slice(0, -1).join(' · ') : s.title) : '')]
                 .filter(Boolean)
                 .join(' · ')
           : ''
-        return `<tr${help ? ' class="help"' : ''}><td><b>${esc(n)}</b><br><small>${esc(users[n].role === 'author' ? 'Autor' : 'Schüler')}</small>${linkCell(n)}</td>
-<td>${online ? '🟢 online' : inst ? '<span title="angemeldet, die Seite ist aber zu">🟡 Seite zu</span>' : '⚪ aus'}<br><small>${inst ? esc(ago(inst.last)) : ''}</small></td>
-<td>${
-          jobs.get(n)
-            ? `${esc(jobs.get(n)!.what)}<br><small>${jobs.get(n)!.total ? esc(jobs.get(n)!.done + ' von ' + jobs.get(n)!.total + ' Dateien') : 'beginnt …'}</small>`
-            : users[n].course || users[n].kit
-            ? esc(users[n].course || '') +
-              (users[n].kit ? `<br><small>+ Teaching-Agent</small>` : '') +
-              `<form method="post" action="/update/${esc(n)}"><button class="quiet">aktualisieren</button></form>`
-            : `<form method="post" action="/assign/${esc(n)}"><select name="course"><option value="">–</option>${courseList(cfg.courses)
-                .map((c) => `<option>${esc(c)}</option>`)
-                .join('')}</select><button class="quiet">zuweisen</button></form>`
+        const status = online
+          ? `<span class="status online"><span class="dot"></span>${esc(L.statusOnline)}</span>`
+          : inst
+          ? `<span class="status closed" title="${esc(L.statusClosedTitle)}"><span class="dot"></span>${esc(L.statusClosed)}</span>`
+          : `<span class="status off"><span class="dot"></span>${esc(L.statusOff)}</span>`
+        const course = job
+          ? `<p class="t-sm">${esc((job.first ? L.copying : L.updating)(what(L, job.course, job.kit)))}</p>${job.total ? bar(job.done / job.total) : ''}<p class="t-xs muted">${esc(
+              job.total ? L.files(job.done, job.total) : L.starting,
+            )}</p>`
+          : users[n].course || users[n].kit
+          ? `<p class="t-sm strong">${esc(users[n].course || '')}</p>${users[n].kit ? `<span class="badge author">+ Teaching-Agent</span>` : ''}<form method="post" action="/update/${esc(
+              n,
+            )}">${btn('quiet xs', 'arrows-clockwise', L.update)}</form>`
+          : `<form method="post" action="/assign/${esc(n)}" class="row tight"><label class="sr-only" for="as-${esc(n)}">${esc(L.chooseCourse)}</label><select id="as-${esc(
+              n,
+            )}" name="course" class="sm"><option value="">–</option>${courses.map((c) => `<option>${esc(c)}</option>`).join('')}</select>${btn('quiet xs', 'check', L.assign)}</form>`
+        const muted = settings.muted.includes(n)
+        return `<tr id="u-${esc(n)}"${help ? ' class="help"' : ''}>
+<td data-label="${esc(L.head.name)}">${whoCell(
+          L,
+          n,
+          `<p><strong>${esc(n)}</strong> <span class="badge ${users[n].role === 'author' ? 'author' : 'off'}">${esc(users[n].role === 'author' ? L.author : L.student)}</span>${
+            muted ? ` <span class="badge off">${icon('speaker-slash')}${esc(L.muted)}</span>` : ''
+          }</p>`,
+        )}</td>
+<td data-label="${esc(L.head.status)}">${status}<p class="t-xs muted">${inst ? esc(ago(L, inst.last)) : ''}</p></td>
+<td data-label="${esc(L.head.course)}">${course}</td>
+<td data-label="${esc(L.head.where)}"><p class="t-sm">${esc(where) || '<span class="muted">–</span>'}</p>${
+          help ? `<span class="badge danger">${icon('lifebuoy')}${esc(L.needsHelp)}</span><p class="t-xs muted">${esc(ago(L, s.stuck.at))} · ${esc(L.slide(s.stuck.slide || '?'))}</p>` : ''
         }</td>
-<td>${esc(where)}${help ? `<br><b>Braucht Hilfe</b> <small>${esc(ago(s.stuck.at))}, Folie ${esc(s.stuck.slide || '?')}</small>` : ''}</td>
-<td>${s && s.session ? esc(s.session.count) + ' Einträge<br>' : ''}<a href="/chat/${esc(n)}" target="_blank">mitlesen</a></td>
-<td>${esc(costOf(n)) || '<small>–</small>'}</td>
-<td><form method="post" action="/password/${esc(n)}"><input name="password" type="password" placeholder="neues Passwort" required minlength="6"><button>setzen</button></form></td>
-<td><form method="post" action="/mute/${esc(n)}"><button class="quiet">${settings.muted.includes(n) ? '🔇 stumm' : '🔈 darf schreiben'}</button></form></td>
-<td><form method="post" action="/delete/${esc(n)}" onsubmit="return confirm('${esc(n)} löschen? Der Ordner bleibt erhalten.')"><button class="danger">löschen</button></form></td></tr>`
+<td data-label="${esc(L.head.chat)}">${s && s.session ? `<p class="t-xs muted">${esc(L.entries(s.session.count))}</p>` : ''}${extLink('quiet xs', '/chat/' + n, 'chat-circle-text', L.readAlong)}</td>
+<td data-label="${esc(L.head.cost)}" class="num">${
+          Object.keys(costs).length
+            ? `<p class="t-sm">${esc(
+                Object.entries(costs)
+                  .map(([c, a]) => money(L, a, c, 4))
+                  .join(', '),
+              )}</p>${bar(total(costs) / most)}`
+            : '<span class="muted">–</span>'
+        }</td>
+<td class="manage"><details class="menu"><summary class="btn quiet xs">${icon('gear')}<span>${esc(L.manage)}</span></summary><div class="pop">
+<form method="post" action="/password/${esc(n)}" class="field"><label for="pw-${esc(n)}" class="t-sm strong">${esc(L.newPassword)}</label><div class="row tight"><input id="pw-${esc(
+          n,
+        )}" name="password" type="password" autocomplete="new-password" placeholder="${esc(L.passwordPlaceholder)}" required minlength="6" data-error="${esc(L.passwordError)}">${btn(
+          'primary sm',
+          'key',
+          L.setPassword,
+        )}</div><p class="error" hidden></p></form>
+<form method="post" action="/mute/${esc(n)}">${btn('quiet sm wide', muted ? 'speaker-high' : 'speaker-slash', muted ? L.unmute : L.mute)}</form>
+<form method="post" action="/delete/${esc(n)}" data-confirm="${esc(L.confirmDelete(n))}">${btn('danger sm wide', 'trash', L.remove)}</form>
+</div></details></td></tr>`
       })
       .join('')
   }
 
   // the class channel for the teacher: every message, also between users
-  const label = (n: string) => (n === TEACHER ? 'Lehrkraft' : n === ALL ? 'alle' : n)
-  function classLog() {
-    if (!messages.length) return '<p><small>Noch keine Nachrichten.</small></p>'
+  const label = (L: Texts, n: string) => (n === TEACHER ? L.teacher : n === ALL ? L.all : n)
+  function classLog(L: Texts) {
+    if (!messages.length) return `<div class="empty-state">${icon('chat-circle-text', 'icon big')}<p class="t-sm muted">${esc(L.noMessages)}</p></div>`
     return messages
       .slice(-100)
       .reverse()
       .map(
         (m) =>
-          `<div class="m${m.from === TEACHER ? ' me' : ''}"><small>${esc(label(m.from))} → ${esc(label(m.to))} · ${esc(
-            new Date(m.t).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }),
-          )}</small><br>${esc(m.text)}</div>`,
+          `<div class="m${m.from === TEACHER ? ' me' : ''}"><p class="t-xs muted">${esc(label(L, m.from))} → ${esc(label(L, m.to))} · ${esc(when(L, m.t))}</p><p>${esc(m.text)}</p></div>`,
       )
       .join('')
   }
 
   // a password just set, shown once to copy: users.json has only its hash
   let fresh: { name: string; password: string } | null = null
-  function freshBox() {
+  function freshBox(L: Texts) {
     if (!fresh) return ''
     const f = fresh
     fresh = null
-    return `<div class="card msg-card">Passwort für <b>${esc(f.name)}</b>: <code>${esc(f.password)}</code> <button type="button" class="quiet" data-copy="${esc(
+    return `<div class="card fresh" role="status">${icon('key', 'icon lg')}<div><p>${esc(L.freshFor)} <strong>${esc(f.name)}</strong></p><div class="row"><code class="pw">${esc(
       f.password,
-    )}">kopieren</button><br><small>Nur jetzt sichtbar. Danach kennt es auch diese Seite nicht mehr, nur ein neues Passwort hilft.</small></div>`
-  }
-  // Share and LAN with a word on each, the links to copy, open and scan
-  const onOff = (action: string, on: boolean, label: string, warn = '') =>
-    `<form method="post" action="${action}" class="switch"${warn ? ` onsubmit="return this.on.checked||confirm('${esc(warn)}')"` : ''}><label><input type="checkbox" name="on" value="1"${
-      on ? ' checked' : ''
-    } onchange="this.form.requestSubmit()"> <b>${esc(label)}</b> <span class="${on ? 'on' : 'off'}">${on ? 'an' : 'aus'}</span></label></form>`
-  const copyLink = (href: string) =>
-    `<a href="${esc(href)}" target="_blank" rel="noopener">öffnen</a> <button type="button" class="quiet" data-copy="${esc(href)}">Link kopieren</button>`
-  function accessBox() {
-    const close = 'Ausschalten trennt alle offenen Tabs der Schüler. Trotzdem ausschalten?'
-    return `<div class="card"><h2>Zugang</h2>
-${onOff('/settings/share', !!link, 'Zugang über das Internet', close)}
-<p><small>Schüler öffnen den Link von überall, auch auf dem Handy. Die Daten gehen verschlüsselt direkt zu diesem Rechner; er muss dafür laufen.</small></p>
-${
-  link
-    ? `<div class="big-link"><button type="button" class="qr big-qr" title="QR-Code groß zeigen">${qr(link)}</button><div><code>${esc(link)}</code><br>${copyLink(link)}
-<form method="post" action="/settings/share-new" onsubmit="return confirm('Ein neuer Link: der alte geht dann nicht mehr, auch nicht für die Schüler, die ihn schon haben.')" style="display:inline"><button class="quiet">Neuer Link</button></form></div></div>`
-    : ''
-}
-${onOff('/settings/lan', !!lanFront, 'Im Schulnetz', close)}
-<p><small>Für Räume ohne Internet: Geräte im selben Netz öffnen die Adresse. <b>Passwörter gehen im Schulnetz unverschlüsselt.</b></small></p>
-${lanAddresses.map((a) => `<div><code>${esc(a)}</code> ${copyLink(a)}</div>`).join('')}
-<form method="post" action="/settings/lan" class="row"><input type="hidden" name="on" value="${lanFront ? '1' : '0'}"><label>Port <input name="port" type="number" min="1" max="65535" value="${
-      cfg.lan.port
-    }" style="width:7em"></label><button class="quiet">ändern</button></form></div>`
-  }
-  // the settings, collapsed, each with what it does
-  function settingsBox() {
-    const option = (v: string, label: string, now?: string) => `<option value="${v}"${(now || '') === v ? ' selected' : ''}>${label}</option>`
-    const models = (role: 'student' | 'author') =>
-      `<select name="${role}">${option('', 'Standard', cfg.models[role])}${option('haiku', 'Haiku (günstig)', cfg.models[role])}${option('sonnet', 'Sonnet', cfg.models[role])}${option(
-        'opus',
-        'Opus (teuer)',
-        cfg.models[role],
-      )}</select>`
-    const folder = (action: string, now: string | null, empty: string) =>
-      `<form method="post" action="${action}" class="row"><input name="path" value="${esc(now || '')}" placeholder="${esc(empty)}" class="path"><button type="button" class="quiet" data-pick>Ordner wählen</button><button>übernehmen</button></form><div class="picker" hidden></div>`
-    return `<details class="card"><summary><b>Einstellungen</b></summary>
-<h3>KI-Modell</h3><p><small>Welche KI Schüler und Autoren bekommen. Haiku ist schnell und günstig, Opus am stärksten und teuersten. Gilt ab dem nächsten Start eines Nutzers.</small></p>${
-      cfg.agent === 'claude'
-        ? `<form method="post" action="/settings/models" class="row"><label>Schüler ${models('student')}</label><label>Autoren ${models('author')}</label><button>speichern</button></form>`
-        : `<p><small>Der Agent ${esc(cfg.agent)} wählt sein Modell selbst.</small></p>`
-    }
-<h3>Webseiten im Chat</h3>${onOff('/settings/web', cfg.web, 'Webseiten im Chat')}<p><small>Ob die KI mit Schülern und Autoren Webseiten im Chat öffnen und gemeinsam lesen darf. Gilt ab dem nächsten Start eines Nutzers.</small></p>
-<h3>Leerlauf</h3><form method="post" action="/settings/idle" class="row"><label>Nach <input name="minutes" type="number" min="5" max="240" value="${cfg.idleMinutes}" style="width:5em"> Minuten</label><button>speichern</button></form><p><small>So lange läuft die KI eines Nutzers weiter, nachdem er seinen Tab geschlossen hat. Kürzer spart Kosten, länger startet schneller wieder.</small></p>
-<h3>Kursordner</h3><p><small>Aus seinen Unterordnern wählst du beim Anlegen eines Nutzers den Kurs; jeder bekommt eine eigene Kopie. Jetzt: ${courseList(cfg.courses).length} Kurse.</small></p>${folder('/settings/courses', cfg.courses, '')}
-<h3>Teaching-Agent</h3><p><small>Der Ordner des Teaching-Agent: Autoren, die du „mit Teaching-Agent“ anlegst, bekommen seine Anweisungen in ihren Ordner. Leer lassen: ohne.</small></p>${folder('/settings/kit', cfg.kit, 'ohne Teaching-Agent')}
-</details>`
+    )}</code>${btn('quiet sm', 'copy', L.copy, ` type="button" data-copy="${esc(f.password)}"`)}</div><p class="t-sm muted">${esc(L.freshNote)}</p></div></div>`
   }
 
-  // shown only when something happened, red
-  function warningBox() {
-    const list = openWarnings()
-    if (!list.length) return ''
-    return `<div class="card warn"><b>⚠ ${list.length} ${list.length === 1 ? 'Warnung' : 'Warnungen'}</b>${list
-      .slice(-10)
-      .reverse()
-      .map(
-        (w) =>
-          `<div class="w"><b>${esc(w.name)}</b> <small>${esc(new Date(w.t).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }))} · ${
-            w.by === 'server' ? 'vom Klassenserver abgelehnt' : 'von der KI abgelehnt'
-          }</small><br>${esc(w.what)}<br><small>${esc(w.reason)}</small><br><a href="/chat/${esc(w.name)}" target="_blank" rel="noopener">Chat ansehen</a> <form method="post" action="/warnings/${esc(
-            w.id,
-          )}/done" style="display:inline"><button class="quiet">erledigt</button></form></div>`,
-      )
+  // the settings, collapsed, each with what it does
+  function settingsBox(L: Texts) {
+    const option = (v: string, label: string, now?: string) => `<option value="${v}"${(now || '') === v ? ' selected' : ''}>${esc(label)}</option>`
+    const models = (role: 'student' | 'author') =>
+      `<select id="m-${role}" name="${role}">${option('', L.modelDefault, cfg.models[role])}${option('haiku', L.modelCheap, cfg.models[role])}${option(
+        'sonnet',
+        'Sonnet',
+        cfg.models[role],
+      )}${option('opus', L.modelDear, cfg.models[role])}</select>`
+    const folder = (action: string, id: string, now: string | null, empty: string) =>
+      `<form method="post" action="${action}" class="row folder"><label class="sr-only" for="${id}">${esc(L.pick)}</label><input id="${id}" name="path" value="${esc(now || '')}" placeholder="${esc(
+        empty,
+      )}" class="path">${btn('quiet sm', 'folder', L.pick, ' type="button" data-pick')}${btn('primary sm', 'check', L.apply)}</form><div class="picker" hidden></div>`
+    const block = (title: string, help: string, body: string, later = false) =>
+      `<div class="setting"><h3>${esc(title)}</h3><p class="t-sm muted">${esc(help)}${later ? ' ' + esc(L.nextStart) : ''}</p>${body}</div>`
+    return `<details class="card settings" id="settings"><summary><span class="sum-title">${icon('gear', 'icon lg')}<span><span class="t-xl strong">${esc(
+      L.settings,
+    )}</span><span class="t-sm muted block">${esc(L.settingsLead)}</span></span></span>${icon('caret-down', 'icon caret')}</summary>
+<div class="settings-grid">
+${block(
+  L.model,
+  L.modelHelp,
+  cfg.agent === 'claude'
+    ? `<form method="post" action="/settings/models" class="row"><label class="inline t-sm" for="m-student">${esc(L.forStudents)}</label>${models('student')}<label class="inline t-sm" for="m-author">${esc(
+        L.forAuthors,
+      )}</label>${models('author')}${btn('primary sm', 'check', L.save)}</form>`
+    : `<p class="t-sm muted">${esc(L.ownModel(cfg.agent))}</p>`,
+  true,
+)}
+${block(L.web, L.webHelp, switchForm(L, '/settings/web', cfg.web, L.web), true)}
+${block(
+  L.idle,
+  L.idleHelp,
+  `<form method="post" action="/settings/idle" class="row"><label class="inline t-sm">${esc(L.idleAfter)} <input name="minutes" type="number" min="5" max="240" value="${
+    cfg.idleMinutes
+  }" class="w-min"> ${esc(L.minutes)}</label>${btn('primary sm', 'check', L.save)}</form>`,
+)}
+${block(L.courses, L.coursesHelp(courseList(cfg.courses).length), folder('/settings/courses', 'f-courses', cfg.courses, ''))}
+${block(L.kit, L.kitHelp, folder('/settings/kit', 'f-kit', cfg.kit, L.kitEmpty))}
+</div></details>`
+  }
+
+  function helpBox(L: Texts) {
+    return `<div class="faq">${L.faq
+      .map(([q, a]) => `<details><summary><span>${esc(q)}</span>${icon('caret-down', 'icon caret')}</summary><p>${esc(a)}</p></details>`)
       .join('')}</div>`
   }
 
-  function adminPage(res: http.ServerResponse, link: string, table: string, message = '') {
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' })
-    res.end(`<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>LiaScript Klasse</title>
-<style>:root{color-scheme:light dark;--bg:#f6f7f9;--fg:#1d2330;--muted:#5b6474;--card:#fff;--line:#d6dbe3;--accent:#0f766e;--help:#fde7e4;--bad:#b42318}
-@media (prefers-color-scheme:dark){:root{--bg:#14171c;--fg:#e6e9ee;--muted:#9aa3b2;--card:#1d2128;--line:#343a45;--accent:#2dd4bf;--help:#3b1d1b;--bad:#f97066}}
-body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-serif}main{max-width:1100px;margin:0 auto;padding:16px}
-h1{font-size:1.4rem}h2{font-size:1.1rem;margin-top:2rem}small{color:var(--muted)}a{color:var(--accent)}
-.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;overflow-x:auto}
-table{border-collapse:collapse;width:100%}td,th{text-align:left;padding:8px;border-bottom:1px solid var(--line);vertical-align:top}tr.help{background:var(--help)}
-input,select,button{font:inherit;padding:6px 10px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
-button{background:var(--accent);border-color:var(--accent);color:#fff;cursor:pointer}button.danger{background:transparent;color:var(--bad);border-color:var(--bad)}button.quiet{background:transparent;color:var(--fg);border-color:var(--line)}
-.m{border:1px solid var(--line);border-radius:10px;padding:6px 10px;margin:6px 0;white-space:pre-wrap}.m.me{border-color:var(--accent)}#log{max-height:40vh;overflow:auto}
-form.say{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start}form.say textarea{flex:1;min-width:200px;font:inherit;padding:6px 10px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
-form.new{display:flex;flex-wrap:wrap;gap:8px}code{word-break:break-all}.msg{color:var(--accent)}.bad{color:var(--bad);font-weight:600}.warn{background:var(--help);border-color:var(--bad);margin:12px 0}.w{margin-top:8px}.chart rect{fill:var(--accent)}
-.top{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;align-items:start}.top .card{margin:0}.top h2{margin-top:0}
-.switch label{cursor:pointer}.on,.off{display:inline-block;padding:0 8px;border-radius:99px;font-size:.8rem}.on{background:var(--accent);color:#fff}.off{background:var(--line)}
-button.qr{background:#fff;border:1px solid var(--line);padding:2px;width:48px;height:48px;vertical-align:middle}button.qr svg{width:100%;height:100%}
-button.big-qr{width:120px;height:120px}button.qr.big{position:fixed;inset:5vh 0 0 0;margin:auto;width:min(90vw,80vh);height:min(90vw,80vh);z-index:9;box-shadow:0 0 0 100vmax #000a}
-.big-link{display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap}.ulink{margin-top:6px}.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:6px 0}
-input.path{flex:1;min-width:14em}button.small{font-size:.8rem;padding:2px 8px}.picker{display:flex;flex-wrap:wrap;gap:4px;margin:4px 0 8px}.picker div{width:100%}.msg-card{border-color:var(--accent);margin:12px 0}
-details summary{cursor:pointer}h3{font-size:1rem;margin:1.2rem 0 .2rem}</style></head><body><main>
-<h1>LiaScript Klasse</h1>
-${freshBox()}<div class="top">${accessBox()}${warningBox()}${costBox()}</div>
-${message ? `<p class="msg">${esc(message)}</p>` : ''}${notices
-      .slice(-5)
-      .reverse()
-      .map((n) => `<p class="${n.bad ? 'bad' : 'msg'}"><small>${esc(new Date(n.t).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }))}</small> ${esc(n.text)}</p>`)
-      .join('')}
-<h2>Nutzer</h2><div class="card"><form method="post" action="/update/all" style="margin-bottom:8px"><button class="quiet">Kurs-Updates an alle verteilen</button></form><table><thead><tr><th>Name</th><th>Status</th><th>Kurs</th><th>Wo</th><th>Chat</th><th>Kosten</th><th>Passwort</th><th>Klasse</th><th></th></tr></thead><tbody id="rows">${table}</tbody></table></div>
-<h2>Klasse</h2><div class="card">
-<form class="say" method="post" action="/class/say"><select name="to"><option value="${ALL}">an alle</option>${Object.keys(users)
-      .sort()
-      .map((n) => `<option value="${esc(n)}">an ${esc(n)}</option>`)
-      .join('')}</select><textarea name="text" rows="2" required maxlength="2000" placeholder="Nachricht an die Klasse …"></textarea><button>senden</button></form>
-<form method="post" action="/class/dm"><label><input type="checkbox" name="on" value="1"${settings.dm ? ' checked' : ''} onchange="this.form.submit()"> Schüler dürfen einander schreiben</label></form>
-<div id="log">${classLog()}</div></div>
-<h2>Neuer Nutzer</h2><div class="card"><form class="new" method="post" action="/users">
-<input name="name" placeholder="Name, z. B. mia" required pattern="[A-Za-z0-9][A-Za-z0-9_\\-]{0,31}" title="Buchstaben ohne Umlaute, Ziffern, - und _, keine Leerzeichen">
-<input name="password" type="password" placeholder="Passwort, mind. 6 Zeichen" required minlength="6">
-<select name="role"><option value="student">Schüler</option><option value="author">Autor</option></select>${
-      cfg.kit ? '<label title="Die Anweisungen und Specs des Teaching-Agent in den Ordner, für Autoren"><input type="checkbox" name="kit" value="1"> mit Teaching-Agent</label>' : ''
-    }
-<select name="course" title="Kopie eines Kurses aus ${esc(cfg.courses)}"><option value="">ohne Kurs (leerer Ordner)</option>${courseList(cfg.courses)
-      .map((c) => `<option>${esc(c)}</option>`)
-      .join('')}</select>
-<button>anlegen</button></form></div>
-<h2>&nbsp;</h2>${settingsBox()}
-<script>setInterval(function(){fetch('/class/log').then(function(r){return r.text()}).then(function(t){document.getElementById('log').innerHTML=t})},5000)</script>
-<script>
-document.addEventListener('click', function (e) {
-  var b = e.target.closest('[data-copy]')
-  if (b) navigator.clipboard.writeText(b.dataset.copy).then(function () { var t = b.textContent; b.textContent = 'kopiert ✓'; setTimeout(function () { b.textContent = t }, 1500) })
-  var q = e.target.closest('button.qr')
-  if (q) q.classList.toggle('big')
-  var p = e.target.closest('[data-pick]')
-  if (p) folders(p.form, p.form.path.value)
-})
-// the folders below home, to click through
-function folders(form, at) {
-  var box = form.nextElementSibling
-  fetch('/folders?path=' + encodeURIComponent(at || '')).then(function (r) { return r.ok ? r.json() : fetch('/folders').then(function (r) { return r.json() }) }).then(function (f) {
-    form.path.value = f.path
-    box.hidden = false
-    box.textContent = ''
-    var head = document.createElement('div')
-    head.textContent = f.path + ' · ' + f.courses + ' Kurse'
-    box.append(head)
-    ;(f.parent ? ['..'] : []).concat(f.folders).forEach(function (name) {
-      var b = document.createElement('button')
-      b.type = 'button'
-      b.className = 'quiet'
-      b.textContent = name == '..' ? '⬆ höher' : '📁 ' + name
-      b.onclick = function () { folders(form, name == '..' ? f.parent : f.path + '/' + name) }
-      box.append(b)
-    })
-  })
-}
-</script>
-<script>setInterval(function(){var top=document.querySelector('.top');fetch('/top').then(function(r){return r.text()}).then(function(t){if(!top.contains(document.activeElement))top.innerHTML=t})},5000)</script>
-<script>setInterval(function(){fetch('/rows').then(function(r){return r.text()}).then(function(t){if(!document.activeElement||!document.getElementById('rows').contains(document.activeElement))document.getElementById('rows').innerHTML=t})},5000)</script>
-</main></body></html>`)
+  // the texts admin.js needs, as data: the CSP runs no inline script
+  const clientTexts = (L: Texts) =>
+    JSON.stringify({ copied: L.copied, up: L.up, loading: L.loading, nCourses: L.nCourses(0).replace('0', '{n}') }).replace(/</g, '\\u003c')
+
+  const CSP = "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
+  // light or dark as the switch of the page chose it (cookie), else the system's
+  const themeOf = (req: http.IncomingMessage) => /(?:^|;\s*)lia-theme=(light|dark)/.exec(String(req.headers.cookie || ''))?.[1] || ''
+  function shell(L: Texts, title: string, body: string, theme = '') {
+    return `<!doctype html><html lang="${L.lang}"${theme ? ` data-theme="${theme}"` : ''}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${esc(title)}</title><meta name="description" content="${esc(L.title)}"><meta name="robots" content="noindex">
+<link rel="icon" href="/static/icon.svg" type="image/svg+xml"><link rel="preload" href="/static/geist.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/static/admin.css"></head><body>${body}
+<script type="application/json" id="texts">${clientTexts(L)}</script><script src="/static/admin.js" defer></script></body></html>`
+  }
+  const NAV = ['access', 'users', 'class', 'settings', 'help'] as const
+  const navText = (L: Texts, id: (typeof NAV)[number]) => (id === 'class' ? L.nav.cls : L.nav[id])
+
+  async function adminPage(res: http.ServerResponse, L: Texts, message = '', theme = '') {
+    const [top, table] = [await topPart(L), await rows(L)]
+    const online = [...running.values()].filter((i) => i.open > 0).length
+    const [brand, word] = L.title.split(' ')
+    const links = NAV.map((id) => `<a href="#${id}" data-nav="${id}">${esc(navText(L, id))}</a>`).join('')
+    const lang = (['de', 'en'] as const)
+      .map((l) => `<a href="/lang/${l}" hreflang="${l}" lang="${l}"${L.lang === l ? ' aria-current="true"' : ''}>${l.toUpperCase()}</a>`)
+      .join('')
+    const courses = courseList(cfg.courses)
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Security-Policy': CSP })
+    res.end(
+      shell(
+        L,
+        L.title,
+        `<a class="skip" href="#main">${esc(L.skip)}</a>
+<header class="bar-wrap"><nav class="navbar" aria-label="${esc(L.title)}">
+<a class="brand" href="#access"><span class="mark">${icon('graduation-cap')}</span><span>${esc(brand)}</span><span class="muted">${esc(word || '')}</span></a>
+<div class="links">${links}</div>
+<span class="online" title="${esc(L.onlineNow)}"><span class="dot"></span><span id="online-label">${esc(L.online(online))}</span></span>
+<div class="lang" role="group" aria-label="${esc(L.langSwitch)}">${lang}</div>
+<button type="button" class="theme-btn" data-theme-toggle aria-label="${esc(L.themeSwitch)}" title="${esc(L.themeSwitch)}">${icon('sun', 'icon sun')}${icon('moon', 'icon moon')}</button>
+<button type="button" class="menu-btn" aria-expanded="false" aria-controls="panel"><span class="sr-only">${esc(L.menu)}</span><span class="l1"></span><span class="l2"></span></button>
+</nav></header>
+<div id="panel" class="panel" hidden><nav aria-label="${esc(L.menu)}">${links}</nav></div>
+<main id="main">
+${freshBox(L)}<div id="top">${top}</div>
+
+<section id="users" class="reveal" aria-labelledby="users-h"><div class="sec-head"><div><h2 id="users-h">${esc(L.users)}</h2><p class="t-sm muted">${esc(
+          L.usersLead,
+        )}</p></div><form method="post" action="/update/all">${btn('quiet sm', 'arrows-clockwise', L.updateAll)}</form></div>
+<div class="card table-card"><table><thead><tr><th>${esc(L.head.name)}</th><th>${esc(L.head.status)}</th><th>${esc(L.head.course)}</th><th>${esc(L.head.where)}</th><th>${esc(
+          L.head.chat,
+        )}</th><th class="num">${esc(L.head.cost)}</th><th><span class="sr-only">${esc(L.manage)}</span></th></tr></thead><tbody id="rows">${table}</tbody></table></div></section>
+
+<section id="class" class="reveal" aria-labelledby="class-h"><div class="sec-head"><div><h2 id="class-h">${esc(L.cls)}</h2><p class="t-sm muted">${esc(L.clsLead)}</p></div></div>
+<div class="card class-card"><form class="say" method="post" action="/class/say"><label class="sr-only" for="say-to">${esc(L.toAll)}</label><select id="say-to" name="to"><option value="${ALL}">${esc(
+          L.toAll,
+        )}</option>${Object.keys(users)
+          .sort()
+          .map((n) => `<option value="${esc(n)}">${esc(L.to(n))}</option>`)
+          .join('')}</select><label class="sr-only" for="say-text">${esc(L.message)}</label><textarea id="say-text" name="text" rows="2" required maxlength="2000" placeholder="${esc(
+          L.messagePlaceholder,
+        )}"></textarea>${btn('primary', 'paper-plane-tilt', L.send)}</form>
+${switchForm(L, '/class/dm', settings.dm, L.dm)}
+<div id="log" class="log">${classLog(L)}</div></div></section>
+
+<section id="new" class="reveal" aria-labelledby="new-h"><div class="sec-head"><div><h2 id="new-h">${esc(L.newUser)}</h2><p class="t-sm muted">${esc(L.newUserLead)}</p></div></div>
+<form class="card new" method="post" action="/users">
+<div class="field"><label for="nu-name">${esc(L.name)}</label><input id="nu-name" name="name" placeholder="${esc(L.namePlaceholder)}" autocomplete="off" required pattern="[A-Za-z0-9][A-Za-z0-9_\\-]{0,31}" data-error="${esc(
+          L.nameError,
+        )}"><p class="error" hidden></p></div>
+<div class="field"><label for="nu-pw">${esc(L.password)}</label><input id="nu-pw" name="password" type="password" autocomplete="new-password" placeholder="${esc(
+          L.passwordPlaceholder,
+        )}" required minlength="6" data-error="${esc(L.passwordError)}"><p class="error" hidden></p></div>
+<div class="field"><label for="nu-role">${esc(L.role)}</label><select id="nu-role" name="role"><option value="student">${esc(L.student)}</option><option value="author">${esc(
+          L.author,
+        )}</option></select></div>
+<div class="field"><label for="nu-course">${esc(L.courseLabel)}</label><select id="nu-course" name="course" title="${esc(L.courseFrom(cfg.courses))}"><option value="">${esc(
+          L.noCourse,
+        )}</option>${courses.map((c) => `<option>${esc(c)}</option>`).join('')}</select></div>
+${cfg.kit ? `<label class="check" title="${esc(L.withKitTitle)}"><input type="checkbox" name="kit" value="1"> ${esc(L.withKit)}</label>` : ''}
+<div class="submit">${btn('primary', 'user-plus', L.create)}</div>
+</form></section>
+
+<section class="reveal" aria-label="${esc(L.settings)}">${settingsBox(L)}</section>
+
+<section id="help" class="reveal" aria-labelledby="help-h"><div class="sec-head"><div><h2 id="help-h">${esc(L.help)}</h2></div></div>${helpBox(L)}</section>
+</main>
+<footer class="foot"><span>${esc(L.footer)}</span><a href="https://github.com/LiaScript/LiaScript-DevServer" target="_blank" rel="noopener">${esc(
+          L.source,
+        )}</a><a href="https://github.com/LiaScript/LiaScript-DevServer/blob/main/README.md" target="_blank" rel="noopener">${esc(L.docs)}</a></footer>
+<div class="toasts" role="status" aria-live="polite">${
+          message ? `<div class="toast">${icon('check')}<p>${esc(message)}</p><button type="button" class="btn quiet xs icon-only" data-dismiss aria-label="${esc(L.close)}">${icon('x')}</button></div>` : ''
+        }</div>
+<dialog id="qr-dialog" class="dialog qr-dialog" aria-labelledby="qr-title"><p id="qr-title" class="t-2xl strong"></p><div class="qr-big"></div><code class="qr-link"></code><form method="dialog">${btn(
+          'quiet',
+          'x',
+          L.close,
+        )}</form></dialog>
+<dialog id="ask" class="dialog"><p class="ask-text"></p><div class="actions"><button type="button" class="btn quiet" data-answer="no">${esc(L.cancel)}</button><button type="button" class="btn danger solid" data-answer="yes">${esc(
+          L.confirm,
+        )}</button></div></dialog>`,
+
+        theme,
+      ),
+    )
   }
 
-  function chatPage(res: http.ServerResponse, name: string) {
+  function chatPage(res: http.ServerResponse, L: Texts, name: string, theme = '') {
     const chats = path.join(dir, name, '.chats')
     let entries: any[] = []
     try {
@@ -983,19 +1178,34 @@ function folders(form, at) {
     const md = (m: string) => String(m || '').replace(/<!--[\s\S]*?-->\s*/g, '').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/\*\*/g, '')
     const text = (e: any) =>
       e.type === 'user' ? e.text : e.type === 'ai' ? md(e.markdown) : e.type === 'answer' ? Object.values(e.values || {}).join(', ') : e.label || e.cmd || ''
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' })
-    res.end(`<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Chat: ${esc(name)}</title>
-<style>:root{color-scheme:light dark;--bg:#f6f7f9;--fg:#1d2330;--card:#fff;--line:#d6dbe3;--me:#e6f4f1}@media (prefers-color-scheme:dark){:root{--bg:#14171c;--fg:#e6e9ee;--card:#1d2128;--line:#343a45;--me:#173430}}
-body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-serif}main{max-width:760px;margin:0 auto;padding:16px}
-.e{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 14px;margin:8px 0;white-space:pre-wrap}.user{background:var(--me)}small{opacity:.7}</style></head><body><main>
-<h1>Chat von ${esc(name)}</h1>${entries.length ? entries.map((e) => `<div class="e ${esc(e.type)}"><small>${esc(e.type === 'ai' ? (e.agent && (e.agent.label || e.agent.name)) || 'KI' : name)} · ${esc(e.t ? new Date(e.t).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : '')}</small>\n${esc(text(e))}</div>`).join('') : '<p>Noch kein Chat.</p>'}</main></body></html>`)
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Security-Policy': CSP })
+    res.end(
+      shell(
+        L,
+        L.chatOf(name),
+        `<main id="main" class="chat-page"><a class="btn quiet sm" href="/">${icon('arrow-up')}<span>${esc(L.back)}</span></a><h1 class="t-3xl strong">${esc(L.chatOf(name))}</h1>${
+          entries.length
+            ? entries
+                .map(
+                  (e) =>
+                    `<div class="e ${esc(e.type)}"><p class="t-xs muted">${esc(e.type === 'ai' ? (e.agent && (e.agent.label || e.agent.name)) || L.ai : name)} · ${esc(
+                      e.t ? new Date(e.t).toLocaleTimeString(L.locale, { hour: '2-digit', minute: '2-digit' }) : '',
+                    )}</p><p>${esc(text(e))}</p></div>`,
+                )
+                .join('')
+            : `<div class="empty-state">${icon('chat-circle-text', 'icon big')}<p class="t-sm muted">${esc(L.noChat)}</p></div>`
+        }</main>`,
+
+        theme,
+      ),
+    )
   }
 
   let link = ''
   const admin = http.createServer((req, res) =>
     adminRoute(req, res).catch((e: any) => {
-      notice('Fehler: ' + e.message, true)
-      if (!res.headersSent) res.writeHead(303, { Location: '/?m=' + encodeURIComponent('Fehler: ' + e.message) })
+      notice((L) => L.error(e.message), true)
+      if (!res.headersSent) res.writeHead(303, { Location: '/?m=' + encodeURIComponent(langOf(req).error(e.message)) })
       res.end()
     }),
   )
@@ -1006,6 +1216,13 @@ body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-
       res.writeHead(403)
       return res.end()
     }
+    const L = langOf(req)
+    // the look of the page, the same for everyone: no key needed
+    const file = /^\/static\/([\w.-]+)$/.exec(req.url || '')?.[1]
+    if (req.method === 'GET' && file && (file in STATIC || file === 'icon.svg')) {
+      res.writeHead(200, { 'Content-Type': file === 'icon.svg' ? 'image/svg+xml' : STATIC[file], 'Cache-Control': file.endsWith('.woff2') ? 'max-age=31536000' : 'no-cache' })
+      return res.end(file === 'icon.svg' ? FAVICON : fs.readFileSync(path.join(ADMIN_VIEWS, file)))
+    }
     // the address with the key of the terminal becomes a cookie, nothing works without it
     const key = new URL(req.url || '/', 'http://localhost').searchParams.get('k')
     if (req.method === 'GET' && key === cfg.key) {
@@ -1013,25 +1230,30 @@ body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-
       return res.end()
     }
     if (/(?:^|;\s*)lia-admin=([0-9a-f]+)/.exec(String(req.headers.cookie || ''))?.[1] !== cfg.key) {
-      res.writeHead(403, { 'Content-Type': 'text/html; charset=utf-8' })
-      return res.end('<!doctype html><meta charset="utf-8"><p style="font:16px system-ui;margin:2rem">Bitte die Adresse mit dem Schlüssel öffnen, die im Terminal steht (<code>…/?k=…</code>).</p>')
+      res.writeHead(403, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': CSP })
+      return res.end(shell(L, L.title, `<main id="main" class="chat-page"><div class="empty-state">${icon('key', 'icon big')}<p class="t-lg">${esc(L.keyNeeded)}: <code>…/?k=…</code></p></div></main>`, themeOf(req)))
     }
     const [, action, who] = /^\/(\w+)?\/?([^/?]*)/.exec(req.url || '') || []
 
     if (req.method === 'GET' && !action) {
       const message = new URL(req.url || '/', 'http://localhost').searchParams.get('m') || ''
-      return rows().then((t) => adminPage(res, link, t, message))
+      return adminPage(res, L, message, themeOf(req))
+    }
+    // the switch of the page: the language as a cookie, back to the page
+    if (req.method === 'GET' && action === 'lang' && (who === 'de' || who === 'en')) {
+      res.writeHead(303, { Location: '/', 'Set-Cookie': 'lia-lang=' + who + '; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000' })
+      return res.end()
     }
     // the top of the page, polled like the rows: new warnings show up at once
     if (req.method === 'GET' && action === 'top') {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' })
-      return res.end(accessBox() + warningBox() + costBox())
+      return res.end(await topPart(L))
     }
     if (req.method === 'GET' && action === 'rows') {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' })
-      return res.end(await rows())
+      return res.end(await rows(L))
     }
-    if (req.method === 'GET' && action === 'chat' && users[who]) return chatPage(res, who)
+    if (req.method === 'GET' && action === 'chat' && users[who]) return chatPage(res, L, who, themeOf(req))
     // the folder list of the settings: folders below home only
     if (req.method === 'GET' && action === 'folders') {
       const at = inHome(new URL(req.url || '/', 'http://localhost').searchParams.get('path') || os.homedir())
@@ -1049,7 +1271,7 @@ body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-
     }
     if (req.method === 'GET' && action === 'class' && who === 'log') {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' })
-      return res.end(classLog())
+      return res.end(classLog(L))
     }
     if (req.method !== 'POST') {
       res.writeHead(404)
@@ -1062,12 +1284,12 @@ body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-
       const password = String(f.get('password') || '')
       const role = String(f.get('role'))
       const course = String(f.get('course') || '').trim()
-      if (!NAME.test(name)) message = 'Der Name darf nur a-z, 0-9, - und _ enthalten.'
-      else if (users[name]) message = name + ' gibt es schon.'
-      else if (password.length < 6) message = 'Das Passwort braucht mindestens 6 Zeichen.'
-      else if (!ROLES.includes(role)) message = 'Unbekannte Rolle.'
+      if (!NAME.test(name)) message = L.badName
+      else if (users[name]) message = L.exists(name)
+      else if (password.length < 6) message = L.passwordError
+      else if (!ROLES.includes(role)) message = L.unknownRole
       // only a course of the list: no path from the form ever reaches the disk
-      else if (course && !courseList(cfg.courses).includes(course)) message = 'Den Kurs ' + course + ' gibt es in ' + cfg.courses + ' nicht.'
+      else if (course && !courseList(cfg.courses).includes(course)) message = L.noSuchCourse(course, cfg.courses)
       else {
         fs.mkdirSync(path.join(dir, name), { recursive: true })
         const kit = !!cfg.kit && f.get('kit') === '1'
@@ -1077,11 +1299,11 @@ body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-
         fresh = { name, password }
         // the copy in the background, the page shows how far it is
         if (course || kit) void updateCourse(name, true)
-        message = name + ' ist angelegt' + (course || kit ? ', ' + [course, kit && 'Teaching-Agent'].filter(Boolean).join(' und ') + ' wird kopiert …' : '.')
+        message = L.created(name, [course, kit && 'Teaching-Agent'].filter(Boolean).join(L.and))
       }
     } else if (action === 'password' && users[who]) {
       const password = String(f.get('password') || '')
-      if (password.length < 6) message = 'Das Passwort braucht mindestens 6 Zeichen.'
+      if (password.length < 6) message = L.passwordError
       else {
         users[who].salt = crypto.randomBytes(16).toString('hex')
         users[who].hash = hash(password, users[who].salt)
@@ -1090,7 +1312,7 @@ body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-
         // logged in with the old one: out
         for (const [t, n] of logins) if (n === who) logins.delete(t)
         saveLogins()
-        message = 'Neues Passwort für ' + who + ' gesetzt.'
+        message = L.passwordSet(who)
       }
     } else if (action === 'update' && who === 'all') {
       const list = Object.keys(users).filter(
@@ -1100,82 +1322,82 @@ body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-
       void (async () => {
         for (const n of list) await updateCourse(n)
       })()
-      message = list.length ? 'Updates laufen für ' + list.join(', ') + ' …' : 'Niemand hat einen Kurs.'
+      message = list.length ? L.updatesFor(list.join(', ')) : L.nobodyHasCourse
     } else if (action === 'update' && users[who] && (users[who].course || users[who].kit)) {
       void updateCourse(who)
-      message = 'Update für ' + who + ' läuft …'
+      message = L.updateFor(who)
     } else if (action === 'assign' && users[who] && !users[who].course) {
       const course = String(f.get('course') || '')
-      if (!courseList(cfg.courses).includes(course)) message = 'Bitte einen Kurs wählen.'
+      if (!courseList(cfg.courses).includes(course)) message = L.pickACourse
       else {
         users[who].course = course
         users[who].source = path.join(cfg.courses, course)
         save()
         void updateCourse(who, true)
-        message = course + ' wird für ' + who + ' kopiert …'
+        message = L.copyingFor(course, who)
       }
     } else if (action === 'settings' && who === 'share') {
-      message = setShare(f.get('on') === '1')
+      message = setShare(f.get('on') === '1', false, L)
     } else if (action === 'settings' && who === 'share-new') {
-      message = setShare(true, true)
+      message = setShare(true, true, L)
     } else if (action === 'settings' && who === 'lan') {
       const port = Number(f.get('port') || cfg.lan.port)
       if (Number.isInteger(port) && port > 0 && port < 65536 && port !== cfg.lan.port) {
         // a new port: the old server goes first
-        if (lanFront) await setLan(false)
+        if (lanFront) await setLan(false, L)
         cfg.lan.port = port
       }
-      message = await setLan(f.get('on') === '1')
+      message = await setLan(f.get('on') === '1', L)
     } else if (action === 'settings' && who === 'courses') {
       const at = inHome(String(f.get('path') || ''))
-      if (!at) message = OUTSIDE
-      else (cfg.courses = at), saveConfig(), (message = 'Kurse kommen jetzt aus ' + at + ' (' + courseList(at).length + ').')
+      if (!at) message = L.outside
+      else (cfg.courses = at), saveConfig(), (message = L.coursesFrom(at, courseList(at).length))
     } else if (action === 'settings' && who === 'kit') {
       const given = String(f.get('path') || '')
       const at = given ? inHome(given) : null
-      if (given && !at) message = OUTSIDE
-      else (cfg.kit = at), saveConfig(), (message = at ? 'Der Teaching-Agent kommt aus ' + at + '.' : 'Ohne Teaching-Agent.')
+      if (given && !at) message = L.outside
+      else (cfg.kit = at), saveConfig(), (message = at ? L.kitFrom(at) : L.noKit)
     } else if (action === 'settings' && who === 'models') {
       const chosen = (['student', 'author'] as const).map((r) => [r, String(f.get(r) || '')] as const)
-      if (chosen.some(([, m]) => m && !MODELS.includes(m))) message = 'Dieses Modell gibt es in der Liste nicht.'
+      if (chosen.some(([, m]) => m && !MODELS.includes(m))) message = L.unknownModel
       else {
         cfg.models = Object.fromEntries(chosen.filter(([, m]) => m))
         saveConfig()
-        message = 'Modelle gespeichert, sie gelten ab dem nächsten Start eines Nutzers.'
+        message = L.modelsSaved
       }
     } else if (action === 'settings' && who === 'idle') {
       const minutes = Number(f.get('minutes'))
-      if (!Number.isInteger(minutes) || minutes < 5 || minutes > 240) message = 'Bitte eine Zahl zwischen 5 und 240 Minuten.'
-      else (cfg.idleMinutes = minutes), saveConfig(), (message = 'Ohne offenen Tab stoppt die KI eines Nutzers nach ' + minutes + ' Minuten.')
+      if (!Number.isInteger(minutes) || minutes < 5 || minutes > 240) message = L.idleRange
+      else (cfg.idleMinutes = minutes), saveConfig(), (message = L.idleSet(minutes))
     } else if (action === 'settings' && who === 'web') {
       cfg.web = f.get('on') === '1'
       saveConfig()
-      message = (cfg.web ? 'Webseiten im Chat sind an' : 'Webseiten im Chat sind aus') + ', ab dem nächsten Start eines Nutzers.'
+      message = cfg.web ? L.webOn : L.webOff
     } else if (action === 'warnings' && /\/done$/.test(req.url || '') && warnings.some((w) => w.id === who)) {
       if (!done.includes(who)) done.push(who)
       fs.writeFileSync(doneFile, JSON.stringify(done), { mode: 0o600 })
-      message = 'Warnung erledigt.'
+      message = L.warningDone
     } else if (action === 'class' && who === 'say') {
       const to = String(f.get('to') || ALL)
       const text = String(f.get('text') || '').trim()
-      if (text && text.length <= 2000 && (to === ALL || users[to])) post(TEACHER, to, text), (message = 'Gesendet an ' + (to === ALL ? 'alle' : to) + '.')
+      if (text && text.length <= 2000 && (to === ALL || users[to])) post(TEACHER, to, text), (message = L.sentTo(to === ALL ? L.all : to))
     } else if (action === 'class' && who === 'dm') {
       settings.dm = f.get('on') === '1'
       saveSettings()
       classChanged()
-      message = settings.dm ? 'Schüler dürfen einander schreiben.' : 'Schüler schreiben nur noch der Lehrkraft.'
+      message = settings.dm ? L.dmOn : L.dmOff
     } else if (action === 'mute' && users[who]) {
       settings.muted = settings.muted.includes(who) ? settings.muted.filter((n) => n !== who) : [...settings.muted, who]
       saveSettings()
       classChanged()
-      message = who + (settings.muted.includes(who) ? ' ist stummgeschaltet.' : ' darf wieder schreiben.')
+      message = settings.muted.includes(who) ? L.isMuted(who) : L.isUnmuted(who)
     } else if (action === 'delete' && users[who]) {
       running.get(who)?.child?.kill()
       for (const [t, n] of logins) if (n === who) logins.delete(t)
       saveLogins()
       delete users[who]
       save()
-      message = who + ' ist gelöscht, der Ordner ' + path.join(path.basename(dir), who) + ' bleibt.'
+      message = L.deleted(who, path.join(path.basename(dir), who))
     }
     // after a POST back to the page, so F5 does not send the form again
     res.writeHead(303, { Location: '/?m=' + encodeURIComponent(message) })
@@ -1198,24 +1420,24 @@ body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-
   await new Promise<void>((resolve, reject) => admin.once('error', reject).listen(cfg.admin, '127.0.0.1', resolve))
   // Share and LAN, switched on the admin page too: off ends the open tabs
   let stopShare: (() => void) | null = null
-  function setShare(on: boolean, fresh = false): string {
+  function setShare(on: boolean, fresh = false, L: Texts = TEXTS.en): string {
     if (stopShare && (!on || fresh)) stopShare(), (stopShare = null), (link = '')
     if (on && !stopShare) {
       const shared = share({ local: frontOrigin, proxy: frontOrigin, root: dir, page: cfg.share.page, web: cfg.share.web || otherOrigin(cfg.share.page), fresh })
-      if ('holder' in shared) return 'Ein anderes Programm (pid ' + shared.holder + ') teilt diesen Klassenordner schon.'
+      if ('holder' in shared) return L.holder(shared.holder)
       link = shared.link
       stopShare = shared.stop
     }
     cfg.share.on = on
     saveConfig()
-    return on ? (fresh ? 'Neuer Link: der alte geht nicht mehr.' : 'Zugang über das Internet ist an.') : 'Zugang über das Internet ist aus.'
+    return on ? (fresh ? L.linkIsNew : L.shareIsOn) : L.shareIsOff
   }
   // --lan: the same front for browsers on the network of the school, no
   // share page and no internet needed. What only the share host may say is
   // dropped; the address is the one the browser used.
   const lanAddresses: string[] = []
   let lanFront: http.Server | null = null
-  async function setLan(on: boolean): Promise<string> {
+  async function setLan(on: boolean, L: Texts = TEXTS.en): Promise<string> {
     if (lanFront && !on) {
       lanFront.close()
       lanFront.closeAllConnections()
@@ -1232,7 +1454,7 @@ body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-
       try {
         await new Promise<void>((resolve, reject) => server.once('error', reject).listen(cfg.lan.port, '0.0.0.0', resolve))
       } catch (e: any) {
-        return e.code === 'EADDRINUSE' ? 'Port ' + cfg.lan.port + ' ist belegt, ein anderes Programm nutzt ihn. Bitte einen anderen Port wählen.' : 'Schulnetz geht nicht: ' + e.message
+        return e.code === 'EADDRINUSE' ? L.portBusy(cfg.lan.port) : L.lanFailed(e.message)
       }
       lanFront = server
       for (const [name, list] of Object.entries(os.networkInterfaces()))
@@ -1242,7 +1464,7 @@ body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-
     }
     cfg.lan.on = on
     saveConfig()
-    return on ? 'Zugang im Schulnetz ist an.' : 'Zugang im Schulnetz ist aus.'
+    return on ? L.lanIsOn : L.lanIsOff
   }
   if (cfg.share.on) {
     const said = setShare(true, o.fresh)
