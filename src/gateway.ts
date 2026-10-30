@@ -1183,7 +1183,7 @@ ${cfg.kit ? `<label class="check" title="${esc(L.withKitTitle)}"><input type="ch
       shell(
         L,
         L.chatOf(name),
-        `<main id="main" class="chat-page"><a class="btn quiet sm" href="/">${icon('arrow-up')}<span>${esc(L.back)}</span></a><h1 class="t-3xl strong">${esc(L.chatOf(name))}</h1>${
+        `<main id="main" class="chat-page"><a class="btn quiet sm" href="/">${icon('arrow-up')}<span>${esc(L.back)}</span></a><h1 class="t-3xl strong">${esc(L.chatOf(name))}</h1><div id="entries">${
           entries.length
             ? entries
                 .map(
@@ -1194,7 +1194,7 @@ ${cfg.kit ? `<label class="check" title="${esc(L.withKitTitle)}"><input type="ch
                 )
                 .join('')
             : `<div class="empty-state">${icon('chat-circle-text', 'icon big')}<p class="t-sm muted">${esc(L.noChat)}</p></div>`
-        }</main>`,
+        }</div></main>`,
 
         theme,
       ),

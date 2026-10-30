@@ -1533,6 +1533,10 @@ input.path {
 .chat-page h1 {
   margin: 12px 0;
 }
+/* refreshed by admin.js, its entries stay items of the grid */
+#entries {
+  display: contents;
+}
 .chat-page > .btn {
   justify-self: start;
 }

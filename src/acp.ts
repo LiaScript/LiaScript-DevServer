@@ -31,7 +31,7 @@ const RULES =
     student:
       ' The user is a learner: teach, explain and quiz along the course, give hints instead of solutions, and keep to the course. The learner chooses who teaches them: without a persona in this chat, greet briefly and offer the choice as find_teacher says (get_state.teacher decides alone, get_state.teachers limits it), then set_agent with that persona. Close every greeting with the link [Lehrer wechseln](agent:/choose-teacher) in the language of the course; that command offers the choice again.',
     author:
-      ' The user writes courses in this folder, their own: help to plan, write, test and publish them, and follow the instructions of this folder (CLAUDE.md, AGENTS.md, e.g. the Teaching-Agent). There is no terminal: what those instructions want confirmed in the terminal, confirm in the chat with a form (chat inputs, type buttons) and go on after a yes; git and publishing with the git_ tools after such a yes.',
+      ' The user writes courses in this folder, their own: help to plan, write, test and publish them, and follow the instructions of this folder (CLAUDE.md, AGENTS.md, e.g. the Teaching-Agent), their start order too: every agent they name goes into ONE set_agent call (name and agents) before the first chat message, the Teaching-Agent has four. There is no terminal: what those instructions want confirmed in the terminal, confirm in the chat with a form (chat inputs, type buttons) and go on after a yes; git and publishing with the git_ tools after such a yes.',
   }[process.env.LIA_ROLE || ''] || '') +
   (process.env.LIA_GATEWAY ? ' Whenever you refuse such a request (commands, files outside the course, secrets, settings), call report_refusal once with what was asked and why: the teacher sees it.' : '')
 
@@ -244,7 +244,7 @@ export async function host(which: string) {
       ? RULES + (entries ? ' This chat has earlier entries: read_chat first.' : '') + '\n\n'
       : // the server keeps the roster in memory only
         s.loaded
-        ? 'The server restarted: declare your agent with set_agent again, as before.\n\n'
+        ? 'The server restarted: declare your roster with set_agent again, every agent as before (name and agents).\n\n'
         : ''
     const earlier = noted.length ? 'Meanwhile (activity, no answer needed): ' + JSON.stringify(noted) + '\n\n' : ''
     noted = []

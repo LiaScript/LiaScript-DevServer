@@ -196,14 +196,16 @@
   // ------------------------------------------------------------ poll
   // the parts that change by themselves; never while the teacher is in them
   function busy(el) {
+    // typing only: a copy button or menu keeps the focus after the click, and the table stood still
     return (
-      el.contains(document.activeElement) ||
+      (el.contains(document.activeElement) && document.activeElement.matches('input, select, textarea')) ||
       el.querySelector('details[open]') ||
       document.querySelector('dialog[open]') ||
       el.querySelector('[aria-busy]')
     )
   }
-  function refresh(id, url, then) {
+  // whole: the url answers the whole page, its element of that id is taken
+  function refresh(id, url, then, whole) {
     var el = document.getElementById(id)
     if (!el || busy(el)) return
     fetch(url)
@@ -212,6 +214,8 @@
       })
       .then(function (html) {
         if (busy(el)) return
+        if (whole) html = new DOMParser().parseFromString(html, 'text/html').getElementById(id).innerHTML
+        if (html === el.innerHTML) return
         el.innerHTML = html
         if (then) then(el)
       })
@@ -226,6 +230,11 @@
     })
     refresh('rows', '/rows')
     refresh('log', '/class/log')
+    // the chat of a user: follows the newest entry while the teacher reads at the end
+    var end = innerHeight + scrollY >= document.documentElement.scrollHeight - 40
+    refresh('entries', location.pathname, function () {
+      if (end) scrollTo(0, document.documentElement.scrollHeight)
+    }, true)
   }, 5000)
 
   // ------------------------------------------------------------ menu and the section in view
