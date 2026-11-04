@@ -463,12 +463,17 @@ async function main() {
   // a fake browser: connected over SSE, it receives the goto
   let stream = ''
   const sse = http.get(ORIGIN + '/gotoLine', (res) => res.on('data', (chunk) => (stream += chunk)))
+  // an event reaches the stream a moment after the tool returned: wait for it
+  const streamHas = async (text, ms = 2000) => {
+    for (let t = 0; t < ms && !stream.includes(text); t += 20) await sleep(20)
+    return stream.includes(text)
+  }
   await sleep(200)
   assert.strictEqual((await tool('get_state', {})).connected, true)
 
   const moved = tool('goto', { slide: 5 })
   await sleep(200)
-  assert.ok(stream.includes('{"goto":{"slide":5}}'), 'goto reaches the browser: ' + stream)
+  assert.ok(await streamHas('{"goto":{"slide":5}}'), 'goto reaches the browser: ' + stream)
   await post({ type: 'state', context: { file: 'README.md', slide: 5, title: 'T5', selection: '' } })
   assert.strictEqual((await moved).slide, 5, 'goto answers with the reported state')
 
@@ -477,7 +482,7 @@ async function main() {
   // away, goto waits for the new one
   const opened = tool('goto', { file: 'other.md', slide: 2 })
   await sleep(200)
-  assert.ok(stream.includes('{"goto":{"file":"other.md","slide":2}}'), 'goto with a file: ' + stream)
+  assert.ok(await streamHas('{"goto":{"file":"other.md","slide":2}}'), 'goto with a file: ' + stream)
   sse.destroy()
   await post(report)
   await sleep(800)
@@ -590,7 +595,7 @@ async function main() {
       stream = ''
       const going = tool('goto', args)
       await sleep(100)
-      assert.ok(stream.includes('"slide":' + slide + '}}'), JSON.stringify(args) + ': ' + stream)
+      assert.ok(await streamHas('"slide":' + slide + '}}'), JSON.stringify(args) + ': ' + stream)
       await post({ type: 'state', context: { file: 'check-goto.md', slide, title: 'x', selection: '' } })
       await going
     }
@@ -601,16 +606,16 @@ async function main() {
   await post({ type: 'state', context: { file: was.file, slide: was.slide, title: was.title, selection: '' } })
 
   assert.deepStrictEqual(await tool('chat', { markdown: '**hi**' }), { sent: true })
-  assert.ok(stream.includes('"markdown":"**hi**"'), 'the message reaches the shell')
+  assert.ok(await streamHas('"markdown":"**hi**"'), 'the message reaches the shell')
 
   // progress line: alone it is no message, with one it stays after it
   assert.deepStrictEqual(await tool('chat', { status: 'Reading CLAUDE.md' }), { sent: true })
-  assert.ok(stream.includes('{"status":"Reading CLAUDE.md"}'), 'the status reaches the shell: ' + stream)
+  assert.ok(await streamHas('{"status":"Reading CLAUDE.md"}'), 'the status reaches the shell: ' + stream)
   await tool('chat', { markdown: 'first part', status: 'Building' })
-  assert.ok(stream.includes('"markdown":"first part","inputs":[],"status":"Building"'), 'a message can keep a status')
+  assert.ok(await streamHas('"markdown":"first part","inputs":[],"status":"Building"'), 'a message can keep a status')
   // the language of a message, so that reading it aloud takes the right voice
   await tool('chat', { markdown: 'Bonjour', lang: 'fr-FR' })
-  assert.ok(stream.includes('"markdown":"Bonjour","inputs":[],"lang":"fr-FR"'), 'the language reaches the shell')
+  assert.ok(await streamHas('"markdown":"Bonjour","inputs":[],"lang":"fr-FR"'), 'the language reaches the shell')
   assert.ok((await tool('chat', { markdown: 'x', lang: 'french!' })).isError, 'lang is a language tag')
   assert.ok((await tool('chat', {})).isError, 'markdown or status')
   assert.ok((await tool('chat', { status: 5 })).isError, 'status is a string')
@@ -623,7 +628,7 @@ async function main() {
   assert.ok((await tool('chat', { markdown: 'x', inputs: [{ id: 'who', type: 'teacher', options: ids.slice(0, 7) }] })).isError, 'at most six teachers')
   const pick = await tool('chat', { markdown: 'Wer soll dich unterrichten?', inputs: [{ id: 'who', type: 'teacher', options: ['socrates', 'marie-curie'] }], wait: false })
   assert.ok(pick.ask, 'a teacher form is a form')
-  assert.ok(stream.includes('"inputs":[{"id":"who","type":"teacher","options":["socrates","marie-curie"]}]'), 'the shell gets the ids')
+  assert.ok(await streamHas('"inputs":[{"id":"who","type":"teacher","options":["socrates","marie-curie"]}]'), 'the shell gets the ids')
   await tool('chat', { close: true })
 
   const inputs = [
@@ -638,7 +643,7 @@ async function main() {
   assert.strictEqual(immediate.sent, true)
   await post({ type: 'answer', params: { ask: immediate.ask, level: 'easy', topics: ['a', 'c'] } })
   await sleep(100)
-  assert.ok(stream.includes('"type":"answer","ask":"' + immediate.ask + '","values":{"level":"easy","topics":["a","c"]}}'), 'the shell shows the choice: ' + stream)
+  assert.ok(await streamHas('"type":"answer","ask":"' + immediate.ask + '","values":{"level":"easy","topics":["a","c"]}}'), 'the shell shows the choice: ' + stream)
   const answerEvent = await tool('wait_for_event', { timeout_s: 0 })
   assert.strictEqual(answerEvent.type, 'answer')
   assert.strictEqual(answerEvent.params.ask, immediate.ask)
@@ -649,11 +654,11 @@ async function main() {
   // only the newest form is open: an old "Save" must not save an old draft
   const older = await tool('chat', { markdown: 'draft 1', inputs, wait: false })
   const newer = await tool('chat', { markdown: 'draft 2', inputs, wait: false })
-  assert.ok(stream.includes('{"closed":"' + older.ask + '"}'), 'the shell closes the older form')
+  assert.ok(await streamHas('{"closed":"' + older.ask + '"}'), 'the shell closes the older form')
   assert.strictEqual((await post({ type: 'answer', params: { ask: older.ask, level: 'easy' } })).status, 409, 'a replaced form takes no answer')
   assert.ok((await tool('chat', { close: 'yes' })).isError, 'close is a boolean')
   assert.deepStrictEqual(await tool('chat', { close: true, reason: 'Answered by your message' }), { sent: true, closed: newer.ask })
-  assert.ok(stream.includes('{"closed":"' + newer.ask + '","reason":"Answered by your message"}'), 'the shell closes the withdrawn form and says why')
+  assert.ok(await streamHas('{"closed":"' + newer.ask + '","reason":"Answered by your message"}'), 'the shell closes the withdrawn form and says why')
   assert.strictEqual((await post({ type: 'answer', params: { ask: newer.ask, level: 'easy' } })).status, 409, 'a withdrawn form takes no answer')
   assert.deepStrictEqual(await tool('chat', { close: true }), { sent: true, closed: null })
   // a waiting call learns that its form was withdrawn
@@ -796,9 +801,9 @@ async function main() {
     'button and menu learn the agents: ' + stream,
   )
   await tool('chat', { markdown: 'from the tutor' })
-  assert.ok(stream.includes('"markdown":"from the tutor","inputs":[],"agent":' + JSON.stringify(tutor)), 'a message is signed')
+  assert.ok(await streamHas('"markdown":"from the tutor","inputs":[],"agent":' + JSON.stringify(tutor)), 'a message is signed')
   await tool('chat', { markdown: 'from the examiner', agent: 'examiner' })
-  assert.ok(stream.includes('"markdown":"from the examiner","inputs":[],"agent":' + JSON.stringify(examiner)))
+  assert.ok(await streamHas('"markdown":"from the examiner","inputs":[],"agent":' + JSON.stringify(examiner)))
   assert.strictEqual((await tool('get_state', {})).agent, 'examiner', 'signing switches')
   const owl = await tool('set_agent', { name: 'tutor', emoji: '🦉' })
   assert.deepStrictEqual(owl.agents.map((a) => a.emoji), ['🦉', '📝'], 'a new emoji keeps the order of the menu')
@@ -816,7 +821,7 @@ async function main() {
   assert.strictEqual((await post({ type: 'command', agent: 'examiner', cmd: 'switch', params: {} })).status, 204)
   await sleep(100)
   assert.strictEqual((await tool('get_state', {})).agent, 'examiner', 'the switch takes effect at once')
-  assert.ok(stream.includes('data: {"agents":{"current":' + JSON.stringify(examiner) + ',"list":[{"name":"tutor","emoji":"🦉"},' + JSON.stringify(examiner) + '],"view":"author"}}\n\n'), 'and the shell hears of it')
+  assert.ok(await streamHas('data: {"agents":{"current":' + JSON.stringify(examiner) + ',"list":[{"name":"tutor","emoji":"🦉"},' + JSON.stringify(examiner) + '],"view":"author"}}\n\n'), 'and the shell hears of it')
   // the menu sends no link text: the bubble and the history take the name
   assert.ok(/data: \{"entry":\{[^}]*"type":"command","agent":"examiner","cmd":"switch","label":"examiner"\}\}\n\n$/.test(stream), 'a bubble: ' + stream.slice(-300))
   assert.deepStrictEqual(notifications.pop().params.meta, { type: 'command', agent: 'examiner', cmd: 'switch' }, 'the agents hear of it')
@@ -836,7 +841,7 @@ async function main() {
   assert.ok((await tool('set_agent', { name: 'nobody', label: 'Niemand' })).isError, 'a label alone declares no agent')
   const labelled = await tool('set_agent', { name: 'examiner', label: 'Prüfung' })
   assert.deepStrictEqual(labelled.agents[1], { ...examiner, label: 'Prüfung' }, 'a label alone keeps the emoji')
-  assert.ok(stream.includes('"current":{"name":"examiner","emoji":"📝","label":"Prüfung"}'), 'the shell learns it')
+  assert.ok(await streamHas('"current":{"name":"examiner","emoji":"📝","label":"Prüfung"}'), 'the shell learns it')
   const declared = await tool('set_agent', { name: 'examiner', agents: [{ ...tutor, label: 'Unterricht' }, examiner] })
   assert.deepStrictEqual(declared.agents, [{ ...tutor, label: 'Unterricht' }, examiner])
 
@@ -851,9 +856,9 @@ async function main() {
   assert.strictEqual(curie.persona.teaching, Teachers.get('marie-curie').teaching)
   assert.ok(/AI/.test(curie.persona.rules) && /quote/.test(curie.persona.rules), 'the rules of the role: ' + curie.persona.rules)
   await sleep(100) // the tool result can overtake the stream
-  assert.ok(stream.includes('"persona":"marie-curie"'), 'the shell learns the persona')
+  assert.ok(await streamHas('"persona":"marie-curie"'), 'the shell learns the persona')
   await tool('chat', { markdown: 'Bonjour, je suis une IA dans le rôle de Marie Curie' })
-  assert.ok(stream.includes('"agent":{"name":"tutor","emoji":"🧑‍🏫","label":"Marie Curie","persona":"marie-curie"}'), 'a message carries it')
+  assert.ok(await streamHas('"agent":{"name":"tutor","emoji":"🧑‍🏫","label":"Marie Curie","persona":"marie-curie"}'), 'a message carries it')
   const savedEntry = (await tool('read_chat', { last: 1 })).entries[0]
   assert.strictEqual(savedEntry.agent, 'tutor')
   assert.strictEqual(savedEntry.persona, 'marie-curie', 'read_chat tells a fresh agent the persona')
@@ -876,7 +881,7 @@ async function main() {
   assert.ok((await tool('set_agent', { name: 'prof', voice: 'x'.repeat(101) })).isError, 'voice is short')
   const voiced = await tool('set_agent', { name: 'prof', voice: 'de_DE-thorsten-high' })
   assert.deepStrictEqual(voiced.agents[2], { name: 'prof', emoji: '🎓', label: 'Sokrates', persona: 'socrates', voice: 'de_DE-thorsten-high' })
-  assert.ok(stream.includes('"voice":"de_DE-thorsten-high"'), 'the shell learns the voice')
+  assert.ok(await streamHas('"voice":"de_DE-thorsten-high"'), 'the shell learns the voice')
   // the browser reported 50 voices named v: thorsten is none of them
   assert.ok(/de_DE-thorsten-high/.test(voiced.warning) && /voice_names/.test(voiced.warning), 'a guessed voice is told: ' + voiced.warning)
   assert.strictEqual((await tool('set_agent', { name: 'prof', voice: 'v' })).warning, undefined, 'a voice of the browser is not')
@@ -899,7 +904,7 @@ async function main() {
   assert.ok((await tool('set_agent', { name: 'tutor', view: 'teacher' })).isError, 'view is author or learner')
   let viewed = await tool('set_agent', { name: 'tutor', view: 'author' })
   assert.strictEqual(viewed.view, 'author', 'asked for in the chat: back to the author view')
-  assert.ok(stream.includes('"view":"author"}}'), 'the shell hears of it')
+  assert.ok(await streamHas('"view":"author"}}'), 'the shell hears of it')
   viewed = await tool('set_agent', { name: 'tutor', persona: 'marie-curie', view: 'author' })
   assert.strictEqual(viewed.view, 'author', 'an author plans with a persona')
   await tool('set_agent', { name: 'tutor', view: 'learner' })
@@ -1315,6 +1320,11 @@ async function main() {
   assert.strictEqual((await request('POST', '/lia-login', { ...TAB, ...FORM }, 'name=anna&password=nope', front)).status, 401, 'a wrong password')
   const right = await request('POST', '/lia-login', { ...TAB, ...FORM }, 'name=anna&password=secret1', front)
   const token = /setItem\('lia-share-token', "([0-9a-f]{32})"\)/.exec(right.data)[1]
+  // a learner opens the course, even where a journal.md of the Teaching-Agent lies
+  fs.writeFileSync(path.join(USERS, 'carl', 'journal.md'), '# Journal\n')
+  const carlToken = /"([0-9a-f]{32})"/.exec((await request('POST', '/lia-login', { ...TAB, ...FORM }, 'name=carl&password=secret1', front)).data)[1]
+  const carlIn = await request('GET', '/', { ...TAB, 'X-Lia-Token': carlToken }, undefined, front)
+  assert.ok(carlIn.status === 302 && /README\.md$/.test(carlIn.headers.location), 'a learner gets README.md: ' + carlIn.headers.location)
   assert.ok(right.data.includes('Weiterlernen') && !right.data.includes('Werkstatt'), 'a learner learns on')
   const inside = await request('GET', '/', { ...TAB, 'X-Lia-Token': token }, undefined, front)
   assert.strictEqual(inside.status, 302, 'the DevServer of anna')
@@ -1391,6 +1401,11 @@ async function main() {
     [true, true, false, false],
     'the instructions and specs, not the sample course, not .mcp.json',
   )
+  // an author opens the journal of the Teaching-Agent, the dashboard of the course
+  fs.writeFileSync(erik('journal.md'), '# Journal\n')
+  const erikToken = /"([0-9a-f]{32})"/.exec(erikIn)[1]
+  const erikHome = await request('GET', '/', { ...TAB, 'X-Lia-Token': erikToken }, undefined, front2)
+  assert.ok(erikHome.status === 302 && /journal\.md$/.test(erikHome.headers.location), 'an author gets journal.md: ' + erikHome.headers.location)
   fs.writeFileSync(path.join(KITDIR, 'CLAUDE.md'), 'Teaching-Agent v2\n')
   await request('POST', '/update/erik', ADM, '', ADMIN)
   await settled()
