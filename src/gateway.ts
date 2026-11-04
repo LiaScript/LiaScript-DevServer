@@ -17,7 +17,7 @@ import * as path from 'path'
 import { sameOrigin } from './lib'
 import { share, otherOrigin, PAGE } from './share'
 import { TEXTS, langOf } from './admin-texts'
-import { LOGIN, loginHtml, shellHtml } from './login'
+import { LOGIN, loginHtml, shellHtml, welcomeHtml } from './login'
 import type { Texts } from './admin-texts'
 import { icon, FAVICON } from './icons'
 
@@ -573,17 +573,6 @@ export async function gateway(o: Options) {
 
   // ------------------------------------------------------------ the front
 
-  function page(res: http.ServerResponse, title: string, body: string, status = 200, more: http.OutgoingHttpHeaders = {}) {
-    res.writeHead(status, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', ...more })
-    res.end(`<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(title)}</title>
-<style>:root{color-scheme:light dark;--bg:#f6f7f9;--fg:#1d2330;--card:#fff;--line:#d6dbe3;--accent:#0f766e;--bad:#b42318}
-@media (prefers-color-scheme:dark){:root{--bg:#14171c;--fg:#e6e9ee;--card:#1d2128;--line:#343a45;--accent:#2dd4bf;--bad:#f97066}}
-body{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,sans-serif}
-form{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:24px;width:min(320px,calc(100vw - 32px));display:grid;gap:12px}
-h1{font-size:1.25rem;margin:0}input,button{font:inherit;padding:10px 12px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
-button{background:var(--accent);border-color:var(--accent);color:#fff;cursor:pointer}.bad{color:var(--bad);margin:0}</style></head><body>${body}</body></html>`)
-  }
-
   // the texts of the front: the language of the browser, as on the admin page
   const loginTexts = (req: http.IncomingMessage) => LOGIN[langOf(req).lang]
   // user: the name of a link of the admin page (?user=), never a password.
@@ -632,13 +621,12 @@ button{background:var(--accent);border-color:var(--accent);color:#fff;cursor:poi
       console.log('👤 ' + who + ': logged in')
       // the share page sends it along with every request of this tab, a
       // browser on the network of the school keeps it as a cookie
-      return page(
-        res,
-        'Angemeldet',
-        `<script>sessionStorage.setItem('lia-share-token', ${JSON.stringify(token)}); location.replace(${JSON.stringify(base + '/')})</script>`,
-        200,
-        lan ? { 'Set-Cookie': 'lia=' + token + '; Path=/; HttpOnly; SameSite=Strict; Max-Age=' + LOGIN_MS / 1000 } : {},
-      )
+      res.writeHead(200, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-store',
+        ...(lan ? { 'Set-Cookie': 'lia=' + token + '; Path=/; HttpOnly; SameSite=Strict; Max-Age=' + LOGIN_MS / 1000 } : {}),
+      })
+      return res.end(welcomeHtml({ L: loginTexts(req), base, name: who, role: user.role === 'author' ? 'author' : 'student', token }))
     }
 
     if (!name || !users[name]) {

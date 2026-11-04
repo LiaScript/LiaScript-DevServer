@@ -33,6 +33,7 @@ const de = {
   write: 'Weiterschreiben …',
   back: 'Willkommen zurück,',
   workshop: 'Werkstatt für Autoren',
+  ready: 'Bereit, wenn du es bist.',
   moment: 'Einen Moment',
   preparing: (share: string) => 'Dein Kurs wird vorbereitet' + share + '. Die Seite lädt gleich von selbst neu.',
 }
@@ -63,6 +64,7 @@ const en: LoginTexts = {
   write: 'Back to writing …',
   back: 'Welcome back,',
   workshop: 'Workshop for authors',
+  ready: 'Ready when you are.',
   moment: 'One moment',
   preparing: (share: string) => 'Your course is being prepared' + share + '. The page reloads by itself.',
 }
@@ -143,5 +145,24 @@ ${o.message ? `<p class="bad" role="alert">${esc(o.message)}</p>` : ''}<button c
       L.hide,
     )}:${JSON.stringify(L.show)})}</script>`,
     { secure: o.secure },
+  )
+}
+
+// after a right password: for about a second the page of the role, then on.
+// The token first: the share page takes it from sessionStorage.
+export function welcomeHtml(o: { L: LoginTexts; base: string; name: string; role: 'student' | 'author'; token: string }) {
+  const { L, name } = o
+  const author = o.role === 'author'
+  return shellHtml(
+    L,
+    o.base,
+    L.welcome,
+    `<section class="hi"><div class="meet">${author ? AUTHOR : COMPANION}<p class="bubble">${esc(author ? L.ready : L.companion)}</p></div>
+<h1>${esc(author ? L.back : L.hello)} <span class="who">${esc(name)}</span>.</h1>
+<p class="lead" role="status">${esc(author ? L.write : L.learn)}</p></section>
+<script>sessionStorage.setItem('lia-share-token', ${JSON.stringify(o.token)}); setTimeout(function () { location.replace(${JSON.stringify(
+      o.base + '/',
+    )}) }, matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 1200)</script>`,
+    { author, mode: author ? L.workshop : '' },
   )
 }

@@ -1297,6 +1297,7 @@ async function main() {
   assert.strictEqual((await request('POST', '/lia-login', { ...TAB, ...FORM }, 'name=anna&password=nope', front)).status, 401, 'a wrong password')
   const right = await request('POST', '/lia-login', { ...TAB, ...FORM }, 'name=anna&password=secret1', front)
   const token = /setItem\('lia-share-token', "([0-9a-f]{32})"\)/.exec(right.data)[1]
+  assert.ok(right.data.includes('Weiterlernen') && !right.data.includes('Werkstatt'), 'a learner learns on')
   const inside = await request('GET', '/', { ...TAB, 'X-Lia-Token': token }, undefined, front)
   assert.strictEqual(inside.status, 302, 'the DevServer of anna')
   assert.ok(inside.headers.location.startsWith('https://liascript.github.io/share/tab-x/liascript/chat.html?'), inside.headers.location)
@@ -1360,6 +1361,9 @@ async function main() {
   // --kit: an author with the Teaching-Agent
   await request('POST', '/users', ADM, 'name=erik&password=secret1&role=author&kit=1', ADMIN)
   await settled()
+  const erikIn = (await request('POST', '/lia-login', { ...TAB, ...FORM }, 'name=erik&password=secret1', front2)).data
+  assert.ok(erikIn.includes('Weiterschreiben') && erikIn.includes('Werkstatt für Autoren') && erikIn.includes('Willkommen zurück'), 'an author writes on')
+  assert.ok(/setItem\('lia-share-token', "[0-9a-f]{32}"\)/.test(erikIn), 'and gets the token')
   const erik = (f) => path.join(USERS, 'erik', f)
   assert.deepStrictEqual(
     [fs.existsSync(erik('CLAUDE.md')), fs.existsSync(erik('specs/main.md')), fs.existsSync(erik('README.md')), fs.existsSync(erik('.mcp.json'))],
