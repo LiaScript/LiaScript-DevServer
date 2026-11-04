@@ -320,8 +320,9 @@ export async function gateway(o: Options) {
     const home = path.join(dir, name)
     fs.mkdirSync(home, { recursive: true })
     const token = crypto.randomBytes(16).toString('hex')
-    // the journal of the Teaching-Agent is the dashboard of an author
-    const input = ['journal.md', 'README.md'].find((f) => fs.existsSync(path.join(home, f))) || '.'
+    // the journal of the Teaching-Agent is the dashboard of an author; a
+    // learner gets the course, even where a journal.md came with it
+    const input = (users[name].role === 'author' ? ['journal.md', 'README.md'] : ['README.md']).find((f) => fs.existsSync(path.join(home, f))) || '.'
     const inst: Instance = { child: null as any, ready: null as any, port: 0, token, open: 0, last: Date.now() }
     let child: ChildProcess
     inst.ready = starting = starting.then(async () => {
