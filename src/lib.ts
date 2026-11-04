@@ -844,8 +844,10 @@ export async function start(
           }
 
           // a function, since a replacement string would expand $& and $'
-          // that occur in the injected scripts
-          res.send(data.replace('</head>', () => head + '</head>'))
+          // that occur in the injected scripts; the player of 2.6.1 is minified
+          // without the optional </head>, then the scripts go before <body>
+          const at = data.includes('</head>') ? '</head>' : data.includes('<body') ? '<body' : ''
+          res.send(at ? data.replace(at, () => head + at) : head + data)
         },
       )
     },
