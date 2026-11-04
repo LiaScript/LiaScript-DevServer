@@ -550,6 +550,9 @@ async function main() {
   assert.strictEqual(P.unread(0, { kind: 'ai', replay: false }, 'course'), 1)
   assert.strictEqual(P.unread(2, { kind: 'ai', replay: true }, 'course'), 2, 'a replay is not new')
   assert.strictEqual(P.unread(2, { kind: 'ai', replay: false }, 'chat'), 0, 'read while it shows')
+  assert.strictEqual(P.unread(0, { kind: 'class', replay: false }, 'course'), 1, 'a message of the class counts too')
+  assert.strictEqual(P.missed([0, 2, 5, 7], 2), 2, 'answers that came while the stream was down')
+  assert.strictEqual(P.missed([0, 2], -1), 2, 'nothing seen yet')
 
   // a fake chat shell. Never call chat without one: it would open a browser.
   stream = ''
@@ -1349,8 +1352,11 @@ async function main() {
   const hi = await request('GET', '/?user=anna', TAB, undefined, front2)
   assert.ok(hi.data.includes('Hallo, <span') && hi.data.includes('>anna<') && hi.data.includes('Nicht du?'), 'a personal greeting')
   assert.ok(hi.data.includes('Pause') && hi.data.includes('an die Klasse'), 'the newest message to the class')
+  assert.ok(/an die Klasse · \d\d\.\d\d\., \d\d:\d\d/.test(hi.data), 'with its date, it may be old')
   assert.ok(hi.data.includes('Verschlüsselte Verbindung'), 'share: encrypted')
   assert.ok(!hi.data.includes('Werkstatt') && !hi.data.includes('Autor'), 'no role before the password')
+  const font = await request('GET', '/lia-font/geist.woff2', TAB, undefined, front2)
+  assert.ok(font.status === 200 && font.headers['content-type'] === 'font/woff2', 'the font of the login, before any login')
   const hiEn = await request('GET', '/?user=anna', { ...TAB, 'Accept-Language': 'en' }, undefined, front2)
   assert.ok(hiEn.data.includes('Hello,'), 'the login in English')
   await request('POST', '/class/say', ADM, 'to=%40all&text=' + encodeURIComponent('<i>x</i> ' + 'y'.repeat(300)), ADMIN)
@@ -1510,6 +1516,7 @@ async function main() {
   assert.ok((await adminHtml()).includes('cat /etc/passwd'), 'the admin page shows it')
   const sig = (await request('GET', '/signals', ADMG, undefined, ADMIN)).data
   assert.ok(sig.includes('cat /etc/passwd') && sig.includes('/warnings/'), 'an open page gets new warnings with its poll')
+  assert.ok(/\d\d\.\d\d\., \d\d:\d\d<\/time>/.test(sig), 'a signal with its date: warnings stay open for days')
   assert.ok(!(await request('GET', '/top', ADMG, undefined, ADMIN)).data.includes('cat /etc/passwd'), 'warnings left the top')
   const serverWarning = warnings.find((w) => w.by === 'server')
   await request('POST', '/warnings/' + serverWarning.id + '/done', ADM, '', ADMIN)

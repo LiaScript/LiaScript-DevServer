@@ -661,7 +661,7 @@ main section {
 }
 .sig {
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr);
+  grid-template-columns: 4.5rem minmax(0, 1fr);
   gap: 12px;
   padding: 10px 16px;
   box-shadow: inset 2px 0 0 var(--edge, transparent);

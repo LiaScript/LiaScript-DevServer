@@ -119,7 +119,7 @@ export function loginHtml(o: { L: LoginTexts; base: string; user: string; messag
   const { L, base, user } = o
   const note = o.note
     ? `<figure class="note"><span class="av" aria-hidden="true">${esc(L.teacher[0])}</span><span><small><b>${esc(L.teacher)}</b> ${esc(L.fromTeacher)} · ${esc(
-        new Date(o.note.t).toLocaleString(L.locale, { weekday: 'short', hour: '2-digit', minute: '2-digit' }),
+        new Date(o.note.t).toLocaleString(L.locale, { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }),
       )}</small><blockquote>${esc(o.note.text)}</blockquote></span></figure>`
     : ''
   const who = user

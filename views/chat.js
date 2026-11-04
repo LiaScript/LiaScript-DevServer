@@ -634,6 +634,17 @@ function showSession(session) {
   lia.load({ version: 1, messages: [], db: db })
 
   session.entries.forEach(showEntry)
+  shell({
+    kind: 'history',
+    id: session.id,
+    ai: session.entries
+      .map(function (entry, n) {
+        return entry.type == 'ai' ? n : -1
+      })
+      .filter(function (n) {
+        return n >= 0
+      }),
+  })
   forms.forEach(function (el) {
     if (el.dataset.ask != session.open) closed(el)
   })
@@ -1779,7 +1790,7 @@ function message(event) {
 
   readNew(showAI(chat))
   document.getElementById('chat').open = true
-  shell({ kind: 'ai', markdown: chat.markdown, agent: chat.agent, ask: !!(chat.inputs && chat.inputs.length) })
+  shell({ kind: 'ai', n: chat.n, markdown: chat.markdown, agent: chat.agent, ask: !!(chat.inputs && chat.inputs.length) })
   status(chat.status)
 }
 

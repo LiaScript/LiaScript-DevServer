@@ -190,6 +190,8 @@
         text.append(who, ': ' + m.text)
         banner.hidden = false
       }
+      // a phone that shows the course: the bar counts it, a card shows it
+      document.dispatchEvent(new CustomEvent('lia:shell', { detail: { kind: 'class', from: m.from == TEACHER ? t('Teacher') : m.from, text: m.text } }))
     }
 
     function markSeen() {

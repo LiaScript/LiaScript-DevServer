@@ -27,10 +27,16 @@
       var parts = String(title || '').split(' · ')
       return { slide: n ? Number(n[1]) : null, title: (parts.length > 1 ? parts.slice(0, -1) : parts).join(' · ') }
     },
-    // what the badge counts: messages of the agent that came while the course showed
+    // what the badge counts: messages of the agent or the class that came while the course showed
     unread: function (n, detail, view) {
       if (view == 'chat') return 0
-      return detail && detail.kind == 'ai' && !detail.replay ? n + 1 : n
+      return detail && (detail.kind == 'ai' || detail.kind == 'class') && !detail.replay ? n + 1 : n
+    },
+    // after a reconnect or F5: the messages of the agent after the last one seen in the chat
+    missed: function (numbers, seen) {
+      return numbers.filter(function (n) {
+        return n > seen
+      }).length
     },
   }
   root.Phone = Phone
@@ -46,6 +52,9 @@
 
   var body = document.body
   var VIEW = 'liascript-chat-view'
+  var SEEN = 'liascript-chat-seen' // {id, n}: the session and the last agent message seen in the chat
+  var session = ''
+  var last = -1 // the newest agent message of this session
   var small = matchMedia('(max-width: ' + (WIDE - 1) + 'px)')
   var view = 'course'
   var count = 0
@@ -71,11 +80,25 @@
       count = 0
       peek.hidden = true
       box.open = true
+      saw()
     }
     showCount()
     place()
     try {
       localStorage.setItem(VIEW, v)
+    } catch (e) {}
+  }
+
+  function seen() {
+    try {
+      return JSON.parse(localStorage.getItem(SEEN)) || {}
+    } catch (e) {
+      return {}
+    }
+  }
+  function saw() {
+    try {
+      localStorage.setItem(SEEN, JSON.stringify({ id: session, n: last }))
     } catch (e) {}
   }
 
@@ -160,11 +183,27 @@
   document.addEventListener('lia:shell', function (e) {
     var d = e.detail || {}
     if (!phone()) return
+    if (d.kind == 'history') {
+      // a session (re)loaded: what came while the stream was down is new
+      var before = seen()
+      session = d.id
+      last = d.ai.length ? d.ai[d.ai.length - 1] : -1
+      if (view == 'chat' || before.id != d.id) return saw()
+      count = Phone.missed(d.ai, before.n)
+      showCount()
+      return
+    }
+    if (d.kind == 'ai' && typeof d.n == 'number') last = Math.max(last, d.n)
     if (d.kind == 'ai') {
       if (d.ask && !d.replay) return setView('chat')
       count = Phone.unread(count, d, view)
       showCount()
       if (view == 'course' && !d.replay) showPeek(d.agent, Phone.firstLine(d.markdown))
+      else if (view == 'chat') saw()
+    } else if (d.kind == 'class') {
+      count = Phone.unread(count, d, view)
+      showCount()
+      if (view == 'course') showPeek({ name: d.from }, d.text)
     } else if (d.kind == 'goto' && !d.replay) setView('course')
     else if (d.kind == 'status') {
       if (d.text && view == 'course') showPeek(null, t(d.text), true)

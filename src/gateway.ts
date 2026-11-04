@@ -594,8 +594,16 @@ export async function gateway(o: Options) {
 
     // the font of the login, before any login
     if (req.url === '/lia-font/geist.woff2' && req.method === 'GET') {
+      // read at once like /static: a stream without an error handler took the gateway down
+      let font: Buffer
+      try {
+        font = fs.readFileSync(path.join(ADMIN_VIEWS, 'geist.woff2'))
+      } catch (e) {
+        res.writeHead(404)
+        return res.end()
+      }
       res.writeHead(200, { 'Content-Type': 'font/woff2', 'Cache-Control': 'max-age=31536000' })
-      return fs.createReadStream(path.join(ADMIN_VIEWS, 'geist.woff2')).pipe(res)
+      return res.end(font)
     }
 
     if (req.url === '/lia-login' && req.method === 'POST') {
@@ -811,7 +819,8 @@ ${lanAddresses
   // what needs the teacher: open warnings (red) and who is stuck (amber), newest first
   async function signals(L: Texts) {
     const { names, states } = await snapshot()
-    const time = (t: number) => `<time class="mono t-xs muted">${esc(new Date(t).toLocaleTimeString(L.locale, { hour: '2-digit', minute: '2-digit' }))}</time>`
+    // with the day: a warning stays open for days
+    const time = (t: number) => `<time class="mono t-xs muted">${esc(when(L, t))}</time>`
     const chat = (name: string) => extLink('quiet xs', '/chat/' + name, 'chat-circle-text', L.viewChat)
     const items = [
       ...openWarnings().map((w) => ({
