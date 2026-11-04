@@ -859,7 +859,7 @@ export async function start(
   // scripts of agentScript
   if (agent) {
     app.get(
-      '/liascript/:file(chat.html|chat.js|chat.css|avatar.js|teachers.js|activity.js|agent.js|class.js)',
+      '/liascript/:file(chat.html|chat.js|chat.css|avatar.js|teachers.js|activity.js|agent.js|class.js|phone.js)',
       function (req: express.Request, res: express.Response) {
         res.sendFile(req.params.file, {
           root: path.resolve(path.join(dirname, 'views')),

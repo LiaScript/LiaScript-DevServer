@@ -797,6 +797,8 @@ function dockWidth(width) {
 function applyDock() {
   var room = innerWidth >= WIDE
   dockButton.hidden = !room
+  // a phone: views/phone.js lets course and chat take turns
+  if (document.body.classList.contains('phone')) return document.body.classList.remove('docked')
   dockButton.setAttribute('aria-pressed', String(dock.on))
   tr(dockButton, dock.on ? 'Float over the course' : 'Dock at the side', 'title')
   tr(dockButton, dock.on ? 'Float over the course' : 'Dock at the side', 'aria-label')
@@ -898,8 +900,11 @@ function drag(handle, move) {
 }
 
 drag(who, {
-  // a docked chat stays where it is, the button only opens and closes it
-  off: docked,
+  // a docked chat stays where it is, the button only opens and closes it;
+  // on a phone the chat fills the screen
+  off: function () {
+    return docked() || document.body.classList.contains('phone')
+  },
   start: function () {
     var style = getComputedStyle(box)
     return { right: parseFloat(style.right), bottom: parseFloat(style.bottom) }
@@ -1682,6 +1687,13 @@ function status(text) {
   if (text) document.getElementById('chat').open = true
   stageState()
   readStatus(text || '')
+  shell({ kind: 'status', text: text || '' })
+}
+
+// what happened, for views/phone.js; replay: the first 1.5 s of a stream
+function shell(detail) {
+  detail.replay = Date.now() < replay
+  document.dispatchEvent(new CustomEvent('lia:shell', { detail: detail }))
 }
 
 // below the progress line when the server has no sign of the AI for a while
@@ -1753,6 +1765,7 @@ function message(event) {
   // the player follows a goto to a course itself, the file listing and a
   // web page cannot
   if (data.goto) {
+    shell({ kind: 'goto' })
     var go = data.goto
     if (typeof go.url == 'string') course.src = webPage(go.url)
     else if (go.file && !isPlayer()) {
@@ -1766,6 +1779,7 @@ function message(event) {
 
   readNew(showAI(chat))
   document.getElementById('chat').open = true
+  shell({ kind: 'ai', markdown: chat.markdown, agent: chat.agent, ask: !!(chat.inputs && chat.inputs.length) })
   status(chat.status)
 }
 

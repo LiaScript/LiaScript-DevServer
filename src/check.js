@@ -535,6 +535,21 @@ async function main() {
   const robots = await request('GET', '/liascript/avatar.js', {})
   assert.strictEqual(robots.status, 200, 'the shell gets the robots of the agents')
   assert.strictEqual(robots.headers['cache-control'], 'no-cache')
+  // the phone: course and chat take turns, a bar switches
+  const phone = await request('GET', '/liascript/phone.js', {})
+  assert.ok(phone.status === 200 && phone.headers['cache-control'] === 'no-cache', 'the shell gets phone.js')
+  assert.ok(shell.data.includes('id="switch"') && shell.data.includes('phone.js'), 'the switch bar')
+  const box2 = { window: {} }
+  vm.createContext(box2)
+  vm.runInContext(fs.readFileSync(path.join(ROOT, 'views/phone.js'), 'utf8'), box2)
+  const P = box2.window.Phone
+  assert.strictEqual(P.firstLine('<!-- x -->\n\n## **Gut** gewählt! [mehr](#4)\nzwei'), 'Gut gewählt! mehr')
+  assert.strictEqual(P.firstLine('x'.repeat(200)).length, 121, '120 characters and …')
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(P.where('Die Lichtreaktion · Photosynthese', '#3'))), { slide: 3, title: 'Die Lichtreaktion' })
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(P.where('Photosynthese', ''))), { slide: null, title: 'Photosynthese' })
+  assert.strictEqual(P.unread(0, { kind: 'ai', replay: false }, 'course'), 1)
+  assert.strictEqual(P.unread(2, { kind: 'ai', replay: true }, 'course'), 2, 'a replay is not new')
+  assert.strictEqual(P.unread(2, { kind: 'ai', replay: false }, 'chat'), 0, 'read while it shows')
 
   // a fake chat shell. Never call chat without one: it would open a browser.
   stream = ''

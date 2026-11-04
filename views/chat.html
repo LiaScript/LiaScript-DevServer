@@ -560,6 +560,197 @@
       #class .muted {
         padding: 0 0.6rem;
       }
+
+      /* a phone (phone.js, below WIDE): course and chat take turns on the
+         whole screen, the bar at the bottom switches */
+      #switch,
+      #peek,
+      #where {
+        display: none;
+      }
+      body.phone {
+        --switch-h: calc(68px + env(safe-area-inset-bottom));
+      }
+      body.phone #course {
+        height: calc(100dvh - var(--switch-h));
+      }
+      body.phone[data-view='chat'] #course {
+        visibility: hidden;
+      }
+      body.phone #chat {
+        top: 0;
+        left: 0;
+        right: 0 !important;
+        bottom: var(--switch-h) !important;
+        border: 0;
+        border-radius: 0;
+        background: rgb(var(--surface));
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
+        box-shadow: none;
+      }
+      body.phone[data-view='course'] #chat {
+        display: none;
+      }
+      body.phone #who {
+        cursor: default;
+      }
+      body.phone #who::after,
+      body.phone #chat > #grip,
+      body.phone #dock {
+        display: none;
+      }
+      body.phone #panel {
+        width: auto !important;
+        height: calc(100dvh - var(--switch-h) - var(--head, 2.75rem)) !important;
+        min-width: 0;
+        max-width: none;
+        max-height: none;
+      }
+      body.phone #say textarea {
+        font-size: 16px;
+      }
+      body.phone #switch {
+        display: flex;
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 3;
+        gap: 4px;
+        padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
+        background: rgb(var(--surface));
+        border-top: 1px solid var(--line);
+      }
+      #switch button {
+        flex: 1;
+        height: 48px;
+        border: 0;
+        border-radius: 12px;
+        background: var(--soft);
+        color: var(--muted);
+        font: inherit;
+        font-weight: 500;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        cursor: pointer;
+      }
+      #switch button[aria-pressed='true'] {
+        background: rgba(var(--hl), 0.14);
+        color: var(--text);
+        font-weight: 600;
+      }
+      #switch svg,
+      #peek svg {
+        width: 20px;
+        height: 20px;
+        flex: none;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      #switch .num {
+        font-variant-numeric: tabular-nums;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      #unread {
+        min-width: 20px;
+        height: 20px;
+        padding: 0 6px;
+        box-sizing: border-box;
+        border-radius: 10px;
+        background: var(--accent);
+        color: #fff;
+        font-size: 12px;
+        font-weight: 600;
+        display: inline-grid;
+        place-items: center;
+      }
+      #unread[hidden] {
+        display: none;
+      }
+      body.phone[data-view='course'] #peek:not([hidden]) {
+        display: flex;
+        position: fixed;
+        left: 12px;
+        right: 12px;
+        /* above the navigation bar of the player */
+        bottom: calc(var(--switch-h) + 48px);
+        z-index: 3;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 14px;
+        border: 0;
+        border-radius: 18px;
+        background: rgb(var(--surface));
+        color: var(--text);
+        box-shadow:
+          0 10px 30px -8px rgba(var(--hl), 0.45),
+          0 0 0 1px rgba(var(--hl), 0.18);
+        font: inherit;
+        text-align: left;
+        cursor: pointer;
+      }
+      #peek .face {
+        flex: none;
+        display: grid;
+      }
+      #peek .text {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      #peek .name {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--accent);
+      }
+      #peek .line {
+        font-size: 14px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      #peek svg {
+        color: var(--accent);
+      }
+      body.phone #where:not([hidden]) {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 40px;
+        margin: 8px 8px 0;
+        padding: 0 12px;
+        border: 0;
+        border-radius: 12px;
+        background: rgba(var(--hl), 0.1);
+        color: var(--accent);
+        font: inherit;
+        font-size: 13px;
+        text-align: left;
+        cursor: pointer;
+      }
+      #where .text {
+        flex: 1;
+        min-width: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      #where > span:last-child {
+        font-weight: 600;
+        white-space: nowrap;
+      }
+      #where b {
+        font-weight: 600;
+      }
     </style>
   </head>
   <body>
@@ -569,6 +760,10 @@
       <summary id="who">LiaAgent</summary>
       <div id="grip" title="Resize" data-t-title="Resize" aria-hidden="true"></div>
       <div id="panel">
+        <!-- a phone: where the course is, and the way back to it (phone.js) -->
+        <button id="where" type="button" hidden>
+          <span class="text"></span><span data-t="To the course">To the course</span>
+        </button>
         <div id="bar">
           <!-- the icons: the icon font of the player (chat.css), and four of
                Lucide (ISC license, lucide.dev) where it has none -->
@@ -681,6 +876,23 @@
       </div>
     </details>
 
+    <!-- a phone: the newest message over the course, and the bar that
+         switches between course and chat (phone.js); icons of Lucide -->
+    <button id="peek" type="button" hidden aria-label="New message, open the chat" data-t-aria-label="New message, open the chat">
+      <span class="face"></span><span class="text"><span class="name"></span><span class="line"></span></span>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>
+    </button>
+    <nav id="switch" aria-label="View" data-t-aria-label="View">
+      <button id="to-course" type="button" aria-pressed="true">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 4h6a4 4 0 0 1 4 4v12a3 3 0 0 0-3-3H2zM22 4h-6a4 4 0 0 0-4 4v12a3 3 0 0 1 3-3h7z" /></svg>
+        <span data-t="Course">Course</span><span id="to-slide" class="num"></span>
+      </button>
+      <button id="to-chat" type="button" aria-pressed="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L3 21l1.9-6.4A8 8 0 1 1 21 12z" /></svg>
+        <span>Chat</span><span id="unread" hidden></span>
+      </button>
+    </nav>
+
     <!-- the messages: LiaScript, served from node_modules/@liascript/chat -->
     <script src="lia-chat/element.js"></script>
     <!-- the teacher personas: DiceBear portraits, built by npm run build -->
@@ -690,5 +902,7 @@
     <script src="chat.js"></script>
     <!-- the class channel, only behind liadev --users -->
     <script src="class.js"></script>
+    <!-- course and chat take turns on a phone -->
+    <script src="phone.js"></script>
   </body>
 </html>
