@@ -1464,6 +1464,8 @@ async function main() {
   assert.ok(rowsQr.includes('<svg') && rowsQr.includes('&#38;user=anna'), 'a QR code and the share link per user')
   assert.ok(rowsQr.includes(':' + LAN + '/?user=anna'), 'and the link on the network of the school')
   assert.ok(!/secret1/.test(rowsQr), 'no password in a link')
+  assert.ok(/<tr id="u-anna" data-name="anna" data-role="student" data-online="[01]" data-help="[01]"/.test(rowsQr), 'rows carry what the filter needs')
+  assert.ok(/data-role="author"/.test(rowsQr), 'erik is an author')
   // warnings: anna writes, her agent tries a command and refuses something itself
   assert.strictEqual((await request('POST', '/agent', { ...TAB, ...JSON_, 'X-Lia-Token': token3, Origin: 'http://127.0.0.1:' + front3 }, JSON.stringify({ type: 'chat', params: { text: 'hi' } }), front3)).status, 204)
   const warningsFile = path.join(USERS, '.class', 'warnings.jsonl')
@@ -1492,6 +1494,7 @@ async function main() {
   const pageA = await adminHtml()
   for (const t of ['Zugang über das Internet', 'Im lokalen Netz', 'Kosten heute', 'Einstellungen', 'Link kopieren', 'unverschlüsselt', 'Neuer Link', 'KI-Modell', 'Webseiten im Chat', 'Kursordner'])
     assert.ok(pageA.includes(t), 'admin page: ' + t)
+  assert.ok(pageA.includes('data-filter="help"') && pageA.includes('id="user-search"'), 'chips and search')
   for (const t of ['00', 'class="sec-num"', 'id="signals"', 'Signale']) assert.ok(pageA.includes(t), 'numbered sections: ' + t)
   assert.ok(!/<script[^>]*src="(https?:)?\/\//.test(pageA) && !/<link[^>]*href="(https?:)?\/\//.test(pageA), 'no script or style of another server')
   // English: the browser's language, or the switch of the page as a cookie

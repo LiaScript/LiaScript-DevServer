@@ -1281,7 +1281,81 @@ tr:hover td {
   background: color-mix(in srgb, var(--hover) 50%, transparent);
 }
 tr.help td {
-  background: var(--danger-soft);
+  background: var(--amber-soft);
+}
+tr.help td:first-child {
+  box-shadow: inset 2px 0 0 var(--amber);
+}
+tr[hidden] {
+  display: none !important;
+}
+.badge.help {
+  background: var(--amber-soft);
+  color: var(--amber-text);
+  border: 1px solid var(--amber-line);
+}
+/* the chips and the search above the users */
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin-bottom: 12px;
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.chip {
+  padding: 6px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg2);
+  font: inherit;
+  font-size: 0.8125rem;
+  line-height: 1.25rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+.chip:hover {
+  background: var(--hover);
+}
+.chip[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--fg);
+}
+.search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 1 260px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--inset);
+  color: var(--muted);
+}
+.search .icon {
+  width: 1rem;
+  height: 1rem;
+}
+.search input {
+  flex: 1;
+  padding: 6px 0;
+  border: 0;
+  background: transparent;
+  font-size: 0.875rem;
+}
+.search input:focus-visible {
+  outline: none;
+}
+.search:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
 }
 tbody tr:last-child td:first-child {
   border-bottom-left-radius: 12px;

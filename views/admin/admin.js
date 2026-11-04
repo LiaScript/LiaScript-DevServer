@@ -193,6 +193,31 @@
       })
   }
 
+  // ------------------------------------------------------------ filter the users
+  // a chip (all, online, help, author) and a part of the name; again after every poll
+  var filter = 'all'
+  function applyFilter() {
+    var search = document.getElementById('user-search')
+    var q = search ? search.value.trim().toLowerCase() : ''
+    document.querySelectorAll('#rows tr[data-name]').forEach(function (tr) {
+      var d = tr.dataset
+      var chip = filter === 'all' || (filter === 'online' && d.online === '1') || (filter === 'help' && d.help === '1') || (filter === 'author' && d.role === 'author')
+      tr.hidden = !(chip && d.name.indexOf(q) !== -1)
+    })
+  }
+  document.addEventListener('click', function (e) {
+    var chip = e.target.closest && e.target.closest('[data-filter]')
+    if (!chip) return
+    filter = chip.dataset.filter
+    document.querySelectorAll('[data-filter]').forEach(function (c) {
+      c.setAttribute('aria-pressed', String(c === chip))
+    })
+    applyFilter()
+  })
+  document.addEventListener('input', function (e) {
+    if (e.target.id === 'user-search') applyFilter()
+  })
+
   // ------------------------------------------------------------ poll
   // the parts that change by themselves; never while the teacher is in them
   function busy(el) {
@@ -228,7 +253,7 @@
       var label = document.getElementById('online-label')
       if (s && label) label.textContent = s.dataset.onlineLabel
     })
-    refresh('rows', '/rows')
+    refresh('rows', '/rows', applyFilter)
     refresh('signals-list', '/signals')
     refresh('log', '/class/log')
     // the chat of a user: follows the newest entry while the teacher reads at the end

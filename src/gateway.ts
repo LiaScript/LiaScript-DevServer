@@ -965,7 +965,9 @@ ${costCard(L)}
               n,
             )}" name="course" class="sm"><option value="">–</option>${courses.map((c) => `<option>${esc(c)}</option>`).join('')}</select>${btn('quiet xs', 'check', L.assign)}</form>`
         const muted = settings.muted.includes(n)
-        return `<tr id="u-${esc(n)}"${help ? ' class="help"' : ''}>
+        return `<tr id="u-${esc(n)}" data-name="${esc(n)}" data-role="${users[n].role === 'author' ? 'author' : 'student'}" data-online="${online ? 1 : 0}" data-help="${help ? 1 : 0}"${
+          help ? ' class="help"' : ''
+        }>
 <td data-label="${esc(L.head.name)}">${whoCell(
           L,
           n,
@@ -976,7 +978,7 @@ ${costCard(L)}
 <td data-label="${esc(L.head.status)}">${status}<p class="t-xs muted">${inst ? esc(ago(L, inst.last)) : ''}</p></td>
 <td data-label="${esc(L.head.course)}">${course}</td>
 <td data-label="${esc(L.head.where)}"><p class="t-sm">${esc(where) || '<span class="muted">–</span>'}</p>${
-          help ? `<span class="badge danger">${icon('lifebuoy')}${esc(L.needsHelp)}</span><p class="t-xs muted">${esc(ago(L, s.stuck.at))} · ${esc(L.slide(s.stuck.slide || '?'))}</p>` : ''
+          help ? `<span class="badge help">${icon('lifebuoy')}${esc(L.needsHelp)}</span><p class="t-xs muted">${esc(ago(L, s.stuck.at))} · ${esc(L.slide(s.stuck.slide || '?'))}</p>` : ''
         }</td>
 <td data-label="${esc(L.head.chat)}">${s && s.session ? `<p class="t-xs muted">${esc(L.entries(s.session.count))}</p>` : ''}${extLink('quiet xs', '/chat/' + n, 'chat-circle-text', L.readAlong)}</td>
 <td data-label="${esc(L.head.cost)}" class="num">${
@@ -1130,6 +1132,18 @@ ${freshBox(L)}<div id="top">${top}</div>
           L.usersLead,
           `<form method="post" action="/update/all">${btn('quiet sm', 'arrows-clockwise', L.updateAll)}</form>`,
         )}
+<div class="filters"><div class="chips" role="group" aria-label="${esc(L.users)}">${(
+          [
+            ['all', L.filterAll],
+            ['online', L.filterOnline],
+            ['help', L.filterHelp],
+            ['author', L.filterAuthors],
+          ] as const
+        )
+          .map(([f, label]) => `<button type="button" class="chip" data-filter="${f}" aria-pressed="${f === 'all'}">${esc(label)}</button>`)
+          .join('')}</div><label class="search">${icon('magnifying-glass')}<span class="sr-only">${esc(L.search)}</span><input type="search" id="user-search" placeholder="${esc(
+          L.search,
+        )}" autocomplete="off"></label></div>
 <div class="card table-card"><table><thead><tr><th>${esc(L.head.name)}</th><th>${esc(L.head.status)}</th><th>${esc(L.head.course)}</th><th>${esc(L.head.where)}</th><th>${esc(
           L.head.chat,
         )}</th><th class="num">${esc(L.head.cost)}</th><th><span class="sr-only">${esc(L.manage)}</span></th></tr></thead><tbody id="rows">${table}</tbody></table></div></section>
