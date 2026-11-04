@@ -61,7 +61,7 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
 - **`src/lib.ts`** — all server logic, exported so it can also be used as a library (see `init`, `start`, `stop`,
   `gotoLine`, `readChat`). Sets up an Express app that:
   - Serves the compiled LiaScript player from `node_modules/@liascript/editor/dist` (resolved as `liascriptPath`) at
-    `/liascript/*`, injecting a small `gotoScript` snippet into `index.html` on the fly (string-replacing `</head>`)
+    `/liascript/*`, injecting a small `gotoScript` snippet into `index.html` on the fly (string-replacing `</head>`, or `<body` when the minified player of 2.6.1 has none)
     to wire up bidirectional "goto line" communication between the LiaScript editor and the served preview.
   - Serves the user's project files (the `--input` folder) at `/home/*` for a browsable file listing (rendered via
     `views/main.hbs` inside the `index` layout — note this route explicitly overrides handlebars' `defaultLayout:
@@ -246,11 +246,17 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   clears the progress line. `session/request_permission`: tools of the liascript server are allowed, anything else is
   refused through `--share` and asked as a chat form locally (rarely reached: the hosted rules make the agent refuse
   commands itself).
-- **`src/gateway.ts`** — `--users DIR [--share] [--agent …] [-p admin port]`: one start for many users. Design of
-  its admin page: `docs/superpowers/specs/2026-10-29-admin-dashboard-design.md`. The page is still built as HTML
+- **`src/gateway.ts`** — `--users DIR [--share] [--agent …] [-p admin port]`: one start for many users, shown as
+  LiaLMS. Design of its admin page: `docs/superpowers/specs/2026-10-29-admin-dashboard-design.md`, its look since
+  `docs/superpowers/specs/2026-11-04-lialms-design.md`: a HUD (tokens in `admin.css`, a 32 px grid on the ground,
+  Geist Mono for labels and numbers, sections numbered `00`–`06` by `secHead()`, four corner brackets around the big
+  QR code). Users left, an `aside` with `02 Signale` (`signals()`, polled from `GET /signals`: open warnings red,
+  stuck users amber, newest first; it replaced the warning card of `/top`) and the class chat; above the users
+  chips and a name search filter the rows client side (`data-name|role|online|help` on each `<tr>`,
+  `applyFilter()` in `admin.js`, again after every poll). The page is still built as HTML
   strings in `gateway.ts`, in German or English (`src/admin-texts.ts`: cookie `lia-lang` of its switch `/lang/de|en`,
   else `Accept-Language`, none = German, which `check.js` relies on); look and behaviour are `views/admin/`
-  (`admin.css`, `admin.js`, the font Geist, OFL), served at `/static/*` with a CSP that allows no inline script or
+  (`admin.css`, `admin.js`, the fonts Geist and Geist Mono, OFL, npm `geist` 1.9.0), served at `/static/*` with a CSP that allows no inline script or
   style, icons are Phosphor paths in `src/icons.ts`. Light or dark: the system's, or the sun/moon switch of the bar
   (cookie `lia-theme`, the server writes `data-theme` on `<html>`, no flash). Below 1100 px the users table becomes
   cards. `--users DIR` alone is enough: the
@@ -272,7 +278,12 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   `src/check-acp-stub.js` is the ACP agent of the tests. A front
   server on loopback (random port, `👥 front:`) is what the share link reaches: without a valid `x-lia-token` it
   answers a page with the login (`/lia-login`, scrypt hashes in `DIR/users.json` `0600`, five wrong passwords lock
-  a name for a minute), the token lives in the `sessionStorage` of the share tab and `lia-share.js` sends it with
+  a name for a minute; `src/login.ts`, pure functions, German or English like the admin page: `Hallo, <name>.` from
+  the link, a robot companion, the newest message of the teacher to `@all` cut at 200 characters, which anyone
+  with the link sees before a login, no role; `Nicht du?` is the page without a name; the font from
+  `/lia-font/geist.woff2` of the front. A right password shows `welcomeHtml()` of the role for 1.2 s, the
+  companion and `Weiterlernen` or the indigo workshop of the Teaching-Agent and `Weiterschreiben`, which sets the
+  token first), the token lives in the `sessionStorage` of the share tab and `lia-share.js` sends it with
   every request (`m.token` → `x-lia-token` in `share.ts`). With a login it starts the user's DevServer on demand
   (`--agent`, `-i README.md` or `.`, cwd `DIR/<name>`, env `LIA_TOKEN` for `/agent/state/<token>`,
   `LIA_GATEWAY` so `acp.ts` refuses every permission, `LIA_ROLE` student|author for its rules), one start at a
@@ -477,7 +488,13 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   the grip on its left edge moves the border (16rem chat to 20rem course at least, `dockWidth()`). Floating it
   stays anchored bottom-right: the button moves it (pointer capture, a drag swallows the click that follows), the
   grip in the top-left corner resizes `#panel`; `clamp()` keeps both on screen. `localStorage` remembers mode,
-  width, place and size. Every message has a read-aloud button (`speaker()` in `chat.js`):
+  width, place and size. On a phone (below `WIDE`, `views/phone.js`, `body.phone`) course and chat take turns
+  on the whole screen instead: a bar `#switch` (`Kurs` with the slide `#n`, `Chat` with the unread badge),
+  `#peek` over the course with the first line of the newest message of the agent or the progress line, `#where`
+  in the chat with the slide and title (from the shell's `<title>` and hash, which `agent.js` sets) and the way
+  back. `chat.js` tells it with the DOM event `lia:shell` (`{kind: ai|goto|status, replay}`, `shell()`): a form
+  shows the chat, a `goto` the course, a replay counts nothing. The view is kept as `liascript-chat-view`;
+  `applyDock()` and the drag of the head stand aside in phone mode. `window.Phone` (pure) is tested in a vm. Every message has a read-aloud button (`speaker()` in `chat.js`):
   `speechSynthesis` with a voice for the language the player puts on its `<html lang>`, split into pieces of at
   most 180 characters because Chrome drops an utterance of its online voices after about 15 seconds; without
   browser voices it uses the `responsiveVoice` object of the player if there is one, else the buttons stay hidden

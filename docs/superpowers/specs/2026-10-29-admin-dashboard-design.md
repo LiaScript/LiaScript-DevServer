@@ -1,5 +1,7 @@
 # Admin-Dashboard für `--users`: Einstellungen, Zugang, Warnungen, Kosten
 
+> Das Aussehen dieser Seite hat sich mit `2026-11-04-lialms-design.md` geändert (der HUD von LiaLMS); ihre Funktionen bleiben.
+
 ## Absicht
 
 Der Admin ist eine Lehrkraft ohne viel Technikwissen, die froh ist, wenn das Tool startet. Sie
