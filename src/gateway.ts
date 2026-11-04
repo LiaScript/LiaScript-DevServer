@@ -748,8 +748,14 @@ ${message ? `<p class="bad">${esc(message)}</p>` : ''}<button>Anmelden</button><
   const extLink = (cls: string, href: string, ico: string, label: string) =>
     `<a class="btn ${cls}" href="${esc(href)}" target="_blank" rel="noopener">${icon(ico)}<span>${esc(label)}</span></a>`
   // a QR code as a button: admin.js shows it large (projector, print)
+  // the big one gets the four corner brackets of the HUD
   const qrButton = (L: Texts, cls: string, href: string, title: string) =>
-    `<button type="button" class="qr ${cls}" data-qr data-qr-title="${esc(title)}" data-qr-link="${esc(href)}" aria-label="${esc(L.showQr + ': ' + title)}">${qr(href)}</button>`
+    `<button type="button" class="qr ${cls}" data-qr data-qr-title="${esc(title)}" data-qr-link="${esc(href)}" aria-label="${esc(L.showQr + ': ' + title)}">${qr(href)}${
+      cls === 'qr-hero' ? '<span class="br tl"></span><span class="br tr"></span><span class="br bl"></span><span class="br br-r"></span>' : ''
+    }</button>`
+  // the head of a numbered section: 01 Nutzer and what it is for
+  const secHead = (num: string, id: string, title: string, lead = '', more = '') =>
+    `<div class="sec-head"><div><p class="sec-num">${num}</p><h2 id="${id}-h">${esc(title)}</h2>${lead ? `<p class="t-sm muted">${esc(lead)}</p>` : ''}</div>${more}</div>`
   // a switch that sends its form at once (admin.js); off may ask first
   const switchForm = (L: Texts, action: string, on: boolean, label: string, confirmOff = '') =>
     `<form method="post" action="${action}" class="switch"${confirmOff ? ` data-confirm-off="${esc(confirmOff)}"` : ''}><label><input type="checkbox" role="switch" name="on" value="1"${
@@ -799,28 +805,40 @@ ${lanAddresses
     )} <input name="port" type="number" min="1" max="65535" value="${cfg.lan.port}" class="w-port"></label>${btn('quiet sm', 'check', L.change)}</form>
 </div>`
     return `<section id="access" class="hero" aria-labelledby="hero-h">
-<div class="hero-text"><h1 id="hero-h" class="grad">${esc(h1)}<br>${esc(h2)}</h1><p class="lead">${esc(on ? L.leadOn : L.leadOff)}</p></div>
+<div class="hero-text"><p class="sec-num">00 · ${esc(L.nav.access.toLocaleUpperCase(L.locale))}</p><h1 id="hero-h" class="grad">${esc(h1)}<br>${esc(h2)}</h1><p class="lead">${esc(on ? L.leadOn : L.leadOff)}</p></div>
 <div class="access">${share}${lan}</div>
 </section>`
   }
 
-  // shown only when something happened, red
-  function warningCard(L: Texts) {
-    const list = openWarnings()
-    if (!list.length) return ''
-    return `<section class="card warn" aria-labelledby="warn-h"><div class="warn-head">${icon('warning')}<h2 id="warn-h">${esc(L.warnings(list.length))}</h2></div>
-<p class="t-sm muted">${esc(L.warningsLead)}</p><ul class="wlist">${list
-      .slice(-10)
-      .reverse()
-      .map(
-        (w) =>
-          `<li><p><strong>${esc(w.name)}</strong> <span class="t-sm muted">${esc(when(L, w.t))} · ${esc(w.by === 'server' ? L.byServer : L.byAi)}</span></p><p class="t-sm">${esc(
-            w.what,
-          )}</p><p class="t-sm muted">${esc(w.reason)}</p><div class="actions">${extLink('quiet sm', '/chat/' + w.name, 'chat-circle-text', L.viewChat)}<form method="post" action="/warnings/${esc(
-            w.id,
-          )}/done">${btn('quiet sm', 'check', L.markDone)}</form></div></li>`,
-      )
-      .join('')}</ul></section>`
+  // what needs the teacher: open warnings (red) and who is stuck (amber), newest first
+  async function signals(L: Texts) {
+    const { names, states } = await snapshot()
+    const time = (t: number) => `<time class="mono t-xs muted">${esc(new Date(t).toLocaleTimeString(L.locale, { hour: '2-digit', minute: '2-digit' }))}</time>`
+    const chat = (name: string) => extLink('quiet xs', '/chat/' + name, 'chat-circle-text', L.viewChat)
+    const items = [
+      ...openWarnings().map((w) => ({
+        t: w.t,
+        html: `<li class="sig warn">${time(w.t)}<div><p><strong>${esc(w.name)}</strong> <span class="t-sm">${esc(w.what)}</span></p><p class="label">${esc(
+          w.by === 'server' ? L.byServer : L.byAi,
+        )}</p>${w.reason ? `<p class="t-sm muted">${esc(w.reason)}</p>` : ''}<div class="actions">${chat(w.name)}<form method="post" action="/warnings/${esc(w.id)}/done">${btn(
+          'quiet xs',
+          'check',
+          L.markDone,
+        )}</form></div></div></li>`,
+      })),
+      ...names
+        .map((n, i) => ({ n, s: states[i] }))
+        .filter(({ s }) => stuck(s))
+        .map(({ n, s }) => ({
+          t: s.stuck.at,
+          html: `<li class="sig help">${time(s.stuck.at)}<div><p><strong>${esc(n)}</strong> <span class="t-sm">${esc(L.needsHelp)} · ${esc(L.slide(s.stuck.slide || '?'))}</span></p><div class="actions">${chat(
+            n,
+          )}</div></div></li>`,
+        })),
+    ]
+      .sort((a, b) => b.t - a.t)
+      .slice(0, 10)
+    return items.length ? items.map((i) => i.html).join('') : `<li class="sig none t-sm muted">${esc(L.nobodyStuck)}</li>`
   }
 
   // the costs of all users, today big and the last 7 days as bars
@@ -880,7 +898,7 @@ ${costCard(L)}
 
   // all of the top: the page polls it, new warnings show up at once
   async function topPart(L: Texts) {
-    return accessSection(L) + warningCard(L) + (await statsRow(L))
+    return accessSection(L) + (await statsRow(L))
   }
 
   // the links of one user: the name filled in, the password typed
@@ -1025,7 +1043,7 @@ ${costCard(L)}
       )}" class="path">${btn('quiet sm', 'folder', L.pick, ' type="button" data-pick')}${btn('primary sm', 'check', L.apply)}</form><div class="picker" hidden></div>`
     const block = (title: string, help: string, body: string, later = false) =>
       `<div class="setting"><h3>${esc(title)}</h3><p class="t-sm muted">${esc(help)}${later ? ' ' + esc(L.nextStart) : ''}</p>${body}</div>`
-    return `<details class="card settings" id="settings"><summary><span class="sum-title">${icon('gear', 'icon lg')}<span><span class="t-xl strong">${esc(
+    return `<details class="card settings" id="settings"><summary><span class="sum-title"><span class="sec-num">05</span><span><span class="t-xl strong">${esc(
       L.settings,
     )}</span><span class="t-sm muted block">${esc(L.settingsLead)}</span></span></span>${icon('caret-down', 'icon caret')}</summary>
 <div class="settings-grid">
@@ -1072,11 +1090,14 @@ ${block(L.kit, L.kitHelp, folder('/settings/kit', 'f-kit', cfg.kit, L.kitEmpty))
 <link rel="stylesheet" href="/static/admin.css"></head><body>${body}
 <script type="application/json" id="texts">${clientTexts(L)}</script><script src="/static/admin.js" defer></script></body></html>`
   }
+  // the mark of LiaLMS: the pixel robot of the chat, outlined
+  const ROBOT =
+    '<svg viewBox="0 0 12 12" aria-hidden="true"><rect x="1" y="2" width="10" height="9" rx="2" fill="none" stroke="currentColor" stroke-width="0.8"/><rect x="3.2" y="5" width="1.6" height="1.6" fill="currentColor"/><rect x="7.2" y="5" width="1.6" height="1.6" fill="currentColor"/><rect x="4.2" y="8.2" width="3.6" height="0.8" fill="currentColor"/><rect x="5.6" y="0.4" width="0.8" height="1.6" fill="currentColor"/></svg>'
   const NAV = ['access', 'users', 'class', 'settings', 'help'] as const
   const navText = (L: Texts, id: (typeof NAV)[number]) => (id === 'class' ? L.nav.cls : L.nav[id])
 
   async function adminPage(res: http.ServerResponse, L: Texts, message = '', theme = '') {
-    const [top, table] = [await topPart(L), await rows(L)]
+    const [top, table, sig] = [await topPart(L), await rows(L), await signals(L)]
     const online = [...running.values()].filter((i) => i.open > 0).length
     const links = NAV.map((id) => `<a href="#${id}" data-nav="${id}">${esc(navText(L, id))}</a>`).join('')
     const lang = (['de', 'en'] as const)
@@ -1090,7 +1111,7 @@ ${block(L.kit, L.kitHelp, folder('/settings/kit', 'f-kit', cfg.kit, L.kitEmpty))
         L.title,
         `<a class="skip" href="#main">${esc(L.skip)}</a>
 <header class="bar-wrap"><nav class="navbar" aria-label="${esc(L.title)}">
-<a class="brand" href="#access"><span class="mark">${icon('graduation-cap')}</span><span>Lia<span class="brand-em">LMS</span></span></a>
+<a class="brand" href="#access"><span class="mark">${ROBOT}</span><span>Lia<span class="brand-em">LMS</span></span></a>
 <div class="links">${links}</div>
 <span class="online" title="${esc(L.onlineNow)}"><span class="dot"></span><span id="online-label">${esc(L.online(online))}</span></span>
 <div class="lang" role="group" aria-label="${esc(L.langSwitch)}">${lang}</div>
@@ -1101,14 +1122,27 @@ ${block(L.kit, L.kitHelp, folder('/settings/kit', 'f-kit', cfg.kit, L.kitEmpty))
 <main id="main">
 ${freshBox(L)}<div id="top">${top}</div>
 
-<section id="users" class="reveal" aria-labelledby="users-h"><div class="sec-head"><div><h2 id="users-h">${esc(L.users)}</h2><p class="t-sm muted">${esc(
+<div class="main-grid">
+<section id="users" class="reveal" aria-labelledby="users-h">${secHead(
+          '01',
+          'users',
+          L.users,
           L.usersLead,
-        )}</p></div><form method="post" action="/update/all">${btn('quiet sm', 'arrows-clockwise', L.updateAll)}</form></div>
+          `<form method="post" action="/update/all">${btn('quiet sm', 'arrows-clockwise', L.updateAll)}</form>`,
+        )}
 <div class="card table-card"><table><thead><tr><th>${esc(L.head.name)}</th><th>${esc(L.head.status)}</th><th>${esc(L.head.course)}</th><th>${esc(L.head.where)}</th><th>${esc(
           L.head.chat,
         )}</th><th class="num">${esc(L.head.cost)}</th><th><span class="sr-only">${esc(L.manage)}</span></th></tr></thead><tbody id="rows">${table}</tbody></table></div></section>
 
-<section id="class" class="reveal" aria-labelledby="class-h"><div class="sec-head"><div><h2 id="class-h">${esc(L.cls)}</h2><p class="t-sm muted">${esc(L.clsLead)}</p></div></div>
+<aside class="side">
+<section id="signals" class="reveal" aria-labelledby="signals-h">${secHead(
+          '02',
+          'signals',
+          L.signals,
+          '',
+          `<span class="label live-label"><span class="live"></span>${esc(L.live)}</span>`,
+        )}<ul id="signals-list" class="card signals">${sig}</ul></section>
+<section id="class" class="reveal" aria-labelledby="class-h">${secHead('03', 'class', L.cls, L.clsLead)}
 <div class="card class-card"><form class="say" method="post" action="/class/say"><label class="sr-only" for="say-to">${esc(L.toAll)}</label><select id="say-to" name="to"><option value="${ALL}">${esc(
           L.toAll,
         )}</option>${Object.keys(users)
@@ -1119,8 +1153,11 @@ ${freshBox(L)}<div id="top">${top}</div>
         )}"></textarea>${btn('primary', 'paper-plane-tilt', L.send)}</form>
 ${switchForm(L, '/class/dm', settings.dm, L.dm)}
 <div id="log" class="log">${classLog(L)}</div></div></section>
+</aside>
+</div>
+<div class="pair">
 
-<section id="new" class="reveal" aria-labelledby="new-h"><div class="sec-head"><div><h2 id="new-h">${esc(L.newUser)}</h2><p class="t-sm muted">${esc(L.newUserLead)}</p></div></div>
+<section id="new" class="reveal" aria-labelledby="new-h">${secHead('04', 'new', L.newUser, L.newUserLead)}
 <form class="card new" method="post" action="/users">
 <div class="field"><label for="nu-name">${esc(L.name)}</label><input id="nu-name" name="name" placeholder="${esc(L.namePlaceholder)}" autocomplete="off" required pattern="[A-Za-z0-9][A-Za-z0-9_\\-]{0,31}" data-error="${esc(
           L.nameError,
@@ -1139,8 +1176,9 @@ ${cfg.kit ? `<label class="check" title="${esc(L.withKitTitle)}"><input type="ch
 </form></section>
 
 <section class="reveal" aria-label="${esc(L.settings)}">${settingsBox(L)}</section>
+</div>
 
-<section id="help" class="reveal" aria-labelledby="help-h"><div class="sec-head"><div><h2 id="help-h">${esc(L.help)}</h2></div></div>${helpBox(L)}</section>
+<section id="help" class="reveal" aria-labelledby="help-h">${secHead('06', 'help', L.help)}${helpBox(L)}</section>
 </main>
 <footer class="foot"><span>${esc(L.footer)}</span><a href="https://github.com/LiaScript/LiaScript-DevServer" target="_blank" rel="noopener">${esc(
           L.source,
@@ -1243,7 +1281,12 @@ ${cfg.kit ? `<label class="check" title="${esc(L.withKitTitle)}"><input type="ch
       res.writeHead(303, { Location: '/', 'Set-Cookie': 'lia-lang=' + who + '; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000' })
       return res.end()
     }
-    // the top of the page, polled like the rows: new warnings show up at once
+    // the signals, polled like the rows: new warnings show up at once
+    if (req.method === 'GET' && action === 'signals') {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' })
+      return res.end(await signals(L))
+    }
+    // the top of the page, polled like the rows
     if (req.method === 'GET' && action === 'top') {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' })
       return res.end(await topPart(L))

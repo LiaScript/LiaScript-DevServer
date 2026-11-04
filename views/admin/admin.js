@@ -229,6 +229,7 @@
       if (s && label) label.textContent = s.dataset.onlineLabel
     })
     refresh('rows', '/rows')
+    refresh('signals-list', '/signals')
     refresh('log', '/class/log')
     // the chat of a user: follows the newest entry while the teacher reads at the end
     var end = innerHeight + scrollY >= document.documentElement.scrollHeight - 40

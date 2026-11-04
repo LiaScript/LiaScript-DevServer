@@ -1474,7 +1474,9 @@ async function main() {
   assert.ok(warnings.some((w) => w.name === 'anna' && w.by === 'server' && /passwd/.test(w.what)), 'a refused permission')
   assert.ok(warnings.some((w) => w.name === 'anna' && w.by === 'agent' && /outside/.test(w.reason)), 'a refusal the agent reported')
   assert.ok((await adminHtml()).includes('cat /etc/passwd'), 'the admin page shows it')
-  assert.ok((await request('GET', '/top', ADMG, undefined, ADMIN)).data.includes('cat /etc/passwd'), 'an open page gets new warnings with its poll')
+  const sig = (await request('GET', '/signals', ADMG, undefined, ADMIN)).data
+  assert.ok(sig.includes('cat /etc/passwd') && sig.includes('/warnings/'), 'an open page gets new warnings with its poll')
+  assert.ok(!(await request('GET', '/top', ADMG, undefined, ADMIN)).data.includes('cat /etc/passwd'), 'warnings left the top')
   const serverWarning = warnings.find((w) => w.by === 'server')
   await request('POST', '/warnings/' + serverWarning.id + '/done', ADM, '', ADMIN)
   assert.ok(!(await adminHtml()).includes('cat /etc/passwd'), 'done: gone from the page')
@@ -1490,6 +1492,7 @@ async function main() {
   const pageA = await adminHtml()
   for (const t of ['Zugang über das Internet', 'Im lokalen Netz', 'Kosten heute', 'Einstellungen', 'Link kopieren', 'unverschlüsselt', 'Neuer Link', 'KI-Modell', 'Webseiten im Chat', 'Kursordner'])
     assert.ok(pageA.includes(t), 'admin page: ' + t)
+  for (const t of ['00', 'class="sec-num"', 'id="signals"', 'Signale']) assert.ok(pageA.includes(t), 'numbered sections: ' + t)
   assert.ok(!/<script[^>]*src="(https?:)?\/\//.test(pageA) && !/<link[^>]*href="(https?:)?\/\//.test(pageA), 'no script or style of another server')
   // English: the browser's language, or the switch of the page as a cookie
   const pageEn = (await request('GET', '/', { ...ADMG, 'Accept-Language': 'en-GB,en;q=0.9' }, undefined, ADMIN)).data
