@@ -9,7 +9,7 @@ export type Lang = 'de' | 'en'
 const de = {
   lang: 'de' as Lang,
   locale: 'de-DE',
-  title: 'LiaScript Klasse',
+  title: 'LiaLMS',
   skip: 'Zum Inhalt springen',
   menu: 'Menü',
   close: 'Schließen',
@@ -183,7 +183,7 @@ const de = {
     ['Was kostet das?', 'Die KI rechnet je Nutzung über das Konto dieses Rechners ab. Oben stehen die Kosten von heute und der letzten 7 Tage, ein günstigeres Modell wählst du in den Einstellungen.'],
     ['Jemand hat das Passwort vergessen?', 'Bei der Person auf „Verwalten“ ein neues setzen. Es erscheint einmal zum Kopieren, angemeldete Tabs müssen sich neu anmelden.'],
   ] as [string, string][],
-  footer: 'LiaScript DevServer',
+  footer: 'LiaLMS',
   source: 'Quellcode',
   docs: 'Anleitung',
 
@@ -246,7 +246,7 @@ export type Texts = typeof de
 const en: Texts = {
   lang: 'en',
   locale: 'en-US',
-  title: 'LiaScript class',
+  title: 'LiaLMS',
   skip: 'Skip to content',
   menu: 'Menu',
   close: 'Close',
@@ -413,7 +413,7 @@ const en: Texts = {
     ['What does it cost?', 'The AI is billed per use to the account of this computer. The top shows the cost of today and the last 7 days, you pick a cheaper model under Settings.'],
     ['Someone forgot their password?', 'Click “Manage” next to them and set a new one. It shows once to copy, signed in tabs have to sign in again.'],
   ],
-  footer: 'LiaScript DevServer',
+  footer: 'LiaLMS',
   source: 'Source code',
   docs: 'Guide',
 

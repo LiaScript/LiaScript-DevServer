@@ -259,6 +259,9 @@ ul {
   text-decoration: none;
   white-space: nowrap;
 }
+.brand-em {
+  color: var(--accent);
+}
 .mark {
   display: grid;
   place-items: center;

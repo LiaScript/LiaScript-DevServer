@@ -1078,7 +1078,6 @@ ${block(L.kit, L.kitHelp, folder('/settings/kit', 'f-kit', cfg.kit, L.kitEmpty))
   async function adminPage(res: http.ServerResponse, L: Texts, message = '', theme = '') {
     const [top, table] = [await topPart(L), await rows(L)]
     const online = [...running.values()].filter((i) => i.open > 0).length
-    const [brand, word] = L.title.split(' ')
     const links = NAV.map((id) => `<a href="#${id}" data-nav="${id}">${esc(navText(L, id))}</a>`).join('')
     const lang = (['de', 'en'] as const)
       .map((l) => `<a href="/lang/${l}" hreflang="${l}" lang="${l}"${L.lang === l ? ' aria-current="true"' : ''}>${l.toUpperCase()}</a>`)
@@ -1091,7 +1090,7 @@ ${block(L.kit, L.kitHelp, folder('/settings/kit', 'f-kit', cfg.kit, L.kitEmpty))
         L.title,
         `<a class="skip" href="#main">${esc(L.skip)}</a>
 <header class="bar-wrap"><nav class="navbar" aria-label="${esc(L.title)}">
-<a class="brand" href="#access"><span class="mark">${icon('graduation-cap')}</span><span>${esc(brand)}</span><span class="muted">${esc(word || '')}</span></a>
+<a class="brand" href="#access"><span class="mark">${icon('graduation-cap')}</span><span>Lia<span class="brand-em">LMS</span></span></a>
 <div class="links">${links}</div>
 <span class="online" title="${esc(L.onlineNow)}"><span class="dot"></span><span id="online-label">${esc(L.online(online))}</span></span>
 <div class="lang" role="group" aria-label="${esc(L.langSwitch)}">${lang}</div>

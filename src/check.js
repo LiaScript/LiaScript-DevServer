@@ -528,6 +528,7 @@ async function main() {
   // --- chat overlay
   const shell = await request('GET', '/liascript/chat.html', {})
   assert.ok(shell.data.includes('<iframe'), 'the shell frames the course')
+  assert.ok(shell.data.includes('<title>LiaLMS</title>'), 'the shell is LiaLMS')
   const script = await request('GET', '/liascript/chat.js', {})
   assert.strictEqual(script.status, 200)
   assert.strictEqual(script.headers['cache-control'], 'no-cache', 'no stale chat.js after an update')
@@ -1498,6 +1499,8 @@ async function main() {
   assert.ok(switched.status === 303 && /lia-lang=en/.test(String(switched.headers['set-cookie'])), 'the language switch is a cookie')
   const pageCookie = await request('GET', '/', { ...ADMG, Cookie: ADMG.Cookie + '; lia-lang=en' }, undefined, ADMIN)
   assert.ok(pageCookie.data.includes('Internet access'), 'the cookie wins over no Accept-Language')
+  assert.ok(pageA.includes('<title>LiaLMS'), 'the name LiaLMS')
+  assert.ok(!/LiaScript Klasse|LiaScript class/.test(pageA + pageEn), 'the old name is gone')
   assert.ok(/script-src 'self'/.test(String(pageCookie.headers['content-security-policy'])) && !/<script>|\son\w+="|\sstyle="/.test(pageCookie.data), 'a CSP, no inline script or style')
   for (const [file, type] of [['admin.css', 'text/css'], ['admin.js', 'text/javascript'], ['geist.woff2', 'font/woff2'], ['icon.svg', 'image/svg+xml']]) {
     const r = await request('GET', '/static/' + file, { Host: ADM.Host }, undefined, ADMIN)
