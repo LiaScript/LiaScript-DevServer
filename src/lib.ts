@@ -2,6 +2,7 @@ import * as express from 'express'
 
 import * as fs from 'fs'
 import * as path from 'path'
+const packageJson = require('../package.json')
 
 const cors = require('cors')
 const handlebars = require('express-handlebars')
@@ -13,6 +14,7 @@ const chokidar = require('chokidar')
 
 const app: express.Application = express()
 app.use(bodyParser.json())
+app.locals.version = packageJson.version
 
 var dirname = ''
 var node_modules

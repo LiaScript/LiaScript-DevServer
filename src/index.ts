@@ -1,5 +1,5 @@
 const argv = require('minimist')(process.argv.slice(2))
-
+import packageJson from '../package.json'
 import * as server from './lib'
 
 function liascript() {
@@ -13,8 +13,8 @@ function liascript() {
 }
 
 if (argv.v || argv.version) {
-  console.log('DevServer: 1.2.22')
-  console.log('LiaScript: 2.6.1')
+  console.log('DevServer:', packageJson.version.split('--')[0])
+  console.log('LiaScript:', packageJson.version.split('--')[1])
   process.exit()
 }
 
