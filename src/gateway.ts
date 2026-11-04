@@ -17,6 +17,7 @@ import * as path from 'path'
 import { sameOrigin } from './lib'
 import { share, otherOrigin, PAGE } from './share'
 import { TEXTS, langOf } from './admin-texts'
+import { LOGIN, loginHtml, shellHtml } from './login'
 import type { Texts } from './admin-texts'
 import { icon, FAVICON } from './icons'
 
@@ -583,17 +584,15 @@ h1{font-size:1.25rem;margin:0}input,button{font:inherit;padding:10px 12px;border
 button{background:var(--accent);border-color:var(--accent);color:#fff;cursor:pointer}.bad{color:var(--bad);margin:0}</style></head><body>${body}</body></html>`)
   }
 
-  // user: the name of a link of the admin page (?user=), never a password
-  function login(res: http.ServerResponse, base: string, message = '', user = '') {
-    page(
-      res,
-      'Anmelden',
-      `<form method="post" action="${esc(base)}/lia-login"><h1>LiaScript</h1>
-<input name="name" autocomplete="username" placeholder="Nutzername" required${user ? ` value="${esc(user)}"` : ' autofocus'}>
-<input name="password" type="password" autocomplete="current-password" placeholder="Passwort" required>
-${message ? `<p class="bad">${esc(message)}</p>` : ''}<button>Anmelden</button></form>`,
-      message ? 401 : 200,
-    )
+  // the texts of the front: the language of the browser, as on the admin page
+  const loginTexts = (req: http.IncomingMessage) => LOGIN[langOf(req).lang]
+  // user: the name of a link of the admin page (?user=), never a password.
+  // The newest message of the teacher to the class greets too, cut short.
+  function login(req: http.IncomingMessage, res: http.ServerResponse, base: string, message = '', user = '') {
+    const last = [...messages].reverse().find((m) => m.from === TEACHER && m.to === ALL)
+    const note = last && { t: last.t, text: last.text.length > 200 ? last.text.slice(0, 200) + '…' : last.text }
+    res.writeHead(message ? 401 : 200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' })
+    res.end(loginHtml({ L: loginTexts(req), base, user, message, note: note || undefined, secure: req.headers['x-lia-lan'] !== '1' }))
   }
 
   async function serve(req: http.IncomingMessage, res: http.ServerResponse) {
@@ -604,11 +603,17 @@ ${message ? `<p class="bad">${esc(message)}</p>` : ''}<button>Anmelden</button><
     const presented = String(req.headers['x-lia-token'] || (cookie && cookie[1]) || '')
     const name = (since.get(presented) || 0) > Date.now() - LOGIN_MS ? logins.get(presented) : undefined
 
+    // the font of the login, before any login
+    if (req.url === '/lia-font/geist.woff2' && req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'font/woff2', 'Cache-Control': 'max-age=31536000' })
+      return fs.createReadStream(path.join(ADMIN_VIEWS, 'geist.woff2')).pipe(res)
+    }
+
     if (req.url === '/lia-login' && req.method === 'POST') {
       const f = await form(req)
       const who = String(f.get('name') || '').trim().toLowerCase()
       const lock = failed.get(who)
-      if (lock && lock.until > Date.now()) return login(res, base, 'Zu viele Versuche, bitte eine Minute warten.')
+      if (lock && lock.until > Date.now()) return login(req, res, base, loginTexts(req).wait, who)
       const user = users[who]
       const ok =
         !!user &&
@@ -617,7 +622,7 @@ ${message ? `<p class="bad">${esc(message)}</p>` : ''}<button>Anmelden</button><
         // a lock that ran out starts the count again, no lock goes on counting
         const n = (!lock || (lock.until && lock.until <= Date.now()) ? 0 : lock.n) + 1
         failed.set(who, { n, until: n >= TRIES ? Date.now() + LOCK_MS : 0 })
-        return login(res, base, 'Name oder Passwort stimmt nicht.')
+        return login(req, res, base, loginTexts(req).wrong, who)
       }
       failed.delete(who)
       const token = crypto.randomBytes(16).toString('hex')
@@ -640,7 +645,7 @@ ${message ? `<p class="bad">${esc(message)}</p>` : ''}<button>Anmelden</button><
       // a page in the frame gets the login, everything else waits for it
       const dest = String(req.headers['sec-fetch-dest'] || '')
       if (['document', 'iframe'].includes(dest) || String(req.headers.accept).includes('text/html'))
-        return login(res, base, '', new URL(req.url || '/', 'http://x').searchParams.get('user') || '')
+        return login(req, res, base, '', new URL(req.url || '/', 'http://x').searchParams.get('user') || '')
       res.writeHead(401)
       return res.end()
     }
@@ -654,10 +659,15 @@ ${message ? `<p class="bad">${esc(message)}</p>` : ''}<button>Anmelden</button><
         return res.end()
       }
       const share = job.total ? ' (' + Math.floor((job.done * 100) / job.total) + ' %)' : ''
-      return page(
-        res,
-        'Einen Moment',
-        `<form><h1>Einen Moment …</h1><p>Dein Kurs wird vorbereitet${esc(share)}. Die Seite lädt gleich von selbst neu.</p></form><script>setTimeout(function(){location.reload()},3000)</script>`,
+      const L = loginTexts(req)
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' })
+      return res.end(
+        shellHtml(
+          L,
+          base,
+          L.moment,
+          `<section class="hi"><h1>${esc(L.moment)} …</h1><p class="lead">${esc(L.preparing(share))}</p></section><script>setTimeout(function(){location.reload()},3000)</script>`,
+        ),
       )
     }
 

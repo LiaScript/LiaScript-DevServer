@@ -1329,6 +1329,17 @@ async function main() {
   assert.deepStrictEqual((await classOf(benToken)).messages.map((m) => m.text), ['Hallo Ben'])
   await request('POST', '/class/say', ADM, 'to=%40all&text=Pause', ADMIN)
   assert.deepStrictEqual((await classOf(benToken)).messages.map((m) => m.from + ':' + m.text), ['anna:Hallo Ben', '@teacher:Pause'], 'the teacher to all')
+  // the login greets by the name of the link and shows the newest message to the class, but no role
+  const hi = await request('GET', '/?user=anna', TAB, undefined, front2)
+  assert.ok(hi.data.includes('Hallo, <span') && hi.data.includes('>anna<') && hi.data.includes('Nicht du?'), 'a personal greeting')
+  assert.ok(hi.data.includes('Pause') && hi.data.includes('an die Klasse'), 'the newest message to the class')
+  assert.ok(hi.data.includes('Verschlüsselte Verbindung'), 'share: encrypted')
+  assert.ok(!hi.data.includes('Werkstatt') && !hi.data.includes('Autor'), 'no role before the password')
+  const hiEn = await request('GET', '/?user=anna', { ...TAB, 'Accept-Language': 'en' }, undefined, front2)
+  assert.ok(hiEn.data.includes('Hello,'), 'the login in English')
+  await request('POST', '/class/say', ADM, 'to=%40all&text=' + encodeURIComponent('<i>x</i> ' + 'y'.repeat(300)), ADMIN)
+  const hiHtml = (await request('GET', '/?user=anna', TAB, undefined, front2)).data
+  assert.ok(hiHtml.includes('&#60;i&#62;x') && !hiHtml.includes('<i>x') && !hiHtml.includes('y'.repeat(250)), 'the message escaped and cut')
   await request('POST', '/mute/anna', ADM, '', ADMIN)
   assert.strictEqual((await say(token, '@teacher', 'noch eine')).status, 403, 'a muted user writes nothing')
   assert.ok((await request('GET', '/class/log', ADMG, undefined, ADMIN)).data.includes('Ich habe eine Frage'), 'the teacher reads all')
@@ -1337,6 +1348,7 @@ async function main() {
   const LANHOST = { Host: '127.0.0.1:' + LAN, Accept: 'text/html' }
   assert.ok((await request('GET', '/', LANHOST, undefined, LAN)).data.includes('http://127.0.0.1:' + LAN + '/lia-login'), 'the login first, on the network too')
   assert.strictEqual((await request('GET', '/', { ...LANHOST, 'X-Lia-Origin': 'https://evil.com' }, undefined, LAN)).data.includes('evil.com'), false, 'only the share host names an address')
+  assert.ok(!(await request('GET', '/', LANHOST, undefined, LAN)).data.includes('Verschlüsselte'), 'plain HTTP claims nothing')
   const lanLogin = await request('POST', '/lia-login', { ...LANHOST, ...FORM }, 'name=ben&password=secret2', LAN)
   const cookie = String(lanLogin.headers['set-cookie']).split(';')[0]
   assert.ok(/^lia=[0-9a-f]{32}$/.test(cookie) && /HttpOnly/.test(lanLogin.headers['set-cookie']) && /SameSite=Strict/.test(lanLogin.headers['set-cookie']), 'a cookie for the login')
@@ -1460,6 +1472,7 @@ async function main() {
   // links and QR codes per user, the name filled in
   const pre = await request('GET', '/?user=' + encodeURIComponent('<b>x'), TAB, undefined, front3)
   assert.ok(pre.data.includes('value="&#60;b&#62;x"'), 'the name from the link, escaped')
+  assert.ok(pre.data.includes('&#60;b&#62;x</span>'), 'the greeting escaped too')
   const rowsQr = (await request('GET', '/rows', ADMG, undefined, ADMIN)).data
   assert.ok(rowsQr.includes('<svg') && rowsQr.includes('&#38;user=anna'), 'a QR code and the share link per user')
   assert.ok(rowsQr.includes(':' + LAN + '/?user=anna'), 'and the link on the network of the school')
