@@ -1,5 +1,6 @@
 // A stand-in ACP agent for the --users part of check.js: answers initialize
-// and session/new, and on its first prompt does what the gateway has to
+// and session/new, and on the chat "hi" of check.js (not on the first prompt:
+// the greeting of a new chat may come first) does what the gateway has to
 // notice: asks to run a command (the class server refuses), reports a
 // refusal of its own through the report_refusal tool of the liascript MCP
 // server, and reports what it cost (0.5, then 0.8 in all).
@@ -17,8 +18,8 @@ async function tool(name, args) {
   return r.json()
 }
 
-async function prompt(sessionId) {
-  if (prompted) return
+async function prompt(sessionId, text) {
+  if (prompted || !text.includes('"text":"hi"')) return
   prompted = true
   await ask('session/request_permission', {
     sessionId,
@@ -40,7 +41,7 @@ readline.createInterface({ input: process.stdin }).on('line', async (line) => {
     mcp = msg.params.mcpServers[0].url
     send({ id: msg.id, result: msg.method === 'session/new' ? { sessionId: 's1' } : {} })
   } else if (msg.method === 'session/prompt') {
-    await prompt(msg.params.sessionId)
+    await prompt(msg.params.sessionId, (msg.params.prompt || []).map((p) => p.text || '').join('\n'))
     send({ id: msg.id, result: { stopReason: 'end_turn' } })
   } else if (msg.id !== undefined) send({ id: msg.id, result: {} })
 })
