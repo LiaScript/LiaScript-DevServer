@@ -239,7 +239,7 @@ function inHome(p: string): string | null {
 const MODELS = ['haiku', 'sonnet', 'opus']
 // the files of the admin page (views/admin, shipped like every view)
 const ADMIN_VIEWS = path.join(__dirname, '..', 'views', 'admin')
-const STATIC: { [file: string]: string } = { 'admin.css': 'text/css; charset=utf-8', 'admin.js': 'text/javascript; charset=utf-8', 'geist.woff2': 'font/woff2' }
+const STATIC: { [file: string]: string } = { 'admin.css': 'text/css; charset=utf-8', 'admin.js': 'text/javascript; charset=utf-8', 'geist.woff2': 'font/woff2', 'geist-mono.woff2': 'font/woff2' }
 const qrcode = require('qrcode-generator')
 // a QR code as SVG, for the phone of a student
 function qr(text: string): string {
@@ -1068,7 +1068,7 @@ ${block(L.kit, L.kitHelp, folder('/settings/kit', 'f-kit', cfg.kit, L.kitEmpty))
   function shell(L: Texts, title: string, body: string, theme = '') {
     return `<!doctype html><html lang="${L.lang}"${theme ? ` data-theme="${theme}"` : ''}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)}</title><meta name="description" content="${esc(L.title)}"><meta name="robots" content="noindex">
-<link rel="icon" href="/static/icon.svg" type="image/svg+xml"><link rel="preload" href="/static/geist.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="icon" href="/static/icon.svg" type="image/svg+xml"><link rel="preload" href="/static/geist.woff2" as="font" type="font/woff2" crossorigin><link rel="preload" href="/static/geist-mono.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/static/admin.css"></head><body>${body}
 <script type="application/json" id="texts">${clientTexts(L)}</script><script src="/static/admin.js" defer></script></body></html>`
   }

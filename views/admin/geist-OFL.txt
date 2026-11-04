@@ -1,4 +1,5 @@
 Copyright (c) 2023 Vercel, in collaboration with basement.studio
+(Geist, geist.woff2, and Geist Mono, geist-mono.woff2, both from the npm package geist 1.9.0)
 
 This Font Software is licensed under the SIL Open Font License, Version 1.1.
 This license is copied below, and is also available with a FAQ at:

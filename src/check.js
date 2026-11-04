@@ -1502,7 +1502,7 @@ async function main() {
   assert.ok(pageA.includes('<title>LiaLMS'), 'the name LiaLMS')
   assert.ok(!/LiaScript Klasse|LiaScript class/.test(pageA + pageEn), 'the old name is gone')
   assert.ok(/script-src 'self'/.test(String(pageCookie.headers['content-security-policy'])) && !/<script>|\son\w+="|\sstyle="/.test(pageCookie.data), 'a CSP, no inline script or style')
-  for (const [file, type] of [['admin.css', 'text/css'], ['admin.js', 'text/javascript'], ['geist.woff2', 'font/woff2'], ['icon.svg', 'image/svg+xml']]) {
+  for (const [file, type] of [['admin.css', 'text/css'], ['admin.js', 'text/javascript'], ['geist.woff2', 'font/woff2'], ['geist-mono.woff2', 'font/woff2'], ['icon.svg', 'image/svg+xml']]) {
     const r = await request('GET', '/static/' + file, { Host: ADM.Host }, undefined, ADMIN)
     assert.ok(r.status === 200 && String(r.headers['content-type']).startsWith(type), 'the page serves ' + file)
   }
