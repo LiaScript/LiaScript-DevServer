@@ -90,7 +90,7 @@ updated separately, we use two different version, one for the devServer and one
 for LiaScript.
 
 ```text
-DevServer: 1.3.0
+DevServer: 1.4.0
 LiaScript: 2.6.2
 ```
 
@@ -244,6 +244,22 @@ own key from your own project/website like this:
 ```bash
 $ liascript-devserver --responsiveVoice YOURKEY -i ../LiaBooks
 ```
+
+### `init` and `update`
+
+```bash
+$ liadev init     # in the folder of a new course
+$ liadev update   # later, to get newer versions
+```
+
+`init` puts the [Teaching-Agent](https://github.com/LiaScript/teaching-agent)
+(`CLAUDE.md`, `AGENTS.md`, `specs/`, …), the
+[LiaScript skills](https://github.com/LiaScript/skills) (into `.claude/skills/`
+and `.agents/skills/`) and a `.mcp.json` with the `liascript` server into the
+current folder, which `.claude/settings.json` enables for Claude Code. It needs no git and keeps files that are there already.
+`update` fetches both again and replaces their files. Your own files are never
+touched: a `CLAUDE.md` that is not the Teaching-Agent's, other skills and the
+other servers of `.mcp.json`.
 
 ### `--mcp`
 

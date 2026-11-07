@@ -405,6 +405,13 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   in their name in the Cache API per room (`__lia-cache/<room>/…`, the room of a tab comes with its first answer):
   a file of one teacher's server never answers for another. `&debug` in the link shows a log of every request and
   of the errors of all frames.
+- **`src/init.ts`** — `liadev init` / `liadev update` (positional commands in `index.ts`, no server starts): shallow
+  clones of `LiaScript/teaching-agent` and `LiaScript/skills` with `isomorphic-git` into a temp folder, then copies of a
+  whitelist (`AGENT`, never README.md or journal.md) and of every skill into `.claude/skills/` and `.agents/skills/`
+  (copies, Windows symlinks need rights). `init` keeps what exists, `update` replaces, a single file that does not
+  start with `# Teaching-Agent` is the user's own and kept by both. `.mcp.json` gets the `liascript` server if it has
+  none (`-i journal.md`; `start()` accepts a missing `.md` input, the agent writes it later), and
+  `.claude/settings.json` `enabledMcpjsonServers` gets `liascript`, so Claude Code starts it without asking.
 - **`src/git.ts`** — git for users who cannot install it (no admin rights): the tools `git_login`, `git_status`,
   `git_clone`, `git_sync`, `git_publish` and `git_tag` on `isomorphic-git` (pure JS, `main` and `http/node` resolve
   without the exports map, so `pkg` finds them) and the GitHub REST API by `fetch`. The user pastes a personal

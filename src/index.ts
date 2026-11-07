@@ -9,6 +9,7 @@ import { mcp } from './mcp'
 import { host } from './acp'
 
 import { PAGE as SHARE_PAGE } from './share'
+import { init } from './init'
 
 function liascript() {
   console.log(' _     _       ____            _       _')
@@ -29,6 +30,11 @@ if (argv.v || argv.version) {
 if (argv.h || argv.help) {
   liascript()
 
+  console.log('init             put the teaching agent, the LiaScript skills and a')
+  console.log('                 .mcp.json into this folder, keeps existing files')
+  console.log('update           fetch the teaching agent and the skills again,')
+  console.log('                 replaces their files, keeps .mcp.json')
+  console.log()
   console.log('-h  --help       show this help')
   console.log('-v  --version    show version information')
   console.log('-i  --input      input README.md file or folder (default: .)')
@@ -87,7 +93,16 @@ if (argv.h || argv.help) {
 liascript()
 
 // --users DIR: one start for many users, each with a DevServer of their own
-if (argv.users) {
+const command = argv._[0]
+if (command === 'init' || command === 'update') {
+  init(command === 'update').then(
+    () => process.exit(),
+    (e: any) => {
+      console.error('Error: ', e.message)
+      process.exit(1)
+    },
+  )
+} else if (argv.users) {
   if (argv.mcp) {
     console.error('--users starts a DevServer with its agent per user, --mcp does not fit')
     process.exit(1)
