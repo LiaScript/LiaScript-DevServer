@@ -383,6 +383,9 @@ async function main() {
     'https://liascript.github.io/share/liascript/index.html?https://liascript.github.io/share/README.md',
     'a course of the listing through --share, one slash: //x is a host to new URL()',
   )
+  // the house of the listing in the frame: / would load a second shell into it
+  const listing = (await request('GET', '/home', { 'Sec-Fetch-Dest': 'iframe' })).data
+  assert.ok(/<a href='[^']*\/home'>/.test(listing) && !/<a href='[^']*\/'>/.test(listing), 'the house stays in the listing')
   // the listing stays in the project, and an error shows no path of this computer
   const above = await request('GET', '/home/..%2f', { 'Sec-Fetch-Dest': 'iframe' })
   assert.strictEqual(above.status, 404, 'no listing above the project')
@@ -558,6 +561,38 @@ async function main() {
   assert.strictEqual(P.unread(0, { kind: 'class', replay: false }, 'course'), 1, 'a message of the class counts too')
   assert.strictEqual(P.missed([0, 2, 5, 7], 2), 2, 'answers that came while the stream was down')
   assert.strictEqual(P.missed([0, 2], -1), 2, 'nothing seen yet')
+  // no shell in the course frame of a shell: on plain HTTP of the LAN the
+  // browser sends no Sec-Fetch-Dest, a course of the listing came as a
+  // second shell with a second switch bar
+  const nested = await request('GET', '/liascript/nested.js', {})
+  assert.ok(nested.status === 200 && nested.headers['cache-control'] === 'no-cache', 'the shell gets nested.js')
+  assert.ok(/<head>[\s\S]*src="nested.js"[\s\S]*<\/head>/.test(shell.data), 'nested.js runs before the body')
+  const inFrame = (search, id) => {
+    const box = { stopped: false, went: '' }
+    box.window = {
+      frameElement: id ? { id } : null,
+      stop: () => (box.stopped = true),
+      location: {
+        pathname: '/share/liascript/chat.html',
+        search,
+        hash: '#3',
+        replace: (u) => (box.went = u),
+      },
+    }
+    vm.createContext(box)
+    vm.runInContext(fs.readFileSync(path.join(ROOT, 'views/nested.js'), 'utf8'), box)
+    return box
+  }
+  let fr = inFrame('?http://10.0.0.2:8000/kurs/README.md', 'course')
+  assert.ok(fr.stopped && fr.went === 'index.html?http://10.0.0.2:8000/kurs/README.md#3', 'a course: the bare player, ' + fr.went)
+  fr = inFrame('?/home/kurs', 'course')
+  assert.strictEqual(fr.went, '/share/home/kurs#3', 'a folder: the listing')
+  fr = inFrame('?web=https%3A%2F%2Fexample.org%2F', 'course')
+  assert.strictEqual(fr.went, '/share/web?url=https%3A%2F%2Fexample.org%2F#3', 'a web page: the proxy')
+  fr = inFrame('?http://x/README.md', 'lia-share')
+  assert.ok(!fr.stopped && !fr.went, 'the frame of the share page is no shell')
+  fr = inFrame('?http://x/README.md', null)
+  assert.ok(!fr.stopped && !fr.went, 'a tab of its own')
 
   // a fake chat shell. Never call chat without one: it would open a browser.
   stream = ''
@@ -1313,6 +1348,19 @@ async function main() {
   assert.ok((await request('GET', '/rows', ADMG, undefined, ADMIN)).data.includes('prolog'), 'the list names the course')
   await request('POST', '/users', ADM, 'name=dora&password=secret1&role=student&course=' + encodeURIComponent('../kurse/prolog'), ADMIN)
   assert.ok(!JSON.parse(fs.readFileSync(usersFile, 'utf8')).dora, 'only a course of the list')
+  // all courses: each one a folder of its own, the user picks in the listing
+  assert.ok(adminPage.includes('<option value="*">'), 'all courses can be chosen')
+  await request('POST', '/users', ADM, 'name=emil&password=secret1&role=student&course=*', ADMIN)
+  await settled()
+  assert.ok(fs.existsSync(path.join(USERS, 'emil', 'prolog', 'README.md')), 'every course in a folder of its own')
+  assert.ok(!fs.existsSync(path.join(USERS, 'emil', 'README.md')) && !fs.existsSync(path.join(USERS, 'emil', 'bilder')), 'no course at the top, no folder without Markdown')
+  assert.ok((await request('GET', '/rows', ADMG, undefined, ADMIN)).data.includes('Ordner mit allen Kursen'), 'the list says all courses')
+  fs.mkdirSync(path.join(COURSES, 'sql'))
+  fs.writeFileSync(path.join(COURSES, 'sql', 'README.md'), '# SQL\n')
+  await request('POST', '/update/emil', ADM, '', ADMIN)
+  await settled()
+  assert.ok(fs.existsSync(path.join(USERS, 'emil', 'sql', 'README.md')), 'an update brings a new course')
+  fs.rmSync(path.join(COURSES, 'sql'), { recursive: true })
   const TAB = { 'X-Lia-Origin': 'https://liascript.github.io/share/tab-x', 'Sec-Fetch-Dest': 'iframe' }
   const gate = await request('GET', '/', TAB, undefined, front)
   assert.ok(gate.status === 200 && gate.data.includes('https://liascript.github.io/share/tab-x/lia-login'), 'the login first')
@@ -1325,6 +1373,29 @@ async function main() {
   const carlToken = /"([0-9a-f]{32})"/.exec((await request('POST', '/lia-login', { ...TAB, ...FORM }, 'name=carl&password=secret1', front)).data)[1]
   const carlIn = await request('GET', '/', { ...TAB, 'X-Lia-Token': carlToken }, undefined, front)
   assert.ok(carlIn.status === 302 && /README\.md$/.test(carlIn.headers.location), 'a learner gets README.md: ' + carlIn.headers.location)
+  const emilToken = /"([0-9a-f]{32})"/.exec((await request('POST', '/lia-login', { ...TAB, ...FORM }, 'name=emil&password=secret1', front)).data)[1]
+  const emilIn = await request('GET', '/', { ...TAB, 'X-Lia-Token': emilToken }, undefined, front)
+  assert.ok(emilIn.status === 302 && !/\.md$/.test(emilIn.headers.location), 'with all courses the folder: ' + emilIn.headers.location)
+  // what the agent of a user writes shows at once, also through the share page
+  const follow = (t) => {
+    const s = { text: '' }
+    s.req = http.get({ host: '127.0.0.1', port: front, path: '/gotoLine?chat', headers: { ...TAB, 'X-Lia-Token': t } }, (res) => res.on('data', (d) => (s.text += d)))
+    s.req.on('error', () => {})
+    s.has = async (text, ms = 5000) => {
+      for (let i = 0; i < ms && !s.text.includes(text); i += 50) await sleep(50)
+      return s.text.includes(text)
+    }
+    return s
+  }
+  const carlSees = follow(carlToken)
+  const emilSees = follow(emilToken)
+  await sleep(1000)
+  fs.writeFileSync(path.join(USERS, 'carl', 'style.css'), 'body {}\n')
+  assert.ok(await carlSees.has('{"reload":true}'), 'a changed file reloads the course of a remote tab: ' + carlSees.text.slice(-300))
+  fs.writeFileSync(path.join(USERS, 'emil', 'prolog', 'neu.md'), '# Neu\n')
+  assert.ok(await emilSees.has('{"files":true}'), 'a new file renews the listing')
+  carlSees.req.destroy()
+  emilSees.req.destroy()
   assert.ok(right.data.includes('Weiterlernen') && !right.data.includes('Werkstatt'), 'a learner learns on')
   const inside = await request('GET', '/', { ...TAB, 'X-Lia-Token': token }, undefined, front)
   assert.strictEqual(inside.status, 302, 'the DevServer of anna')
@@ -1353,7 +1424,7 @@ async function main() {
   assert.strictEqual((await say(token, 'ben', 'Hallo Ben')).status, 403, 'not to others before the teacher allows it')
   assert.strictEqual((await classOf(benToken)).messages.length, 0, 'ben does not see what anna wrote to the teacher')
   await request('POST', '/class/dm', ADM, 'on=1', ADMIN)
-  assert.deepStrictEqual((await classOf(benToken)).users, ['anna', 'carl'], 'the others, once allowed')
+  assert.deepStrictEqual((await classOf(benToken)).users, ['anna', 'carl', 'emil'], 'the others, once allowed')
   assert.strictEqual((await say(token, 'ben', 'Hallo Ben')).status, 204)
   assert.deepStrictEqual((await classOf(benToken)).messages.map((m) => m.text), ['Hallo Ben'])
   await request('POST', '/class/say', ADM, 'to=%40all&text=Pause', ADMIN)
@@ -1592,10 +1663,37 @@ async function main() {
   gwSignalling.close()
   gwPage.close()
 
+  await checkHoisted()
   await checkShare()
 
   fs.rmSync(PROJECT, { recursive: true, force: true })
   console.log('ok')
+}
+
+// installed by npx or npm install: the player lies next to the package, not
+// in a node_modules of its own
+async function checkHoisted() {
+  const T = fs.mkdtempSync(path.join(os.tmpdir(), 'liascript-hoisted-'))
+  const NM = path.join(T, 'node_modules')
+  const PKG = path.join(NM, '@liascript', 'devserver')
+  fs.mkdirSync(PKG, { recursive: true })
+  for (const f of ['dist', 'views', 'package.json']) fs.cpSync(path.join(ROOT, f), path.join(PKG, f), { recursive: true })
+  for (const m of fs.readdirSync(path.join(ROOT, 'node_modules')))
+    if (m !== '@liascript' && !m.startsWith('.')) fs.symlinkSync(path.join(ROOT, 'node_modules', m), path.join(NM, m))
+  for (const m of ['editor', 'chat']) fs.symlinkSync(path.join(ROOT, 'node_modules', '@liascript', m), path.join(NM, '@liascript', m))
+  const port = 4731
+  const child = spawn(process.execPath, [path.join(PKG, 'dist/index.js'), '-p', port, '-i', path.join(ROOT, 'README.md')], { cwd: T })
+  let out = ''
+  child.stdout.on('data', (d) => (out += d))
+  child.stderr.on('data', (d) => (out += d))
+  try {
+    for (const t = Date.now(); !/local:/.test(out); await sleep(100)) if (Date.now() - t > 10000) throw new Error('hoisted: no server\n' + out)
+    assert.strictEqual((await request('GET', '/liascript/index.html', {}, undefined, port)).status, 200, 'the player next to the package')
+    assert.ok(!/ENOENT/.test(out), out)
+  } finally {
+    child.kill()
+    fs.rmSync(T, { recursive: true, force: true })
+  }
 }
 
 // a y-webrtc signalling server on loopback, and a share page that names it

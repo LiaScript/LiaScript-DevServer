@@ -79,7 +79,9 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
     `changed()` bundles: one reload 300 ms after a burst (`BURST_MS`), and while an agent works (a progress line
     shows and it reacted, not `pending`) at most every 30 s (`HOLD_MS`); the end of the progress line reloads at once.
     In agent mode a `.md` file reloads only if the preview shows it or the shown file names it (`shows()`, for
-    `import:`), an agent writing `journal.md` reset the quizzes of a user in `README.md`.
+    `import:`), an agent writing `journal.md` reset the quizzes of a user in `README.md`. A new or removed file (`add`,
+    `unlink`, folders too) counts like a change and, in agent mode, sends `{files: true}` once per burst: `chat.js`
+    reloads a listing in its frame, which has no reload client of its own.
   - Optional `--responsiveVoice` support: injects the responsiveVoice script tag with a given/default key (also
     readable from `RESPONSIVE_VOICE_KEY` env var).
   - "Goto line" feature: `/gotoLine` (SSE endpoint, `eventsHandler`) streams line-goto events to connected browser
@@ -109,7 +111,9 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
     `Sec-Fetch-Site: same-origin`, a hardened Firefox with referrer policy `no-referrer` sends it for its own page), and `.md` redirects go to the chat shell instead of the bare player. A folder under `/home` opened
     as a page (`Sec-Fetch-Dest: document`) becomes `chat.html?/home/…`, the listing in the shell's frame; there its
     `.md` links go to the bare player (`Sec-Fetch-Dest: iframe`), `chat.js` reports a listing as `file: ''` with the
-    folder as `title` and turns a `goto` with `file` into a player itself. Web pages (`src/web.ts`): the shell can
+    folder as `title` and turns a `goto` with `file` into a player itself. A browser sends `Sec-Fetch-*` only to https and localhost, so on plain HTTP of `--lan` the frame got the shell
+    again: `views/nested.js` (first script of the shell's `<head>`) stops a shell in the frame `#course` and loads the
+    bare player, the listing or `/web` instead. Web pages (`src/web.ts`): the shell can
     show any web page and keep the chat, to read it together with the agent. A proxy on a server and origin of its
     own (`webPort()` = port + 20000, same `Host` check, no `/agent`, cookies never passed on) fetches only the HTML
     document, without cookies. It inserts `<base href>` of the real address and `views/web.js`, which reports
@@ -285,13 +289,13 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   companion and `Weiterlernen` or the indigo workshop of the Teaching-Agent and `Weiterschreiben`, which sets the
   token first), the token lives in the `sessionStorage` of the share tab and `lia-share.js` sends it with
   every request (`m.token` → `x-lia-token` in `share.ts`). With a login it starts the user's DevServer on demand
-  (`--agent`, `-i README.md` or `.`, cwd `DIR/<name>`, env `LIA_TOKEN` for `/agent/state/<token>`,
+  (`--agent`, `--live`, `-i README.md` or `.`, cwd `DIR/<name>`, env `LIA_TOKEN` for `/agent/state/<token>`,
   `LIA_GATEWAY` so `acp.ts` refuses every permission, `LIA_ROLE` student|author for its rules), one start at a
   time from port 4100 (the port comes from its `local:` line), proxies to it with `Host` and `Origin` of a local tab
   (`x-lia-web` → its web proxy port) and stops it after 15 min without an open request. The admin page
   (`127.0.0.1:<-p>`, `Host` checked, forms need their `Origin`) creates users, optionally with a copy of a course:
   a dropdown of the subfolders of `--courses DIR` (default `.`) that hold a Markdown file (`courseList()`, the only
-  values accepted, so no path from the form reaches the disk), kept as `course` in `users.json` and shown in the list, sets passwords, deletes users (their folder stays), shows who is online, where (`/agent/state`, with
+  values accepted, so no path from the form reaches the disk; or `*`, all courses: each in a folder of its own below the user's, hashes in `DIR/.base-all/<name>/<course>`, an update brings new ones, the user starts in the listing), kept as `course` in `users.json` and shown in the list, sets passwords, deletes users (their folder stays), shows who is online, where (`/agent/state`, with
   `stuck`, the last help of `needsHelp()`) and lets the teacher read the latest chat. `check.js` covers login,
   lock and routing with a stub agent. The UI of each share tab sits below `tab-<id>/`: the service worker asks every
   Before real students: logins are kept in `DIR/logins.json` (`0600`, 7 days, cleared by a new password). Every

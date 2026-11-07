@@ -1759,6 +1759,11 @@ function message(event) {
     homeCourse = data.home
     return showHome()
   }
+  // a file came or went: views/layouts/index.hbs lists anew
+  if (data.files) {
+    if (isListing()) course.contentWindow.location.reload()
+    return
+  }
   if (typeof data.status == 'string') return status(data.status)
   if (typeof data.hint == 'string') return hint(data.hint)
   if (data.closed) {

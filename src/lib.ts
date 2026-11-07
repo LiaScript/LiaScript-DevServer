@@ -261,6 +261,15 @@ function reloadNow() {
   clients.forEach((client) => client.remote && client.write('data: {"reload":true}\n\n'))
 }
 
+// a file came or went: a listing in the frame of the shell lists it anew
+// (views/chat.js), once for a burst
+var listing: any = null
+function listed() {
+  clearTimeout(listing)
+  listing = setTimeout(() => send({ files: true }), BURST_MS)
+  if (listing.unref) listing.unref()
+}
+
 // Does the preview show this file? Another Markdown file changes nothing in
 // it, and a reload reset the quizzes the user was answering: an agent writes
 // journal.md while the user tries README.md. A file the shown one names
@@ -507,7 +516,17 @@ init(__dirname)
 export function init(serverPath?: string, nodeModulesPath?: string) {
   dirname = serverPath || path.join(__dirname, '..')
 
+  // the player in node_modules of the package, or next to it (npx and npm
+  // install put the dependencies up, beside @liascript/devserver)
   node_modules = nodeModulesPath || path.join(dirname, 'node_modules')
+  if (!nodeModulesPath)
+    for (let d = dirname; ; d = path.dirname(d)) {
+      if (fs.existsSync(path.join(d, 'node_modules', '@liascript/editor/dist'))) {
+        node_modules = path.join(d, 'node_modules')
+        break
+      }
+      if (path.dirname(d) === d) break
+    }
 
   liascriptPath = path.resolve(
     path.join(node_modules, '@liascript/editor/dist'),
@@ -712,7 +731,7 @@ export async function start(
         },
       })
 
-      watcher.on('change', (filePath: string) => {
+      const onChange = (filePath: string) => {
         // which one: a reload nobody expected is easier to explain
         const name = path.relative(watchPath, filePath)
         // an agent that writes files is at work, also between its tool calls
@@ -720,7 +739,16 @@ export async function start(
         if (agent && !shows(filePath)) return console.log('📝 ' + name + ' changed, not shown')
         console.log('📝 ' + name + ' changed')
         changed()
-      })
+      }
+      watcher.on('change', onChange)
+      // a new or removed file changes the listing, the course only if it shows it
+      const added = (filePath: string) => {
+        if (agent) listed()
+        onChange(filePath)
+      }
+      watcher.on('add', added)
+      watcher.on('unlink', added)
+      if (agent) watcher.on('addDir', listed).on('unlinkDir', listed)
 
       watcher.on('error', (error: any) => {
         console.error('Watcher error:', error)
@@ -775,6 +803,9 @@ export async function start(
       res.render('main', {
         layout: 'index',
         root: originOf(req),
+        // in agent mode the listing sits in the frame of the shell, where /
+        // would load a second shell with a second chat
+        home: originOf(req) + (agent ? '/home' : '/'),
         path: paths,
         file: files
           .map((file: string) => {
@@ -859,7 +890,7 @@ export async function start(
   // scripts of agentScript
   if (agent) {
     app.get(
-      '/liascript/:file(chat.html|chat.js|chat.css|avatar.js|teachers.js|activity.js|agent.js|class.js|phone.js)',
+      '/liascript/:file(chat.html|chat.js|chat.css|avatar.js|teachers.js|activity.js|agent.js|class.js|phone.js|nested.js)',
       function (req: express.Request, res: express.Response) {
         res.sendFile(req.params.file, {
           root: path.resolve(path.join(dirname, 'views')),
@@ -1259,6 +1290,7 @@ export function stop() {
   clearTimeout(settling)
   clearTimeout(quiet)
   clearTimeout(reloading)
+  clearTimeout(listing)
   changedAt = 0
   if (serverPointer) {
     serverPointer.close()

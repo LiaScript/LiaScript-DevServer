@@ -175,6 +175,10 @@ async function manifestOf(base: string): Promise<Manifest> {
 // in the sandbox)
 const KIT = ['CLAUDE.md', 'AGENTS.md', '.codex', 'specs', '.gitignore']
 
+// the course "all courses": every course of the folder in a folder of its
+// own below the user's, who picks one in the listing
+const ALL_COURSES = '*'
+
 // next to a file of the user: README.md -> README.update.md
 const beside = (p: string) => p.replace(/(\.[^./]*)?$/, '.update$1')
 
@@ -250,6 +254,8 @@ function qr(text: string): string {
   return code.createSvgTag({ cellSize: 2, margin: 2, scalable: true })
 }
 
+const courseName = (L: Texts, c: string) => (c === ALL_COURSES ? L.allCourses : L.course(c))
+
 function courseList(root: string): string[] {
   try {
     return fs
@@ -278,6 +284,9 @@ export async function gateway(o: Options) {
   for (const u of Object.values(users))
     if (u.course && !u.source && fs.existsSync(path.join(cfg.courses, u.course))) (u.source = path.join(cfg.courses, u.course)), (named = true)
   if (named) save()
+  // only a course of the list, or all of them: no path from a form ever reaches the disk
+  const isCourse = (c: string) => c === ALL_COURSES || courseList(cfg.courses).includes(c)
+  const sourceOf = (c: string) => (c === ALL_COURSES ? cfg.courses : path.join(cfg.courses, c))
   const hasCourse = (name: string) => !!users[name].source && fs.existsSync(users[name].source as string)
 
   if (o.sandbox) {
@@ -328,7 +337,7 @@ export async function gateway(o: Options) {
     inst.ready = starting = starting.then(async () => {
       while (!(await free(nextPort))) nextPort++
       const port = nextPort++
-      child = spawn(process.execPath, [...self, '--agent', cfg.agent, '-p', String(port), '-i', input, ...(cfg.web ? [] : ['--proxy', 'off'])], {
+      child = spawn(process.execPath, [...self, '--agent', cfg.agent, '-p', String(port), '-i', input, '--live', ...(cfg.web ? [] : ['--proxy', 'off'])], {
         cwd: home,
         env: {
           ...process.env,
@@ -426,14 +435,18 @@ export async function gateway(o: Options) {
     if (jobs.has(name)) return
     running.get(name)?.child?.kill()
     // German for the class channel of the user, as before
-    const what = [users[name].course && 'Kurs ' + users[name].course, users[name].kit && cfg.kit && 'Teaching-Agent'].filter(Boolean).join(' und ')
+    const what = [users[name].course && courseName(TEXTS.de, users[name].course as string), users[name].kit && cfg.kit && 'Teaching-Agent'].filter(Boolean).join(' und ')
     const job = { course: users[name].course || '', kit: !!(users[name].kit && cfg.kit), first, done: 0, total: 0 }
     jobs.set(name, job)
     try {
       fs.mkdirSync(path.join(dir, name), { recursive: true })
       const step = (done: number, total: number) => ((job.done = done), (job.total = total))
       const none = { updated: [] as string[], added: [] as string[], removed: [] as string[], conflicts: [] as string[] }
-      const c = hasCourse(name) ? await syncCourse(users[name].source as string, baseOf(name), path.join(dir, name), undefined, step) : none
+      const c = !hasCourse(name)
+        ? none
+        : users[name].course === ALL_COURSES
+        ? await syncAll(users[name].source as string, name, step)
+        : await syncCourse(users[name].source as string, baseOf(name), path.join(dir, name), undefined, step)
       const k = users[name].kit && cfg.kit ? await syncCourse(cfg.kit, baseKitOf(name), path.join(dir, name), KIT, step) : none
       notice(report(name, what, c, k, first, job))
     } catch (e: any) {
@@ -441,6 +454,17 @@ export async function gateway(o: Options) {
     } finally {
       jobs.delete(name)
     }
+  }
+
+  // all courses: one after the other, each with its hashes in DIR/.base-all/<name>/<course>;
+  // a new course of the folder comes with the next update, a removed one stays
+  async function syncAll(source: string, name: string, step: (done: number, total: number) => void) {
+    const all = { updated: [] as string[], added: [] as string[], removed: [] as string[], conflicts: [] as string[] }
+    for (const c of courseList(source)) {
+      const r = await syncCourse(path.join(source, c), path.join(dir, '.base-all', name, c), path.join(dir, name, c), undefined, step)
+      for (const k of Object.keys(all) as (keyof typeof all)[]) all[k].push(...r[k].map((p) => c + '/' + p))
+    }
+    return all
   }
 
   // the user hears of an update in the class channel; the admin page gets a notice
@@ -462,7 +486,7 @@ export async function gateway(o: Options) {
         ? ' Diese Dateien hattest du selbst geändert, sie bleiben so; die neue Version liegt daneben: ' + r.conflicts.map(beside).join(', ')
         : '')
     if (!first && (parts.length || r.conflicts.length)) post(TEACHER, name, text)
-    const words = (L: Texts) => [job.course && L.course(job.course), job.kit && 'Teaching-Agent'].filter(Boolean).join(L.and)
+    const words = (L: Texts) => [job.course && courseName(L, job.course), job.kit && 'Teaching-Agent'].filter(Boolean).join(L.and)
     if (first) return (L) => L.ready(name, words(L), r.added.length)
     return (L) =>
       name +
@@ -923,7 +947,7 @@ ${costCard(L)}
       .map((l) => btn('quiet xs', 'copy', links.length > 1 ? l.where : L.copyLink, ` type="button" data-copy="${esc(l.href)}" title="${esc(L.copyLink + ': ' + l.href)}"`))
       .join('')}</div></div></div>`
   }
-  const what = (L: Texts, course: string, kit: boolean) => [course && L.course(course), kit && 'Teaching-Agent'].filter(Boolean).join(L.and)
+  const what = (L: Texts, course: string, kit: boolean) => [course && courseName(L, course), kit && 'Teaching-Agent'].filter(Boolean).join(L.and)
   // a thin bar, drawn in SVG: the page allows no inline style
   const bar = (part: number) => `<svg class="bar" viewBox="0 0 100 4" preserveAspectRatio="none" aria-hidden="true"><rect class="track" width="100" height="4" rx="2"/><rect width="${Math.max(
     2,
@@ -966,12 +990,12 @@ ${costCard(L)}
               job.total ? L.files(job.done, job.total) : L.starting,
             )}</p>`
           : users[n].course || users[n].kit
-          ? `<p class="t-sm strong">${esc(users[n].course || '')}</p>${users[n].kit ? `<span class="badge author">+ Teaching-Agent</span>` : ''}<form method="post" action="/update/${esc(
+          ? `<p class="t-sm strong">${esc(users[n].course === ALL_COURSES ? L.allCourses : users[n].course || '')}</p>${users[n].kit ? `<span class="badge author">+ Teaching-Agent</span>` : ''}<form method="post" action="/update/${esc(
               n,
             )}">${btn('quiet xs', 'arrows-clockwise', L.update)}</form>`
           : `<form method="post" action="/assign/${esc(n)}" class="row tight"><label class="sr-only" for="as-${esc(n)}">${esc(L.chooseCourse)}</label><select id="as-${esc(
               n,
-            )}" name="course" class="sm"><option value="">–</option>${courses.map((c) => `<option>${esc(c)}</option>`).join('')}</select>${btn('quiet xs', 'check', L.assign)}</form>`
+            )}" name="course" class="sm"><option value="">–</option>${courses.map((c) => `<option>${esc(c)}</option>`).join('')}<option value="${ALL_COURSES}">${esc(L.allCoursesOption)}</option></select>${btn('quiet xs', 'check', L.assign)}</form>`
         const muted = settings.muted.includes(n)
         return `<tr id="u-${esc(n)}" data-name="${esc(n)}" data-role="${users[n].role === 'author' ? 'author' : 'student'}" data-online="${online ? 1 : 0}" data-help="${help ? 1 : 0}"${
           help ? ' class="help"' : ''
@@ -1192,7 +1216,7 @@ ${switchForm(L, '/class/dm', settings.dm, L.dm)}
         )}</option></select></div>
 <div class="field"><label for="nu-course">${esc(L.courseLabel)}</label><select id="nu-course" name="course" title="${esc(L.courseFrom(cfg.courses))}"><option value="">${esc(
           L.noCourse,
-        )}</option>${courses.map((c) => `<option>${esc(c)}</option>`).join('')}</select></div>
+        )}</option>${courses.map((c) => `<option>${esc(c)}</option>`).join('')}<option value="${ALL_COURSES}">${esc(L.allCoursesOption)}</option></select></div>
 ${cfg.kit ? `<label class="check" title="${esc(L.withKitTitle)}"><input type="checkbox" name="kit" value="1"> ${esc(L.withKit)}</label>` : ''}
 <div class="submit">${btn('primary', 'user-plus', L.create)}</div>
 </form></section>
@@ -1353,17 +1377,17 @@ ${cfg.kit ? `<label class="check" title="${esc(L.withKitTitle)}"><input type="ch
       else if (password.length < 6) message = L.passwordError
       else if (!ROLES.includes(role)) message = L.unknownRole
       // only a course of the list: no path from the form ever reaches the disk
-      else if (course && !courseList(cfg.courses).includes(course)) message = L.noSuchCourse(course, cfg.courses)
+      else if (course && !isCourse(course)) message = L.noSuchCourse(course, cfg.courses)
       else {
         fs.mkdirSync(path.join(dir, name), { recursive: true })
         const kit = !!cfg.kit && f.get('kit') === '1'
         const salt = crypto.randomBytes(16).toString('hex')
-        users[name] = { salt, hash: hash(password, salt), role, created: new Date().toISOString(), ...(course ? { course, source: path.join(cfg.courses, course) } : {}), ...(kit ? { kit } : {}) }
+        users[name] = { salt, hash: hash(password, salt), role, created: new Date().toISOString(), ...(course ? { course, source: sourceOf(course) } : {}), ...(kit ? { kit } : {}) }
         save()
         fresh = { name, password }
         // the copy in the background, the page shows how far it is
         if (course || kit) void updateCourse(name, true)
-        message = L.created(name, [course, kit && 'Teaching-Agent'].filter(Boolean).join(L.and))
+        message = L.created(name, [course && (course === ALL_COURSES ? L.allCourses : course), kit && 'Teaching-Agent'].filter(Boolean).join(L.and))
       }
     } else if (action === 'password' && users[who]) {
       const password = String(f.get('password') || '')
@@ -1392,13 +1416,13 @@ ${cfg.kit ? `<label class="check" title="${esc(L.withKitTitle)}"><input type="ch
       message = L.updateFor(who)
     } else if (action === 'assign' && users[who] && !users[who].course) {
       const course = String(f.get('course') || '')
-      if (!courseList(cfg.courses).includes(course)) message = L.pickACourse
+      if (!isCourse(course)) message = L.pickACourse
       else {
         users[who].course = course
-        users[who].source = path.join(cfg.courses, course)
+        users[who].source = sourceOf(course)
         save()
         void updateCourse(who, true)
-        message = L.copyingFor(course, who)
+        message = L.copyingFor(course === ALL_COURSES ? L.allCourses : course, who)
       }
     } else if (action === 'settings' && who === 'share') {
       message = setShare(f.get('on') === '1', false, L)
