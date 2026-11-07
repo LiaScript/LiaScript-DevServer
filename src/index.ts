@@ -6,6 +6,7 @@ if (argv.mcp) console.log = console.error
 
 import * as server from './lib'
 import { mcp } from './mcp'
+import { init } from './init'
 
 function liascript() {
   console.log(' _     _       ____            _       _')
@@ -26,6 +27,11 @@ if (argv.v || argv.version) {
 if (argv.h || argv.help) {
   liascript()
 
+  console.log('init             put the teaching agent, the LiaScript skills and a')
+  console.log('                 .mcp.json into this folder, keeps existing files')
+  console.log('update           fetch the teaching agent and the skills again,')
+  console.log('                 replaces their files, keeps .mcp.json')
+  console.log()
   console.log('-h  --help       show this help')
   console.log('-v  --version    show version information')
   console.log('-i  --input      input README.md file or folder (default: .)')
@@ -57,40 +63,51 @@ if (argv.h || argv.help) {
 
 liascript()
 
-server.init(argv.node_modules)
-
-// before start(), so the handshake does not wait for the reload setup
-if (argv.mcp) mcp()
-
-// -w md,css or -w .md,*.css, a bare -w keeps the default types
-const types = argv.w ?? argv.watch
-const watch =
-  types === undefined
-    ? undefined
-    : types === true
-      ? server.WATCH
-      : String(types)
-          .split(',')
-          .map((type) => type.trim().toLowerCase().replace(/^\*?\./, ''))
-          .filter(Boolean)
-
-server
-  .start(
-    argv.p || argv.port,
-    argv.n || argv.hostname,
-    argv.i || argv.input,
-    argv.r || argv.responsiveVoice || process.env.RESPONSIVE_VOICE_KEY,
-    argv.l || argv.live,
-    argv.o || argv.open,
-    argv.t || argv.test,
-    undefined,
-    argv.mcp,
-    watch,
-    argv.proxy,
+const command = argv._[0]
+if (command === 'init' || command === 'update') {
+  init(command === 'update').then(
+    () => process.exit(),
+    (e: any) => {
+      console.error('Error: ', e.message)
+      process.exit(1)
+    },
   )
-  .catch((e: any) => {
-    console.error('Error: ', e.message)
-    process.exit()
-  })
+} else {
+  server.init(argv.node_modules)
 
-console.log('✨ hit Ctrl-c to close the server')
+  // before start(), so the handshake does not wait for the reload setup
+  if (argv.mcp) mcp()
+
+  // -w md,css or -w .md,*.css, a bare -w keeps the default types
+  const types = argv.w ?? argv.watch
+  const watch =
+    types === undefined
+      ? undefined
+      : types === true
+        ? server.WATCH
+        : String(types)
+            .split(',')
+            .map((type) => type.trim().toLowerCase().replace(/^\*?\./, ''))
+            .filter(Boolean)
+
+  server
+    .start(
+      argv.p || argv.port,
+      argv.n || argv.hostname,
+      argv.i || argv.input,
+      argv.r || argv.responsiveVoice || process.env.RESPONSIVE_VOICE_KEY,
+      argv.l || argv.live,
+      argv.o || argv.open,
+      argv.t || argv.test,
+      undefined,
+      argv.mcp,
+      watch,
+      argv.proxy,
+    )
+    .catch((e: any) => {
+      console.error('Error: ', e.message)
+      process.exit()
+    })
+
+  console.log('✨ hit Ctrl-c to close the server')
+}
