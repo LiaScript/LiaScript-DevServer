@@ -13,6 +13,7 @@ import * as chats from './chats'
 import * as git from './git'
 import * as web from './web'
 import { startFull, Full } from './full'
+import { qr } from './qr'
 
 const cors = require('cors')
 const handlebars = require('express-handlebars')
@@ -92,6 +93,51 @@ export function localOrigin(link?: string) {
 }
 export function proxyOrigin() {
   return proxyMode == 'read' ? webOrigin : ''
+}
+
+// --share at runtime, the 📱 of the chat and the tool share: index.ts hands in
+// the switch, lib.ts never loads WebRTC (the tsc build of the library would
+// pull it in). Without one, as a library, the chat offers none.
+export type ShareSwitch = {
+  // take: a twin instance that holds the room steps aside; lost: it took it back
+  on(take: boolean, lost: () => void): { link?: string; error?: string }
+  off(): void
+  remembered: boolean // the project was shared when its last host stopped
+}
+var shareSwitch: ShareSwitch | null = null
+// a remembered share starts once this instance is used: twins (Copilot next to
+// Claude Code) would otherwise race for the room
+var wakeShare = false
+export function onShare(s: ShareSwitch) {
+  shareSwitch = s
+  wakeShare = s.remembered
+}
+export function setShare(on: boolean, take = true, show = false): { link?: string; error?: string } {
+  if (!shareSwitch) return { error: 'Sharing is not available in this instance.' }
+  wakeShare = false
+  if (on && !shared) {
+    const r = shareSwitch.on(take, () => ((shared = ''), toShells(shareMessage())))
+    if (!r.link) return { error: r.error || 'Not shared.' }
+    shared = r.link
+  } else if (!on && shared) {
+    shareSwitch.off()
+    shared = ''
+  }
+  toShells(shareMessage(show))
+  return shared ? { link: shared } : {}
+}
+function wake() {
+  if (wakeShare) {
+    const r = setShare(true, false)
+    if (r.error) console.log('🔗 not shared: ' + r.error)
+  }
+}
+// only for a shell on this machine: the phone must not switch off its own link
+function shareMessage(show = false) {
+  return { share: { on: !!shared, ...(shared ? { link: shared, qr: qr(shared) } : {}), ...(show ? { show } : {}) } }
+}
+function toShells(msg: object) {
+  clients.forEach((client: any) => client.chat && !client.remote && client.write(`data: ${JSON.stringify(msg)}\n\n`))
 }
 // in agent mode the chat shell, which shows the player in an iframe
 var player = '/liascript/index.html'
@@ -202,6 +248,7 @@ var quiet: any = null
 
 export function activity() {
   pending = false
+  wake()
   if (progress === WAITING || progress === LOOKING) send({ status: THINKING })
   else watchQuiet()
 }
@@ -939,6 +986,15 @@ export async function start(
       },
     )
 
+    // the 📱 of the chat: {on}, only a tab on this machine
+    app.post('/share', function (req: express.Request, res: express.Response) {
+      if (!shareSwitch) return res.sendStatus(404)
+      if (req.headers.origin !== 'http://' + req.headers.host || req.headers['x-lia-origin']) return res.sendStatus(403)
+      const r = setShare(!!(req.body && req.body.on))
+      if (r.error) return res.status(409).json(r)
+      res.json(shared ? { link: shared, qr: qr(shared) } : {})
+    })
+
     // browser -> agent: {type, agent, cmd, params, context}
     app.post('/agent', function (req: express.Request, res: express.Response) {
       // checked here, because the catch-all below answers the CORS preflight
@@ -1546,9 +1602,12 @@ function eventsHandler(
     replay.push({ proxy: request.headers['x-lia-origin'] && !request.headers['x-lia-web-origin'] ? 'off' : proxyMode })
     // the course of --input, the shell offers a way back to it
     if (inputFile) replay.push({ home: inputFile })
+    if (shareSwitch && !(response as any).remote) replay.push(shareMessage())
     replay.forEach((msg) => response.write(`data: ${JSON.stringify(msg)}\n\n`))
   }
   clients.push(response)
+  // a shell here: this instance is the one in use, its remembered share starts
+  if ((response as any).chat && !(response as any).remote) wake()
   connectionChanged()
   // the shell takes a stream that stays silent for a dead one, see chat.js
   const ping = (response as any).chat ? setInterval(() => response.write('data: {"ping":true}\n\n'), PING_MS) : null

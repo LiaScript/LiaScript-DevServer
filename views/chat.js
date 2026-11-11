@@ -93,6 +93,15 @@ var TEXTS = {
     'Web address': 'Webadresse',
     'Back to the start of the course': 'Zurück zum Anfang des Kurses',
     'Files in this folder': 'Dateien in diesem Ordner',
+    'Open on a phone': 'Auf dem Handy öffnen',
+    'Scan it with the phone: course and chat open there, you continue where you are.':
+      'Mit dem Handy scannen: Kurs und Chat öffnen sich dort, es geht an derselben Stelle weiter.',
+    'Copy link': 'Link kopieren',
+    'Copied': 'Kopiert',
+    'Stop sharing': 'Teilen beenden',
+    'Anyone with the link sees the course and the chat and can write to the assistant.':
+      'Wer den Link hat, sieht Kurs und Chat und kann dem Assistenten schreiben.',
+    'Sharing did not start.': 'Das Teilen ist nicht gestartet.',
     'This browser cannot read aloud, it has no speech voices. Chrome and Edge bring their own, Firefox on Linux needs speech-dispatcher with a voice. The assistant can help to set it up.':
       'Dieser Browser kann nicht vorlesen, ihm fehlen die Stimmen. Chrome und Edge bringen eigene mit, Firefox unter Linux braucht speech-dispatcher mit einer Stimme. Der Assistent hilft beim Einrichten.',
     'Waiting for the assistant…': 'Wartet auf den Assistenten …',
@@ -978,6 +987,67 @@ function language() {
   }
 }
 
+// The 📱 of the bar (agent mode with --share possible, a tab on this machine
+// only): shares this server over liascript.github.io/share and shows the link
+// as QR code, the phone continues where this tab is. {share} of the server.
+var phone = document.getElementById('phone')
+var sharePanel = document.getElementById('share')
+var shareError = document.getElementById('share-error')
+var shareLink = ''
+
+function showShare(s) {
+  phone.hidden = false
+  phone.setAttribute('aria-pressed', s.on ? 'true' : 'false')
+  shareLink = s.link || ''
+  // an SVG of the server (src/qr.ts), only attributes
+  document.getElementById('share-qr').innerHTML = s.qr || ''
+  document.getElementById('share-copy').hidden = document.getElementById('share-stop').hidden = !s.on
+  if (s.on) shareError.hidden = true
+  if (s.show) sharePanel.hidden = false
+  else if (!s.on && shareError.hidden) sharePanel.hidden = true
+}
+
+function switchShare(on) {
+  return fetch(BASE + '/share', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ on: on }),
+  })
+    .then(function (res) {
+      return res.json().catch(function () {
+        return {}
+      })
+    })
+    .then(function (r) {
+      if (r.error || (on && !r.link)) throw new Error(r.error || '')
+      showShare({ on: on, link: r.link, qr: r.qr, show: on })
+    })
+    .catch(function (e) {
+      shareError.textContent = t('Sharing did not start.') + (e.message ? ' ' + e.message : '')
+      shareError.hidden = false
+      sharePanel.hidden = false
+    })
+}
+
+phone.addEventListener('click', function () {
+  if (phone.getAttribute('aria-pressed') != 'true') return switchShare(true)
+  sharePanel.hidden = !sharePanel.hidden
+})
+document.getElementById('share-stop').addEventListener('click', function () {
+  switchShare(false).then(function () {
+    sharePanel.hidden = true
+  })
+})
+document.getElementById('share-copy').addEventListener('click', function (event) {
+  var button = event.currentTarget
+  navigator.clipboard.writeText(shareLink).then(function () {
+    tr(button, 'Copied')
+    setTimeout(function () {
+      tr(button, 'Copy link')
+    }, 1500)
+  })
+})
+
 // Without voices the bar shows a muted speaker, which explains it on a click:
 // the user learns it once and in place, not from the AI in every greeting.
 var mute = document.getElementById('mute')
@@ -1764,6 +1834,7 @@ function message(event) {
     if (isListing()) course.contentWindow.location.reload()
     return
   }
+  if (data.share) return showShare(data.share)
   if (typeof data.status == 'string') return status(data.status)
   if (typeof data.hint == 'string') return hint(data.hint)
   if (data.closed) {

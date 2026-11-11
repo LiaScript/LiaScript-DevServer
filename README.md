@@ -65,6 +65,15 @@ liascript-devserver --help
 -t  --test       test online on https://LiaScript.github.io
     --mcp        serve as MCP server on stdio for AI agents,
                  to be started from the MCP config of the agent
+    --share      share it over WebRTC, prints a link for other
+                 browsers, e.g. a phone; --share URL names the share
+                 page (default: https://liascript.github.io/share/);
+                 the link stays the same for this folder. With
+                 --mcp the phone button of the chat switches it
+    --share-new  a new link, the old one stops working
+    --share-web  the share page under another origin, for web
+                 pages (default: the other one of localhost and
+                 127.0.0.1, else none)
 
 -r  --responsiveVoice  add optional responsiveVoice support,
                        or pass your own responsiveVoice key.
@@ -507,6 +516,18 @@ the top of the chat starts a new one or reopens an older one, and the agent is
 told which. Commit `.chats/` so that others can continue your conversations, or
 add it to `.gitignore` to keep them to yourself. A message that does not reach
 the server, e.g. while it restarts, is marked and can be sent again.
+
+#### On a phone
+
+The 📱 button in the bar of the chat opens the same course and chat on a phone
+or on another computer: it shows a QR code and a link to
+[liascript.github.io/share](https://liascript.github.io/share/), which reaches
+this server over an encrypted WebRTC connection. You navigate there as here, and
+the agent answers there too; on a small screen course and chat take turns, a bar
+at the bottom switches. You can also ask the agent to share it. The link stays
+the same for the project and the sharing comes back after a restart, until you
+stop it with the same button. Anyone with the link sees the course and the chat
+and can write to the agent. Web pages of `--proxy full` do not pass.
 
 #### Teacher personas
 

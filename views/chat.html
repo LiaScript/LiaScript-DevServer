@@ -326,6 +326,59 @@
         background: rgba(var(--surface), 0.85);
         color: inherit;
       }
+      #phone[aria-pressed='true'] {
+        color: var(--accent);
+      }
+      /* the 📱 of the bar: link and QR code for a phone (--share) */
+      #share:not([hidden]) {
+        display: flex;
+        gap: 0.75rem;
+        align-items: flex-start;
+        padding: 0.5rem 0.75rem;
+        font-size: 0.85em;
+        border-bottom: 1px solid var(--line);
+      }
+      #share-qr {
+        flex: none;
+        width: 132px;
+        line-height: 0;
+      }
+      #share-qr:empty {
+        display: none;
+      }
+      #share-qr svg {
+        width: 100%;
+        height: auto;
+        border-radius: 6px;
+      }
+      #share p {
+        margin: 0 0 0.4rem;
+      }
+      #share-error {
+        color: #c62828;
+      }
+      .share-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem;
+      }
+      .share-actions button {
+        font: inherit;
+        padding: 0.2rem 0.6rem;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: none;
+        color: inherit;
+        cursor: pointer;
+      }
+      .share-actions button:hover,
+      .share-actions button:focus-visible {
+        background: var(--soft);
+        color: var(--accent);
+      }
+      .share-note {
+        color: var(--muted);
+      }
       #mute-info {
         margin: 0;
         padding: 0.4rem 0.75rem;
@@ -830,6 +883,21 @@
               />
             </svg>
           </button>
+          <button
+            id="phone"
+            class="tool"
+            type="button"
+            aria-pressed="false"
+            title="Open on a phone"
+            data-t-title="Open on a phone"
+            data-t-aria-label="Open on a phone"
+            hidden
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <rect width="14" height="20" x="5" y="2" rx="2" ry="2" />
+              <path d="M12 18h.01" />
+            </svg>
+          </button>
           <button id="dock" class="tool" type="button" aria-pressed="false" hidden>
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <rect width="18" height="18" x="3" y="3" rx="2" />
@@ -847,6 +915,22 @@
             placeholder="https://de.wikipedia.org/wiki/…"
           />
         </form>
+        <div id="share" hidden>
+          <div id="share-qr"></div>
+          <div class="share-text">
+            <p data-t="Scan it with the phone: course and chat open there, you continue where you are.">
+              Scan it with the phone: course and chat open there, you continue where you are.
+            </p>
+            <p id="share-error" role="alert" hidden></p>
+            <p class="share-actions">
+              <button id="share-copy" type="button" data-t="Copy link">Copy link</button>
+              <button id="share-stop" type="button" data-t="Stop sharing">Stop sharing</button>
+            </p>
+            <p class="share-note" data-t="Anyone with the link sees the course and the chat and can write to the assistant.">
+              Anyone with the link sees the course and the chat and can write to the assistant.
+            </p>
+          </div>
+        </div>
         <p
           id="mute-info"
           data-t="This browser cannot read aloud, it has no speech voices. Chrome and Edge bring their own, Firefox on Linux needs speech-dispatcher with a voice. The assistant can help to set it up."

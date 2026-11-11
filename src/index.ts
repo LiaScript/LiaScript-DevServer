@@ -8,8 +8,8 @@ import * as server from './lib'
 import { mcp } from './mcp'
 import { host } from './acp'
 
-import { PAGE as SHARE_PAGE } from './share'
 import { init } from './init'
+import { PAGE as SHARE_PAGE, remembered } from './share'
 
 function liascript() {
   console.log(' _     _       ____            _       _')
@@ -186,21 +186,17 @@ function serve() {
     )
     .then(() => {
       if (argv.agent) host(typeof argv.agent == 'string' ? argv.agent : 'claude').catch((e) => console.error('🤖', e.message))
-      if (!argv.share) return
-      // loaded only here: WebRTC is a module of its own
-      const { share, otherOrigin } = require('./share')
-      const page = typeof argv.share == 'string' ? argv.share : SHARE_PAGE
-      const { link, holder } = share({
-        local: server.localOrigin(),
-        proxy: server.proxyOrigin(),
-        root: server.getState().root,
-        page,
-        web: typeof argv['share-web'] == 'string' ? argv['share-web'] : otherOrigin(page),
-        fresh: !!argv['share-new'],
-      })
-      if (holder) return console.log('🔗 not shared: the instance with pid ' + holder + ' shares this folder')
-      server.localOrigin(link)
-      console.log('🔗 share: ' + link)
+      if (!argv.mcp) {
+        // get_state.share names the link
+        if (argv.share) server.localOrigin(share(false).link)
+        return
+      }
+      // the 📱 of the chat and the tool share switch it at runtime
+      server.onShare({ on: share, off: () => (stopShare?.(), (stopShare = null)), remembered: remembered(server.getState().root) })
+      if (argv.share) {
+        const r = server.setShare(true, false)
+        if (r.error) console.log('🔗 not shared: ' + r.error)
+      }
     })
     .catch((e: any) => {
       console.error('Error: ', e.message)
@@ -208,4 +204,36 @@ function serve() {
     })
 
   console.log('✨ hit Ctrl-c to close the server')
+}
+
+// WebRTC loads only here, when a link is asked for. share.ts is bundled, it
+// loads werift itself through createRequire, parcel would hoist a require(
+let stopShare: (() => void) | null = null
+let renewed = false
+function share(take: boolean, lost?: () => void): { link?: string; error?: string } {
+  const { share, otherOrigin } = require('./share')
+  const page = typeof argv.share == 'string' ? argv.share : SHARE_PAGE
+  const r = share({
+    local: server.localOrigin(),
+    proxy: server.proxyOrigin(),
+    root: server.getState().root,
+    page,
+    web: typeof argv['share-web'] == 'string' ? argv['share-web'] : otherOrigin(page),
+    // a new link once per start
+    fresh: !!argv['share-new'] && !renewed,
+    take,
+    lost: () => {
+      stopShare = null
+      console.log('🔗 another instance shares this folder now')
+      lost?.()
+    },
+  })
+  if (r.holder) {
+    console.log('🔗 not shared: the instance with pid ' + r.holder + ' shares this folder')
+    return { error: 'The instance with pid ' + r.holder + ' shares this folder.' }
+  }
+  stopShare = r.stop
+  renewed = true
+  console.log('🔗 share: ' + r.link)
+  return { link: r.link }
 }

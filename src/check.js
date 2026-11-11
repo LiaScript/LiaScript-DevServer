@@ -594,6 +594,7 @@ async function main() {
   fr = inFrame('?http://x/README.md', null)
   assert.ok(!fr.stopped && !fr.went, 'a tab of its own')
 
+
   // a fake chat shell. Never call chat without one: it would open a browser.
   stream = ''
   let chatSse = http.get(ORIGIN + '/gotoLine?chat', (res) => res.on('data', (chunk) => (stream += chunk)))
@@ -1060,7 +1061,7 @@ async function main() {
     .split('\n\n')
     .filter((line) => line.startsWith('data: {'))
     .map((line) => JSON.parse(line.slice(6)))
-  assert.deepStrictEqual(replayed.map((m) => Object.keys(m)[0]), ['sessions', 'session', 'agents', 'proxy', 'home'])
+  assert.deepStrictEqual(replayed.map((m) => Object.keys(m)[0]), ['sessions', 'session', 'agents', 'proxy', 'home', 'share'])
   assert.deepStrictEqual(replayed[0].sessions.map((s) => s.id), [saved.id])
   assert.strictEqual(replayed[1].session.entries.length, saved.entries.length)
   assert.deepStrictEqual(replayed[1].session.db, { quiz: { 0: solved } }, 'F5 gets the states of the quizzes')
@@ -1665,6 +1666,7 @@ async function main() {
 
   await checkHoisted()
   await checkShare()
+  await checkShareSwitch()
 
   fs.rmSync(PROJECT, { recursive: true, force: true })
   console.log('ok')
@@ -1701,6 +1703,8 @@ function signallingServer(port) {
   const WS = require('ws')
   const wss = new WS.Server({ port, host: '127.0.0.1' })
   const topics = new Map()
+  // the rooms someone listens in, for checkShareSwitch
+  wss.topics = topics
   wss.on('connection', (ws) => {
     ws.on('message', (raw) => {
       const m = JSON.parse(raw)
@@ -1798,6 +1802,116 @@ async function checkShare() {
     host.kill()
     page.close()
     wss.close()
+    fs.rmSync(HOME, { recursive: true, force: true })
+  }
+}
+
+// --mcp without --share: the 📱 of the chat and the tool share switch it at
+// runtime, the project remembers it, and of two twin instances (Copilot next
+// to Claude Code) the one in use gets the room
+async function checkShareSwitch() {
+  const SIG = 4741
+  const wss = signallingServer(SIG)
+  const HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'liascript-switch-'))
+  const CONF = path.join(HOME, '.config', 'liascript')
+  fs.mkdirSync(CONF, { recursive: true })
+  // servers of its own: no fetch of the published lists, no network
+  fs.writeFileSync(path.join(CONF, 'share.json'), JSON.stringify({ turn: [], signaling: ['ws://127.0.0.1:' + SIG] }))
+  const saved = () => JSON.parse(fs.readFileSync(path.join(CONF, 'share.json'), 'utf8'))
+  const locks = () => fs.readdirSync(CONF).filter((f) => f.startsWith('share-'))
+  const lockPid = () => Number(fs.readFileSync(path.join(CONF, locks()[0]), 'utf8'))
+  const listened = () => [...wss.topics.values()].some((set) => set.size > 0)
+
+  // an MCP instance of its own, with a JSON-RPC client of its own
+  function instance(port) {
+    const p = spawn(process.execPath, [path.join(ROOT, 'dist/index.js'), '--mcp', '-p', port, '-i', path.join(ROOT, 'README.md')], { cwd: HOME, env: { ...process.env, HOME } })
+    const waiting = new Map()
+    let buf = ''
+    let id = 0
+    p.out = ''
+    p.stderr.on('data', (d) => (p.out += d))
+    p.stdout.on('data', (d) => {
+      buf += d
+      let nl
+      while ((nl = buf.indexOf('\n')) >= 0) {
+        const msg = JSON.parse(buf.slice(0, nl))
+        buf = buf.slice(nl + 1)
+        if (waiting.has(msg.id)) waiting.get(msg.id)(msg), waiting.delete(msg.id)
+      }
+    })
+    p.rpc = (method, params) => new Promise((resolve) => (waiting.set(++id, resolve), p.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n')))
+    p.tool = async (name, args) => JSON.parse((await p.rpc('tools/call', { name, arguments: args })).result.content[0].text)
+    p.port = port
+    return p
+  }
+  const until = async (f, what, p, ms = 8000) => {
+    for (const t = Date.now(); Date.now() - t < ms; await sleep(100)) if (await f()) return
+    throw new Error('share switch: ' + what + '\n' + (p ? p.out : ''))
+  }
+  const switchIt = (p, on, headers) =>
+    request('POST', '/share', { 'Content-Type': 'application/json', Origin: 'http://127.0.0.1:' + p.port, ...headers }, JSON.stringify({ on }), p.port)
+  // the replay of a ?chat stream, read for a moment
+  const replay = (p, headers = {}) =>
+    new Promise((resolve) => {
+      let text = ''
+      const req = http.get({ host: '127.0.0.1', port: p.port, path: '/gotoLine?chat', headers }, (res) => res.on('data', (d) => (text += d)))
+      setTimeout(() => (req.destroy(), resolve(text)), 500)
+    })
+
+  const a = instance(4740)
+  let b = null
+  try {
+    await a.rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'check', version: '0' } })
+    await until(async () => (await request('GET', '/', {}, undefined, 4740).catch(() => ({}))).status, 'A does not listen', a)
+    assert.ok((await a.rpc('tools/list', {})).result.tools.some((t) => t.name == 'share'), 'the tool share')
+    assert.deepStrictEqual(locks(), [], 'not shared without a request')
+    assert.ok(!(await replay(a)).includes('"on":true'), 'the chat offers it, off')
+    assert.ok((await replay(a)).includes('"share":{"on":false}'), 'the replay of a local shell names the switch')
+
+    // only a tab on this machine switches
+    assert.strictEqual((await switchIt(a, true, { Origin: 'https://evil.com' })).status, 403, 'another origin')
+    assert.strictEqual((await switchIt(a, true, { 'X-Lia-Origin': 'https://liascript.github.io/share' })).status, 403, 'not through the tunnel')
+    assert.ok(!(await replay(a, { 'X-Lia-Origin': 'https://liascript.github.io/share' })).includes('"share"'), 'a phone sees no switch')
+
+    const on = await a.tool('share', { on: true })
+    assert.ok(/#room=[0-9a-f]{32}&key=[0-9a-f]{32}/.test(on.link), 'the tool hands out the link')
+    assert.strictEqual((await a.tool('get_state', {})).share, on.link, 'get_state.share')
+    assert.strictEqual(saved().rooms[ROOT].on, true, 'remembered')
+    assert.strictEqual(lockPid(), a.pid, 'A holds the room')
+    await until(listened, 'A does not listen in the room', a)
+    assert.ok((await replay(a)).includes('<svg'), 'the replay carries the QR code')
+
+    const off = await switchIt(a, false)
+    assert.strictEqual(off.status, 200, 'the 📱 switches off')
+    assert.deepStrictEqual(locks(), [], 'off: the room is free')
+    assert.strictEqual(saved().rooms[ROOT].on, false, 'off is remembered')
+    assert.strictEqual((await a.tool('get_state', {})).share, undefined, 'no link any more')
+    await until(() => !listened(), 'A still listens', a)
+
+    const again = JSON.parse((await switchIt(a, true)).data)
+    assert.ok(again.link == on.link && again.qr.startsWith('<svg'), 'the same link again, with QR code')
+
+    // a twin starts with the room remembered: it takes it only when used,
+    // and never from a living holder unless asked
+    b = instance(4742)
+    await b.rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'check', version: '0' } })
+    await until(async () => (await request('GET', '/', {}, undefined, 4742).catch(() => ({}))).status, 'B does not listen', b)
+    await sleep(500)
+    assert.strictEqual(lockPid(), a.pid, 'an idle twin leaves the room alone')
+    await b.tool('get_state', {})
+    assert.strictEqual(lockPid(), a.pid, 'a used twin does not take it from a living holder')
+    assert.ok(!(await b.tool('get_state', {})).share, 'B is not shared')
+    const took = await b.tool('share', { on: true })
+    assert.strictEqual(took.link, on.link, 'the 📱 of B takes the room')
+    assert.strictEqual(lockPid(), b.pid, 'B holds it')
+    await until(() => /another instance shares this folder now/.test(a.out), 'A does not step aside', a)
+    assert.ok(!(await a.tool('get_state', {})).share, 'A is no longer shared')
+    assert.strictEqual(saved().rooms[ROOT].on, true, 'still on for the project')
+  } finally {
+    a.kill()
+    b?.kill()
+    wss.close()
+    await sleep(200)
     fs.rmSync(HOME, { recursive: true, force: true })
   }
 }

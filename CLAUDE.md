@@ -21,7 +21,8 @@ node src/check.js  # end-to-end check of --mcp against the BUILT dist/index.js, 
 check is `src/check.js`: it spawns `dist/index.js --mcp` in a temporary project folder (the chats land in its
 `.chats/`, not in the repo), speaks JSON-RPC to it and treats every stdout line as protocol, so it also fails on a
 stray `console.log`. It also runs `views/teachers.js` in a `vm` sandbox and renders every persona. `--share` it runs against a y-webrtc signalling server of
-its own on loopback, with a werift tab that speaks `share/lia-rtc.mjs` (wrong key, restart of the signalling). Never call the `chat` or `goto` tool in it without a fake SSE
+its own on loopback, with a werift tab that speaks `share/lia-rtc.mjs` (wrong key, restart of the signalling), and the
+switch of `--mcp` with two instances and a `HOME` of its own. Never call the `chat` or `goto` tool in it without a fake SSE
 client connected, they open a real browser otherwise. There's no dedicated `tsconfig.json`; `lib` compiles
 `src/lib.ts` directly via CLI flags (`--module commonjs -d --outDir dist`).
 
@@ -189,7 +190,7 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
     `chats.title()`.
 - **`src/mcp.ts`** — the MCP adapter: a dependency-free newline-delimited JSON-RPC server on stdio (deliberately
   not the MCP SDK, see the header comment) with the tools `get_state`, `goto`, `chat`, `set_agent`, `find_teacher`, `read_chat`,
-  `wait_for_event`, `outline`, `read_section`, `write_section`, `run_in_page` and the `git_` tools (`src/git.ts`). `read_chat` returns the saved chat (default the
+  `wait_for_event`, `outline`, `read_section`, `write_section`, `run_in_page`, `share` (see `--share`) and the `git_` tools (`src/git.ts`). `read_chat` returns the saved chat (default the
   last 50 entries, agents by name) so that a fresh agent can pick up a resumed session; ask ids are random
   (`ask-<hex>`) because a resumed chat holds the forms of earlier processes, and a `session` event
   ends a waiting `chat` form with `{switched: true}`. Only one form is open (`openAsk` in `lib.ts`): the newest of
@@ -412,6 +413,36 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   start with `# Teaching-Agent` is the user's own and kept by both. `.mcp.json` gets the `liascript` server if it has
   none (`-i journal.md`; `start()` accepts a missing `.md` input, the agent writes it later), and
   `.claude/settings.json` `enabledMcpjsonServers` gets `liascript`, so Claude Code starts it without asking.
+- **`src/share.ts` + `share/`** — `--share`: the server for a phone or another browser elsewhere over WebRTC,
+  without a library: `share/lia-rtc.mjs` is the one module both ends use (the share page, `share.ts` through
+  parcel, `check.js`). The page is published as `LiaScript/share` (https://liascript.github.io/share/, the default;
+  copy `share/` there after a change, its workflow writes `ice.json` and `signaling.json` from the organization
+  secrets `WEBRTC_ICE_SERVERS` and `WEBRTC_SIGNALING_SERVERS`). Signalling goes over the y-webrtc protocol to those
+  servers, each message sealed with AES-GCM under the key of the link (room and key in the fragment, kept per
+  project in `~/.config/liascript/share.json`, `0600`, until `--share-new`). `werift` is the `RTCPeerConnection` of
+  the host, `ws` its WebSocket under Node 20; `share.ts` loads them through `createRequire`, because parcel hoists
+  every `require(`. One host per room (a pid lock next to `share.json`). On the channel: JSON heads
+  (`req|res|abort|ping|pong`), binary pieces of 16 KB; the host replays a request with `fetch` against the local
+  server, `Origin` set to it, `X-Lia-Origin` the page (with its folder and the `tab-<id>` of the tab) and reads
+  every answer but an event stream at once (gzip when the page can unpack). `originOf()` in `lib.ts` puts
+  `X-Lia-Origin` in front of every address it hands out (redirects, the listing), the scripts compute the same
+  prefix (`BASE` in `chat.js`, `base__` in `gotoScript`, used by `agent.js`) and the service worker strips it.
+  Live reload: the `reload` WebSocket does not pass, so `reloadNow()` also writes `{reload: true}` to every stream
+  of a remote client (`response.remote`), and its player gets no `reload.js`. A browser sends no `Sec-Fetch-Dest`
+  through the tunnel: `views/nested.js` (first script of the shell's `<head>`) stops a shell in the frame
+  `#course` and loads the bare player, the listing or `/web` instead. Web pages only with `--proxy read` and a
+  second origin of the page (`--share-web`, default the other one of `localhost`/`127.0.0.1`, none for
+  liascript.github.io): `/web` is 404 and the replay says `{proxy: 'off'}` otherwise; `--proxy full` and the
+  extension do not pass. `share.ts` also passes `x-lia-token`/`x-lia-web` of the page, which only the LMS of
+  `feat/lms` uses. In `--mcp` it is a switch at runtime: `index.ts` hands `server.onShare({on, off, remembered})` in
+  (`lib.ts` never loads WebRTC, the tsc build would pull it in; `--types node` keeps werift's DOM types out of it),
+  `setShare(on, take, show)` turns it on or off. Ways in: the 📱 `#phone` of the chat bar (`POST /share {on}`, same
+  `Origin`, never with `x-lia-origin`) and the MCP tool `share`. Only local `?chat` streams get `{share: {on, link,
+  qr}}` (replayed, `qr()` of `src/qr.ts`, an SVG of attributes only): the phone must not switch off its own link.
+  `share.json` keeps `on` per room; a remembered share starts when the instance is used (`wake()`: the first tool
+  call or local `?chat` stream), without `take`, so the idle twin of Copilot never gets the room. `take` (a click,
+  the tool) writes its pid into the lock of a living holder, which checks its lock every 3 s and steps aside
+  (`lost`, `on` stays). `get_state.share` is the link.
 - **`src/git.ts`** — git for users who cannot install it (no admin rights): the tools `git_login`, `git_status`,
   `git_clone`, `git_sync`, `git_publish` and `git_tag` on `isomorphic-git` (pure JS, `main` and `http/node` resolve
   without the exports map, so `pkg` finds them) and the GitHub REST API by `fetch`. The user pastes a personal
@@ -500,12 +531,12 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   stays anchored bottom-right: the button moves it (pointer capture, a drag swallows the click that follows), the
   grip in the top-left corner resizes `#panel`; `clamp()` keeps both on screen. `localStorage` remembers mode,
   width, place and size. On a phone (below `WIDE`, `views/phone.js`, `body.phone`) course and chat take turns
-  on the whole screen instead: a bar `#switch` (`Kurs` with the slide `#n`, `Chat` with the unread badge),
+  on the whole screen instead: a bar `#switch` (`Course` with the slide `#n`, `Chat` with the unread badge),
   `#peek` over the course with the first line of the newest message of the agent or the progress line, `#where`
-  in the chat with the slide and title (from the shell's `<title>` and hash, which `agent.js` sets) and the way
-  back. `chat.js` tells it with the DOM event `lia:shell` (`{kind: ai|goto|status, replay}`, `shell()`): a form
-  shows the chat, a `goto` the course, a replay counts nothing. The view is kept as `liascript-chat-view`;
-  `applyDock()` and the drag of the head stand aside in phone mode. `window.Phone` (pure) is tested in a vm. Every message has a read-aloud button (`speaker()` in `chat.js`):
+  in the chat with the slide and title and the way back. `chat.js` tells it with the DOM event `lia:shell`
+  (`{kind: ai|goto|status|history, replay}`, `shell()`): a form shows the chat, a `goto` the course, a replay counts
+  nothing. The view is kept as `liascript-chat-view`; `applyDock()` and the drag of the head stand aside in phone
+  mode. `window.Phone` (pure) is tested in a vm. Every message has a read-aloud button (`speaker()` in `chat.js`):
   `speechSynthesis` with a voice for the language the player puts on its `<html lang>`, split into pieces of at
   most 180 characters because Chrome drops an utterance of its online voices after about 15 seconds; without
   browser voices it uses the `responsiveVoice` object of the player if there is one, else the buttons stay hidden

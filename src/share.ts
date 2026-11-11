@@ -37,6 +37,8 @@ type Options = {
   page: string // the address of share/index.html
   web?: string // the same page under another origin, for web pages
   fresh?: boolean // a new room, the old link stops working
+  take?: boolean // a click asks for it: a twin that holds the room steps aside
+  lost?: () => void // a twin took the room over
 }
 
 // Returns the link to hand out: room and key travel in the fragment, which no
@@ -64,8 +66,9 @@ export function share(o: Options) {
   // one host per room: VS Code starts a workspace .mcp.json for Copilot next
   // to Claude Code, and two hosts in one room take the browser from each other
   const lock = path.join(path.dirname(FILE), 'share-' + room + '.pid')
-  const holder = claim(lock)
+  const holder = claim(lock, o.take)
   if (holder) return { holder }
+  remember(o.root, true)
 
   // the room opens once the servers are known, the link is ready now
   let stopped = false
@@ -84,13 +87,27 @@ export function share(o: Options) {
     .then((closer) => (stopped ? closer?.() : (close = closer || null)))
     .catch((e) => console.error('🔗 not shared:', e.message))
 
+  const end = () => {
+    stopped = true
+    clearInterval(watch)
+    close?.()
+  }
+  // a twin took the room (take): two hosts would take the tabs from each
+  // other, this one steps aside and leaves the room on for the twin
+  const watch = setInterval(() => {
+    const pid = owner(lock)
+    if (pid && pid !== process.pid) end(), o.lost?.()
+  }, 3000)
+  if (watch.unref) watch.unref()
+
   return {
     link: o.page + '#room=' + room + '&key=' + key + (o.proxy && o.web ? '&web=' + encodeURIComponent(o.web) : ''),
-    // the admin page of --users switches it off: tabs lose their link, the room is free again
+    // switched off (the admin page of --users, the chat): tabs lose their
+    // link, the room is free again and stays off after a restart
     stop() {
-      stopped = true
-      close?.()
+      end()
       unlock(lock)
+      remember(o.root, false)
     },
   }
 }
@@ -274,19 +291,48 @@ function serve(dc: any, drop: () => void, o: Options) {
   return close
 }
 
+// Whether the project was shared when its last host stopped: the chat of
+// --mcp switches it on again then, see onShare() in lib.ts
+export function remembered(root: string) {
+  try {
+    return !!JSON.parse(fs.readFileSync(FILE, 'utf8')).rooms[root].on
+  } catch (e) {
+    return false
+  }
+}
+
+function remember(root: string, on: boolean) {
+  try {
+    const saved = JSON.parse(fs.readFileSync(FILE, 'utf8'))
+    if (!saved.rooms?.[root] || !!saved.rooms[root].on === on) return
+    saved.rooms[root].on = on
+    fs.writeFileSync(FILE, JSON.stringify(saved, null, 2), { mode: 0o600 })
+  } catch (e) {}
+}
+
 // Takes the room for this process, or returns the pid of the one that has it.
 // A host that crashed or got a Ctrl-C left its file, its pid is gone then.
-function claim(lock: string) {
+// take: the pid of a living one is replaced too, its host notices it.
+const claimed = new Set<string>()
+function claim(lock: string, take = false) {
   fs.mkdirSync(path.dirname(lock), { recursive: true })
   try {
     fs.writeFileSync(lock, String(process.pid), { flag: 'wx' })
   } catch (e) {
-    const pid = Number(fs.readFileSync(lock, 'utf8'))
-    if (pid != process.pid && alive(pid)) return pid
+    const pid = owner(lock)
+    if (!take && pid != process.pid && alive(pid)) return pid
     fs.writeFileSync(lock, String(process.pid))
   }
-  process.on('exit', () => unlock(lock))
+  if (!claimed.has(lock)) claimed.add(lock), process.on('exit', () => unlock(lock))
   return 0
+}
+
+function owner(lock: string) {
+  try {
+    return Number(fs.readFileSync(lock, 'utf8'))
+  } catch (e) {
+    return 0
+  }
 }
 
 function unlock(lock: string) {
