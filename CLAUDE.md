@@ -385,7 +385,11 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   remembers them, F5 reports nothing again) and replays the entries: `answered()` locks a form of the history and shows the
   choice, `closed()` locks every other form but `session.open` with a note. A message whose `POST` fails goes into a `localStorage` outbox and
   gets a `Send again` button; after a replay it shows up in its chat, or in the current one if its chat was never
-  saved. The files of the shell are served with `Cache-Control: no-cache`, a heuristically cached `chat.js` from an older
+  saved. 📎 (`#attach`) and a file dropped on the chat (shell or messages iframe) go to `POST /upload?name=` (agent
+  mode, same `Origin`, also through `--share`, 25 MB): `uploadName()` keeps letters, digits and `._-`, the file lands in
+  `uploads/` of root and never over another one, then the chat sends `![name](uploads/name)` (`[name](…)` for other
+  types) as an ordinary chat message. `base` of `<lia-chat>` is the folder of the course: the app appends relative
+  links to it. The files of the shell are served with `Cache-Control: no-cache`, a heuristically cached `chat.js` from an older
   version would not understand the messages of a newer server.
 
 Things the player does that the bridge works around (verified against the minified bundle of `@liascript/editor`,

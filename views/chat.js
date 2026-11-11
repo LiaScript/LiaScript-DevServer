@@ -77,6 +77,8 @@ var TEXTS = {
     '+ New chat': '+ Neuer Chat',
     'New chat': 'Neuer Chat',
     'Send again': 'Erneut senden',
+    'Attach a file': 'Datei anhängen',
+    'Could not upload the file': 'Die Datei konnte nicht hochgeladen werden',
     'not delivered': 'nicht zugestellt',
     'No longer open': 'Nicht mehr offen',
     BC: 'v. Chr.',
@@ -347,10 +349,11 @@ window.addEventListener('storage', function (e) {
 // @liascript/chat renders them in an iframe of this origin, one add() is one
 // .lia-chat__msg there, in order. Into each the shell hangs its part (.msg):
 // a form, the read-aloud button, robot and time. Relative links and images
-// are those of the course.
+// are those of the course. The app appends them to base: its folder, not the
+// file (uploads/a.png became README.mduploads/a.png).
 var lia = document.createElement('lia-chat')
 try {
-  lia.setAttribute('base', new URL(decodeURIComponent(location.search.slice(1))).href)
+  lia.setAttribute('base', new URL('.', decodeURIComponent(location.search.slice(1))).href)
 } catch (e) {}
 // the forms of the shell in the messages submit, their handler stops it
 lia.iframe.sandbox.add('allow-forms')
@@ -438,6 +441,7 @@ lia.iframe.addEventListener('load', function () {
     },
     true,
   )
+  dropOn(doc)
   new MutationObserver(place).observe(doc.body, { childList: true, subtree: true })
   place()
 })
@@ -1523,6 +1527,47 @@ say.addEventListener('submit', function (e) {
   say.reset()
   deliver(msg, unsent)
 })
+
+// 📎 or a file dropped on the chat: the server keeps it in uploads/, the
+// message is a link to it, an image shows
+function upload(files) {
+  Array.prototype.forEach.call(files, function (file) {
+    fetch(BASE + '/upload?name=' + encodeURIComponent(file.name), { method: 'POST', body: file })
+      .then(function (r) {
+        return r.ok ? r.json() : Promise.reject(r.status)
+      })
+      .then(function (r) {
+        var text = (/^image\//.test(file.type) ? '!' : '') + '[' + r.path.split('/').pop() + '](' + r.path + ')'
+        var unsent = { session: chatId, text: text, t: new Date().toISOString() }
+        deliver(add('me', text, null, null, unsent.t), unsent)
+      })
+      .catch(function () {
+        hint(t('Could not upload the file') + ': ' + file.name)
+      })
+  })
+}
+var attach = document.querySelector('#attach input')
+attach.addEventListener('change', function () {
+  upload(attach.files)
+  attach.value = ''
+})
+function dropOn(target) {
+  target.addEventListener('dragover', function (e) {
+    if (!e.dataTransfer || e.dataTransfer.types.indexOf('Files') < 0) return
+    e.preventDefault()
+    say.classList.add('drop')
+  })
+  target.addEventListener('dragleave', function () {
+    say.classList.remove('drop')
+  })
+  target.addEventListener('drop', function (e) {
+    say.classList.remove('drop')
+    if (!e.dataTransfer || !e.dataTransfer.files.length) return
+    e.preventDefault()
+    upload(e.dataTransfer.files)
+  })
+}
+dropOn(document.getElementById('chat'))
 
 // Enter sends, Shift+Enter breaks the line
 say.text.addEventListener('keydown', function (e) {

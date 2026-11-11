@@ -222,6 +222,7 @@ async function main() {
   const chats = require(path.join(ROOT, 'dist/chats.js'))
   const opening = { created: '2026-10-16T12:00:00Z', entries: [{ type: 'ai', markdown: '<!--\nlanguage: de\n-->\n\n**Hallo**' }] }
   assert.strictEqual(chats.title(opening), 'Hallo')
+  assert.strictEqual(chats.title({ entries: [{ type: 'user', text: '![foto.jpg](uploads/foto.jpg) und [blatt](b.pdf)' }] }), 'foto.jpg und blatt', 'an attached file by its name')
 
   // --- web pages: the proxy reaches public addresses only, on its own origin
   const web = require(path.join(ROOT, 'dist/web.js'))
@@ -1528,6 +1529,17 @@ async function checkReload() {
     await sleep(1500)
     assert.strictEqual(reloads, 1, 'a second write within HOLD_MS waits')
     console.log('reload while an agent works: ok')
+
+    // a file the user put into the chat lands in uploads/, never over another one
+    const origin = { Origin: 'http://127.0.0.1:' + port, 'Content-Type': 'image/jpeg' }
+    const up = (name, headers = origin) => request('POST', '/upload?name=' + encodeURIComponent(name), headers, 'JPEG', port)
+    assert.deepStrictEqual(JSON.parse((await up('Foto (1).jpg')).data), { path: 'uploads/Foto_1_.jpg' })
+    assert.deepStrictEqual(JSON.parse((await up('Foto (1).jpg')).data), { path: 'uploads/Foto_1_-1.jpg' }, 'no overwrite')
+    assert.strictEqual(fs.readFileSync(path.join(dir, 'uploads/Foto_1_.jpg'), 'utf8'), 'JPEG')
+    assert.deepStrictEqual(JSON.parse((await up('../../.bashrc')).data), { path: 'uploads/bashrc' }, 'no folder, no hidden file')
+    assert.strictEqual((await up('x.jpg', { 'Content-Type': 'image/jpeg' })).status, 403, 'only from the chat')
+    assert.strictEqual((await up('x.jpg', { ...origin, 'X-Lia-Origin': 'https://x.test/tab-1' })).status, 200, 'and from the phone of --share')
+    console.log('upload: ok')
   } finally {
     stream?.destroy()
     p.kill()
