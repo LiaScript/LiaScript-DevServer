@@ -268,12 +268,13 @@ function needsHelp(p: { [key: string]: string | string[] }, file: string) {
 
 // One reload for a burst of changes, and while an agent works (a progress line
 // shows, and it reacted) at most every HOLD_MS: an agent that edits section by section made
-// the preview flicker and lose its scroll position with every step. The end of
-// the progress line, usually its answer, reloads at once.
+// the preview flicker and lose its scroll position with every step. Its first write
+// reloads at once (a greeting waited 30 s for it), the end of the progress line too.
 const BURST_MS = 300
 const HOLD_MS = 30000
 // when the first change since the last reload came, 0 for none
 var changedAt = 0
+var reloadedAt = 0
 var reloading: any = null
 
 function changed() {
@@ -289,10 +290,11 @@ function reloadLater(ms: number) {
 
 function reloadNow() {
   if (!changedAt || !reloadInstance) return
-  const held = Date.now() - changedAt
+  const wait = reloadedAt + HOLD_MS - Date.now()
   // not for a message that waits for an agent, nobody works on it yet
-  if (progress && !pending && held < HOLD_MS) return reloadLater(HOLD_MS - held)
+  if (progress && !pending && wait > 0) return reloadLater(wait)
   changedAt = 0
+  reloadedAt = Date.now()
   console.log('🔄 reloading')
   reloadInstance.reload()
   // the WebSocket of reload does not pass the tunnel of --share, its stream does

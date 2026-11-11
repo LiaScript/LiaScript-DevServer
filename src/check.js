@@ -1252,6 +1252,7 @@ async function main() {
 
   await checkShare()
   await checkShareSwitch()
+  await checkReload()
 
   fs.rmSync(PROJECT, { recursive: true, force: true })
   console.log('ok')
@@ -1488,6 +1489,41 @@ async function checkShareSwitch() {
     wss.close()
     await sleep(200)
     fs.rmSync(HOME, { recursive: true, force: true })
+  }
+}
+
+// While an agent works, the first write reloads at once (the greeting waited
+// 30 s for it), only more writes within HOLD_MS wait
+async function checkReload() {
+  const port = 4750
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'liascript-reload-'))
+  fs.writeFileSync(path.join(dir, 'README.md'), '# Reload\n')
+  fs.writeFileSync(path.join(dir, 'a.css'), '') // the watcher reloads on a change, not on a new file
+  const p = spawn(process.execPath, [path.join(ROOT, 'dist/index.js'), '--mcp', '--live', '-p', port, '-i', path.join(dir, 'README.md')], { cwd: dir, stdio: ['pipe', 'pipe', 'ignore'] })
+  const call = (id, method, params) => p.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n')
+  let reloads = 0
+  let stream = null
+  try {
+    call(1, 'initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'check', version: '0' } })
+    for (let i = 0; i < 50 && !(await request('GET', '/', {}, undefined, port).catch(() => null)); i++) await sleep(100)
+    await sleep(1000) // chokidar is ready
+    // a stream through --share hears every reload, the WebSocket of reload does not pass it
+    stream = http.get({ host: '127.0.0.1', port, path: '/gotoLine?chat', headers: { 'X-Lia-Origin': 'https://x.test/tab-1' } }, (res) =>
+      res.on('data', (d) => (reloads += String(d).split('"reload":true').length - 1)),
+    )
+    // the agent works: a progress line, and its tool call is the sign it reacted
+    call(2, 'tools/call', { name: 'chat', arguments: { status: 'Working' } })
+    await sleep(300)
+    fs.writeFileSync(path.join(dir, 'a.css'), 'a {}')
+    await sleep(1500)
+    assert.strictEqual(reloads, 1, 'the first write while an agent works reloads at once')
+    fs.writeFileSync(path.join(dir, 'a.css'), 'b {}')
+    await sleep(1500)
+    assert.strictEqual(reloads, 1, 'a second write within HOLD_MS waits')
+    console.log('reload while an agent works: ok')
+  } finally {
+    stream?.destroy()
+    p.kill()
   }
 }
 

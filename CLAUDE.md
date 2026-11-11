@@ -78,7 +78,8 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
     refreshes go out over reload's injected `/reload/reload.js` client script. `reload` 3.x runs its own `ws`
     WebSocket server on `port + 10000` (see `reloadPort`), not socket.io. The client does a full `window.location.reload()` of the player page.
     `changed()` bundles: one reload 300 ms after a burst (`BURST_MS`), and while an agent works (a progress line
-    shows and it reacted, not `pending`) at most every 30 s (`HOLD_MS`); the end of the progress line reloads at once.
+    shows and it reacted, not `pending`) at most every 30 s (`HOLD_MS`) after the last reload, so its first write reloads at once; the end of the progress
+    line reloads at once too.
     In agent mode a `.md` file reloads only if the preview shows it or the shown file names it (`shows()`, for
     `import:`), an agent writing `journal.md` reset the quizzes of a user in `README.md`.
   - Optional `--responsiveVoice` support: injects the responsiveVoice script tag with a given/default key (also
