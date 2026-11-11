@@ -209,6 +209,15 @@
   padding: 0.3em 0.6em;
   font-size: 0.9em;
 }
+/* a video has no size before it plays (preload none): the bubble was 150 px */
+.lia-chat__msg:has(video) {
+  width: 100%;
+}
+.lia-chat__msg video {
+  width: 100%;
+  /* 16:9 until it knows its own, a phone video is upright */
+  aspect-ratio: auto 16 / 9;
+}
 /* a long formula scrolls on its own, not the whole chat */
 .lia-chat__msg lia-formula[displaymode='true'] {
   display: block;
