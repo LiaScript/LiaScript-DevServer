@@ -1382,8 +1382,8 @@ async function checkShareSwitch() {
   const listened = () => [...wss.topics.values()].some((set) => set.size > 0)
 
   // an MCP instance of its own, with a JSON-RPC client of its own
-  function instance(port) {
-    const p = spawn(process.execPath, [path.join(ROOT, 'dist/index.js'), '--mcp', '-p', port, '-i', path.join(ROOT, 'README.md')], { cwd: HOME, env: { ...process.env, HOME } })
+  function instance(port, input = path.join(ROOT, 'README.md')) {
+    const p = spawn(process.execPath, [path.join(ROOT, 'dist/index.js'), '--mcp', '-p', port, '-i', input], { cwd: HOME, env: { ...process.env, HOME } })
     const waiting = new Map()
     let buf = ''
     let id = 0
@@ -1419,6 +1419,7 @@ async function checkShareSwitch() {
 
   const a = instance(4740)
   let b = null
+  let c = null
   try {
     await a.rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'check', version: '0' } })
     await until(async () => (await request('GET', '/', {}, undefined, 4740).catch(() => ({}))).status, 'A does not listen', a)
@@ -1466,9 +1467,24 @@ async function checkShareSwitch() {
     await until(() => /another instance shares this folder now/.test(a.out), 'A does not step aside', a)
     assert.ok(!(await a.tool('get_state', {})).share, 'A is no longer shared')
     assert.strictEqual(saved().rooms[ROOT].on, true, 'still on for the project')
+
+    // a folder without README.md: the share page loads / in a frame, which
+    // got the bare listing without chat, a tab here the shell (Sec-Fetch-Dest)
+    const FOLDER = fs.mkdtempSync(path.join(HOME, 'kurs-'))
+    fs.writeFileSync(path.join(FOLDER, 'journal.md'), '# Journal\n')
+    c = instance(4744, FOLDER)
+    await c.rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'check', version: '0' } })
+    await until(async () => (await request('GET', '/', {}, undefined, 4744).catch(() => ({}))).status, 'C does not listen', c)
+    const TAB = { 'X-Lia-Origin': 'https://liascript.github.io/share/tab-x', 'Sec-Fetch-Dest': 'iframe' }
+    assert.strictEqual(
+      (await request('GET', '/', TAB, undefined, 4744)).headers.location,
+      'https://liascript.github.io/share/tab-x/liascript/chat.html?/home',
+      'a folder through the share page: the listing in the chat shell',
+    )
   } finally {
     a.kill()
     b?.kill()
+    c?.kill()
     wss.close()
     await sleep(200)
     fs.rmSync(HOME, { recursive: true, force: true })

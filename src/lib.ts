@@ -757,9 +757,13 @@ export async function start(
   // the course of --input, a folder lists its files. With a course the
   // listing showed technical files, and users had to guess which is theirs.
   app.get('/', function (req: express.Request, res: express.Response) {
-    // through --share every address starts with the share page
+    // through --share every address starts with the share page. A folder in
+    // agent mode: the listing in the shell at once, /home becomes it only for
+    // a tab (Sec-Fetch-Dest), the share page loads / in a frame
     const o = originOf(req)
-    res.redirect(project.readme ? (testOnline ? ONLINE : o + player) + '?' + o + '/' + project.readme : o + '/home')
+    res.redirect(
+      project.readme ? (testOnline ? ONLINE : o + player) + '?' + o + '/' + project.readme : o + (agent ? player + '?/home' : '/home'),
+    )
   })
 
   app.get('/gotoLine', eventsHandler)
