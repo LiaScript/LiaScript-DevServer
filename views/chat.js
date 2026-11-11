@@ -2,6 +2,10 @@
 // and reports to the server on its own; this page only does the chat, which
 // therefore survives every reload of the course.
 
+// '' here, the folder of the share page through --share (e.g. /share): every
+// path of the server starts with it, the service worker strips it again
+var BASE = location.pathname.slice(0, location.pathname.lastIndexOf('/liascript/'))
+
 var course = document.getElementById('course')
 var log = document.getElementById('log')
 var say = document.getElementById('say')
@@ -15,7 +19,7 @@ if (web) {
   })
 } else {
   course.src =
-    (/^\?\/home/.test(location.search) ? location.search.slice(1) : 'index.html' + location.search) + location.hash
+    (/^\?\/home/.test(location.search) ? BASE + location.search.slice(1) : 'index.html' + location.search) + location.hash
 }
 
 // the extension sets up its tab within moments, else the proxy
@@ -34,20 +38,20 @@ function whenExtension(go) {
 // the user's logins. Else the proxy of the server (--proxy), which off refuses.
 function webPage(url) {
   var html = document.documentElement.dataset
-  return html.liaExtension == 'ready' && html.proxy != 'off' ? url : '/web?url=' + encodeURIComponent(url)
+  return html.liaExtension == 'ready' && html.proxy != 'off' ? url : BASE + '/web?url=' + encodeURIComponent(url)
 }
 
 // the player, not the listing or a web page
 function isPlayer() {
   try {
-    return course.contentWindow.location.pathname == '/liascript/index.html'
+    return course.contentWindow.location.pathname == BASE + '/liascript/index.html'
   } catch (e) {
     return false
   }
 }
 
 function post(msg) {
-  return fetch('/agent', {
+  return fetch(BASE + '/agent', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(msg),
@@ -89,6 +93,15 @@ var TEXTS = {
     'Web address': 'Webadresse',
     'Back to the start of the course': 'Zurück zum Anfang des Kurses',
     'Files in this folder': 'Dateien in diesem Ordner',
+    'Open on a phone': 'Auf dem Handy öffnen',
+    'Scan it with the phone: course and chat open there, you continue where you are.':
+      'Mit dem Handy scannen: Kurs und Chat öffnen sich dort, es geht an derselben Stelle weiter.',
+    'Copy link': 'Link kopieren',
+    'Copied': 'Kopiert',
+    'Stop sharing': 'Teilen beenden',
+    'Anyone with the link sees the course and the chat and can write to the assistant.':
+      'Wer den Link hat, sieht Kurs und Chat und kann dem Assistenten schreiben.',
+    'Sharing did not start.': 'Das Teilen ist nicht gestartet.',
     'This browser cannot read aloud, it has no speech voices. Chrome and Edge bring their own, Firefox on Linux needs speech-dispatcher with a voice. The assistant can help to set it up.':
       'Dieser Browser kann nicht vorlesen, ihm fehlen die Stimmen. Chrome und Edge bringen eigene mit, Firefox unter Linux braucht speech-dispatcher mit einer Stimme. Der Assistent hilft beim Einrichten.',
     'Waiting for the assistant…': 'Wartet auf den Assistenten …',
@@ -218,13 +231,13 @@ tr(homeButton, 'Back to the start of the course', 'aria-label')
 function showHome() {
   var away = !!homeCourse
   try {
-    away = away && !(isPlayer() && new URL(course.contentWindow.location.search.slice(1)).pathname == '/' + encodeURI(homeCourse))
+    away = away && !(isPlayer() && new URL(course.contentWindow.location.search.slice(1)).pathname == BASE + '/' + encodeURI(homeCourse))
   } catch (e) {}
   homeButton.hidden = !away
 }
 course.addEventListener('load', showHome)
 homeButton.addEventListener('click', function () {
-  course.src = 'index.html?' + location.origin + '/' + encodeURI(homeCourse)
+  course.src = 'index.html?' + location.origin + BASE + '/' + encodeURI(homeCourse)
 })
 
 // The listing of the folder of the course or file (a PDF, a text) in the
@@ -235,13 +248,13 @@ tr(filesButton, 'Files in this folder', 'aria-label')
 
 function courseFolder() {
   try {
-    var where = course.contentWindow.location.pathname
+    var where = course.contentWindow.location.pathname.slice(BASE.length)
     if (isPlayer()) {
       var file = new URL(course.contentWindow.location.search.slice(1))
       if (file.origin != location.origin) return null
-      where = '/home' + file.pathname.replace(/^\/+/, '/')
+      where = '/home' + file.pathname.slice(BASE.length).replace(/^\/+/, '/')
     } else if (!where.startsWith('/home/') || isListing()) return null
-    return where.replace(/\/[^/]*$/, '')
+    return BASE + where.replace(/\/[^/]*$/, '')
   } catch (e) {
     return null
   }
@@ -267,7 +280,7 @@ filesButton.addEventListener('click', function () {
 // F5 comes back to the folder. Its links stay in the frame.
 course.addEventListener('load', function () {
   try {
-    var where = course.contentWindow.location.pathname
+    var where = course.contentWindow.location.pathname.slice(BASE.length)
     // this origin again, no web page
     web = ''
     if (!where.startsWith('/home')) return
@@ -630,6 +643,17 @@ function showSession(session) {
   lia.load({ version: 1, messages: [], db: db })
 
   session.entries.forEach(showEntry)
+  shell({
+    kind: 'history',
+    id: session.id,
+    ai: session.entries
+      .map(function (entry, n) {
+        return entry.type == 'ai' ? n : -1
+      })
+      .filter(function (n) {
+        return n >= 0
+      }),
+  })
   forms.forEach(function (el) {
     if (el.dataset.ask != session.open) closed(el)
   })
@@ -793,6 +817,8 @@ function dockWidth(width) {
 function applyDock() {
   var room = innerWidth >= WIDE
   dockButton.hidden = !room
+  // a phone: views/phone.js lets course and chat take turns
+  if (document.body.classList.contains('phone')) return document.body.classList.remove('docked')
   dockButton.setAttribute('aria-pressed', String(dock.on))
   tr(dockButton, dock.on ? 'Float over the course' : 'Dock at the side', 'title')
   tr(dockButton, dock.on ? 'Float over the course' : 'Dock at the side', 'aria-label')
@@ -894,8 +920,11 @@ function drag(handle, move) {
 }
 
 drag(who, {
-  // a docked chat stays where it is, the button only opens and closes it
-  off: docked,
+  // a docked chat stays where it is, the button only opens and closes it;
+  // on a phone the chat fills the screen
+  off: function () {
+    return docked() || document.body.classList.contains('phone')
+  },
   start: function () {
     var style = getComputedStyle(box)
     return { right: parseFloat(style.right), bottom: parseFloat(style.bottom) }
@@ -957,6 +986,67 @@ function language() {
     return navigator.language
   }
 }
+
+// The 📱 of the bar (agent mode with --share possible, a tab on this machine
+// only): shares this server over liascript.github.io/share and shows the link
+// as QR code, the phone continues where this tab is. {share} of the server.
+var phone = document.getElementById('phone')
+var sharePanel = document.getElementById('share')
+var shareError = document.getElementById('share-error')
+var shareLink = ''
+
+function showShare(s) {
+  phone.hidden = false
+  phone.setAttribute('aria-pressed', s.on ? 'true' : 'false')
+  shareLink = s.link || ''
+  // an SVG of the server (src/qr.ts), only attributes
+  document.getElementById('share-qr').innerHTML = s.qr || ''
+  document.getElementById('share-copy').hidden = document.getElementById('share-stop').hidden = !s.on
+  if (s.on) shareError.hidden = true
+  if (s.show) sharePanel.hidden = false
+  else if (!s.on && shareError.hidden) sharePanel.hidden = true
+}
+
+function switchShare(on) {
+  return fetch(BASE + '/share', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ on: on }),
+  })
+    .then(function (res) {
+      return res.json().catch(function () {
+        return {}
+      })
+    })
+    .then(function (r) {
+      if (r.error || (on && !r.link)) throw new Error(r.error || '')
+      showShare({ on: on, link: r.link, qr: r.qr, show: on })
+    })
+    .catch(function (e) {
+      shareError.textContent = t('Sharing did not start.') + (e.message ? ' ' + e.message : '')
+      shareError.hidden = false
+      sharePanel.hidden = false
+    })
+}
+
+phone.addEventListener('click', function () {
+  if (phone.getAttribute('aria-pressed') != 'true') return switchShare(true)
+  sharePanel.hidden = !sharePanel.hidden
+})
+document.getElementById('share-stop').addEventListener('click', function () {
+  switchShare(false).then(function () {
+    sharePanel.hidden = true
+  })
+})
+document.getElementById('share-copy').addEventListener('click', function (event) {
+  var button = event.currentTarget
+  navigator.clipboard.writeText(shareLink).then(function () {
+    tr(button, 'Copied')
+    setTimeout(function () {
+      tr(button, 'Copy link')
+    }, 1500)
+  })
+})
 
 // Without voices the bar shows a muted speaker, which explains it on a click:
 // the user learns it once and in place, not from the AI in every greeting.
@@ -1678,6 +1768,13 @@ function status(text) {
   if (text) document.getElementById('chat').open = true
   stageState()
   readStatus(text || '')
+  shell({ kind: 'status', text: text || '' })
+}
+
+// what happened, for views/phone.js; replay: the first 1.5 s of a stream
+function shell(detail) {
+  detail.replay = Date.now() < replay
+  document.dispatchEvent(new CustomEvent('lia:shell', { detail: detail }))
 }
 
 // below the progress line when the server has no sign of the AI for a while
@@ -1696,7 +1793,7 @@ var lastHeard = 0
 
 function connect() {
   if (stream) stream.close()
-  stream = new EventSource('/gotoLine?chat')
+  stream = new EventSource(BASE + '/gotoLine?chat')
   lastHeard = Date.now()
   // every (re)connect first replays the chat, the agents and the progress
   // line, also the hint of the server if there is one
@@ -1732,6 +1829,7 @@ function message(event) {
     homeCourse = data.home
     return showHome()
   }
+  if (data.share) return showShare(data.share)
   if (typeof data.status == 'string') return status(data.status)
   if (typeof data.hint == 'string') return hint(data.hint)
   if (data.closed) {
@@ -1749,10 +1847,11 @@ function message(event) {
   // the player follows a goto to a course itself, the file listing and a
   // web page cannot
   if (data.goto) {
+    shell({ kind: 'goto' })
     var go = data.goto
     if (typeof go.url == 'string') course.src = webPage(go.url)
     else if (go.file && !isPlayer()) {
-      course.src = 'index.html?' + location.origin + '/' + encodeURI(go.file) + (go.slide ? '#' + go.slide : '')
+      course.src = 'index.html?' + location.origin + BASE + '/' + encodeURI(go.file) + (go.slide ? '#' + go.slide : '')
     }
     return
   }
@@ -1762,6 +1861,7 @@ function message(event) {
 
   readNew(showAI(chat))
   document.getElementById('chat').open = true
+  shell({ kind: 'ai', n: chat.n, markdown: chat.markdown, agent: chat.agent, ask: !!(chat.inputs && chat.inputs.length) })
   status(chat.status)
 }
 

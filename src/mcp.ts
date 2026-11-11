@@ -887,6 +887,19 @@ function getState() {
   }
 }
 
+// the course and this chat on a phone or another computer, over WebRTC
+// (src/share.ts)
+const SHARE = {
+  name: 'share',
+  description:
+    'Opens this preview with its chat for a phone or another browser elsewhere, through liascript.github.io/share over an encrypted WebRTC link: the user navigates there like here, the chat is the same. Only when the user asks for it, in the chat or the terminal. on: true shows a QR code and the link in the chat of this machine, do not send the link again; anyone with the link sees the course and the chat and can write to you, say so in one sentence. The link stays the same and the share comes back after a restart, until on: false. Web pages of --proxy full do not pass. Returns {link} or {error}, e.g. another instance shares this folder.',
+  inputSchema: {
+    type: 'object',
+    properties: { on: { type: 'boolean', description: 'true to share, false to stop' } },
+    required: ['on'],
+  },
+}
+
 const TOOL_CALLS: { [name: string]: (args: any, request: any) => any } = {
   get_state: getState,
   goto,
@@ -905,6 +918,7 @@ const TOOL_CALLS: { [name: string]: (args: any, request: any) => any } = {
   git_sync: (args: any) => git.sync(server.getState().root, args),
   git_publish: (args: any) => git.publish(server.getState().root, args),
   git_tag: (args: any) => git.tag(server.getState().root, args),
+  share: (args: any) => server.setShare(args.on !== false, true, args.on !== false),
 }
 
 async function handle(method: string, params: any, request: any) {
@@ -926,7 +940,7 @@ async function handle(method: string, params: any, request: any) {
       return {}
 
     case 'tools/list':
-      return { tools: TOOLS }
+      return { tools: [...TOOLS, SHARE] }
 
     case 'prompts/list':
       return { prompts: [PROMPT] }

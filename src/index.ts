@@ -7,6 +7,7 @@ if (argv.mcp) console.log = console.error
 import * as server from './lib'
 import { mcp } from './mcp'
 import { init } from './init'
+import { PAGE as SHARE_PAGE, remembered } from './share'
 
 function liascript() {
   console.log(' _     _       ____            _       _')
@@ -46,6 +47,15 @@ if (argv.h || argv.help) {
   console.log('-t  --test       test online on https://LiaScript.github.io')
   console.log('    --mcp        serve as MCP server on stdio for AI agents,')
   console.log('                 to be started from the MCP config of the agent')
+  console.log('    --share      share it over WebRTC, prints a link for other')
+  console.log('                 browsers, e.g. a phone; --share URL names the share')
+  console.log('                 page (default: ' + SHARE_PAGE + ');')
+  console.log('                 the link stays the same for this folder. With')
+  console.log('                 --mcp the phone button of the chat switches it')
+  console.log('    --share-new  a new link, the old one stops working')
+  console.log('    --share-web  the share page under another origin, for web')
+  console.log('                 pages (default: the other one of localhost and')
+  console.log('                 127.0.0.1, else none)')
   console.log('    --proxy      web pages in the chat of --mcp: off, read (default:')
   console.log('                 the document only, no logins) or full (experimental:')
   console.log('                 everything, cookies, forms, single page apps; some')
@@ -104,10 +114,54 @@ if (command === 'init' || command === 'update') {
       watch,
       argv.proxy,
     )
+    .then(() => {
+      if (!argv.mcp) {
+        if (argv.share) share(false)
+        return
+      }
+      // the 📱 of the chat and the tool share switch it at runtime
+      server.onShare({ on: share, off: () => (stopShare?.(), (stopShare = null)), remembered: remembered(server.getState().root) })
+      if (argv.share) {
+        const r = server.setShare(true, false)
+        if (r.error) console.log('🔗 not shared: ' + r.error)
+      }
+    })
     .catch((e: any) => {
       console.error('Error: ', e.message)
       process.exit()
     })
 
   console.log('✨ hit Ctrl-c to close the server')
+}
+
+// WebRTC loads only here, when a link is asked for. share.ts is bundled, it
+// loads werift itself through createRequire, parcel would hoist a require(
+let stopShare: (() => void) | null = null
+let renewed = false
+function share(take: boolean, lost?: () => void): { link?: string; error?: string } {
+  const { share, otherOrigin } = require('./share')
+  const page = typeof argv.share == 'string' ? argv.share : SHARE_PAGE
+  const r = share({
+    local: server.localOrigin(),
+    proxy: server.proxyOrigin(),
+    root: server.getState().root,
+    page,
+    web: typeof argv['share-web'] == 'string' ? argv['share-web'] : otherOrigin(page),
+    // a new link once per start
+    fresh: !!argv['share-new'] && !renewed,
+    take,
+    lost: () => {
+      stopShare = null
+      console.log('🔗 another instance shares this folder now')
+      lost?.()
+    },
+  })
+  if (r.holder) {
+    console.log('🔗 not shared: the instance with pid ' + r.holder + ' shares this folder')
+    return { error: 'The instance with pid ' + r.holder + ' shares this folder.' }
+  }
+  stopShare = r.stop
+  renewed = true
+  console.log('🔗 share: ' + r.link)
+  return { link: r.link }
 }

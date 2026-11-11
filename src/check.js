@@ -368,6 +368,19 @@ async function main() {
   assert.strictEqual((await request('GET', '/', { Host: 'evil.com' })).status, 403, 'rebound host on GET')
   const start = await request('GET', '/', {})
   assert.strictEqual(start.headers.location, 'http://localhost:3999/liascript/chat.html?http://localhost:3999/README.md', '/ opens the course')
+  // --share: the addresses of the share page, with its folder
+  const SHARE = { 'X-Lia-Origin': 'https://liascript.github.io/share' }
+  assert.strictEqual((await request('GET', '/', SHARE)).headers.location, 'https://liascript.github.io/share/liascript/chat.html?https://liascript.github.io/share/README.md', '/ through --share')
+  assert.strictEqual((await request('GET', '/', { 'X-Lia-Origin': 'javascript:alert(1)' })).headers.location, start.headers.location, 'a bad X-Lia-Origin is ignored')
+  assert.strictEqual((await request('GET', '/web?url=https://example.org/', SHARE)).status, 404, 'no web pages through --share without a page for them')
+  assert.strictEqual(
+    (await request('GET', '/home/README.md', { ...SHARE, 'Sec-Fetch-Dest': 'iframe' })).headers.location,
+    'https://liascript.github.io/share/liascript/index.html?https://liascript.github.io/share/README.md',
+    'a course of the listing through --share, one slash: //x is a host to new URL()',
+  )
+  // the house of the listing in the frame: / would load a second shell into it
+  const listing = (await request('GET', '/home', { 'Sec-Fetch-Dest': 'iframe' })).data
+  assert.ok(/<a href='[^']*\/home'>/.test(listing) && !/<a href='[^']*\/'>/.test(listing), 'the house stays in the listing')
   assert.strictEqual((await post({ type: 'bogus' })).status, 400)
   assert.strictEqual((await post(report)).status, 204)
 
@@ -510,6 +523,57 @@ async function main() {
   const robots = await request('GET', '/liascript/avatar.js', {})
   assert.strictEqual(robots.status, 200, 'the shell gets the robots of the agents')
   assert.strictEqual(robots.headers['cache-control'], 'no-cache')
+  // the phone: course and chat take turns, a bar switches
+  const phone = await request('GET', '/liascript/phone.js', {})
+  assert.ok(phone.status === 200 && phone.headers['cache-control'] === 'no-cache', 'the shell gets phone.js')
+  assert.ok(shell.data.includes('id="switch"') && shell.data.includes('phone.js'), 'the switch bar')
+  const box2 = { window: {} }
+  vm.createContext(box2)
+  vm.runInContext(fs.readFileSync(path.join(ROOT, 'views/phone.js'), 'utf8'), box2)
+  const P = box2.window.Phone
+  assert.strictEqual(P.firstLine('<!-- x -->\n\n## **Gut** gewählt! [mehr](#4)\nzwei'), 'Gut gewählt! mehr')
+  assert.strictEqual(P.firstLine('x'.repeat(200)).length, 121, '120 characters and …')
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(P.where('Die Lichtreaktion · Photosynthese', '#3'))), { slide: 3, title: 'Die Lichtreaktion' })
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(P.where('Photosynthese', ''))), { slide: null, title: 'Photosynthese' })
+  assert.strictEqual(P.unread(0, { kind: 'ai', replay: false }, 'course'), 1)
+  assert.strictEqual(P.unread(2, { kind: 'ai', replay: true }, 'course'), 2, 'a replay is not new')
+  assert.strictEqual(P.unread(2, { kind: 'ai', replay: false }, 'chat'), 0, 'read while it shows')
+  assert.strictEqual(P.unread(0, { kind: 'class', replay: false }, 'course'), 1, 'a message of the class counts too')
+  assert.strictEqual(P.missed([0, 2, 5, 7], 2), 2, 'answers that came while the stream was down')
+  assert.strictEqual(P.missed([0, 2], -1), 2, 'nothing seen yet')
+  // no shell in the course frame of a shell: on plain HTTP of the LAN the
+  // browser sends no Sec-Fetch-Dest, a course of the listing came as a
+  // second shell with a second switch bar
+  const nested = await request('GET', '/liascript/nested.js', {})
+  assert.ok(nested.status === 200 && nested.headers['cache-control'] === 'no-cache', 'the shell gets nested.js')
+  assert.ok(/<head>[\s\S]*src="nested.js"[\s\S]*<\/head>/.test(shell.data), 'nested.js runs before the body')
+  const inFrame = (search, id) => {
+    const box = { stopped: false, went: '' }
+    box.window = {
+      frameElement: id ? { id } : null,
+      stop: () => (box.stopped = true),
+      location: {
+        pathname: '/share/liascript/chat.html',
+        search,
+        hash: '#3',
+        replace: (u) => (box.went = u),
+      },
+    }
+    vm.createContext(box)
+    vm.runInContext(fs.readFileSync(path.join(ROOT, 'views/nested.js'), 'utf8'), box)
+    return box
+  }
+  let fr = inFrame('?http://10.0.0.2:8000/kurs/README.md', 'course')
+  assert.ok(fr.stopped && fr.went === 'index.html?http://10.0.0.2:8000/kurs/README.md#3', 'a course: the bare player, ' + fr.went)
+  fr = inFrame('?/home/kurs', 'course')
+  assert.strictEqual(fr.went, '/share/home/kurs#3', 'a folder: the listing')
+  fr = inFrame('?web=https%3A%2F%2Fexample.org%2F', 'course')
+  assert.strictEqual(fr.went, '/share/web?url=https%3A%2F%2Fexample.org%2F#3', 'a web page: the proxy')
+  fr = inFrame('?http://x/README.md', 'lia-share')
+  assert.ok(!fr.stopped && !fr.went, 'the frame of the share page is no shell')
+  fr = inFrame('?http://x/README.md', null)
+  assert.ok(!fr.stopped && !fr.went, 'a tab of its own')
+
 
   // a fake chat shell. Never call chat without one: it would open a browser.
   stream = ''
@@ -977,7 +1041,7 @@ async function main() {
     .split('\n\n')
     .filter((line) => line.startsWith('data: {'))
     .map((line) => JSON.parse(line.slice(6)))
-  assert.deepStrictEqual(replayed.map((m) => Object.keys(m)[0]), ['sessions', 'session', 'agents', 'proxy', 'home'])
+  assert.deepStrictEqual(replayed.map((m) => Object.keys(m)[0]), ['sessions', 'session', 'agents', 'proxy', 'home', 'share'])
   assert.deepStrictEqual(replayed[0].sessions.map((s) => s.id), [saved.id])
   assert.strictEqual(replayed[1].session.entries.length, saved.entries.length)
   assert.deepStrictEqual(replayed[1].session.db, { quiz: { 0: solved } }, 'F5 gets the states of the quizzes')
@@ -1186,8 +1250,229 @@ async function main() {
   child.stdin.end()
   await ended
 
+  await checkShare()
+  await checkShareSwitch()
+
   fs.rmSync(PROJECT, { recursive: true, force: true })
   console.log('ok')
+}
+
+// a y-webrtc signalling server on loopback, and a share page that names it
+function signallingServer(port) {
+  const WS = require('ws')
+  const wss = new WS.Server({ port, host: '127.0.0.1' })
+  const topics = new Map()
+  // the rooms someone listens in, for checkShareSwitch
+  wss.topics = topics
+  wss.on('connection', (ws) => {
+    ws.on('message', (raw) => {
+      const m = JSON.parse(raw)
+      if (m.type == 'subscribe') for (const t of m.topics) (topics.get(t) || topics.set(t, new Set()).get(t)).add(ws)
+      else if (m.type == 'publish') for (const c of topics.get(m.topic) || []) c.send(JSON.stringify(m))
+      else if (m.type == 'ping') ws.send('{"type":"pong"}')
+    })
+    ws.on('close', () => topics.forEach((set) => set.delete(ws)))
+  })
+  return wss
+}
+const sharePage = (port, sig) =>
+  http.createServer((req, res) => res.end(req.url == '/signaling.json' ? JSON.stringify(['ws://127.0.0.1:' + sig]) : '[]')).listen(port, '127.0.0.1')
+
+// --share: a y-webrtc signalling server on loopback, the host and a werift
+// tab that speaks share/lia-rtc.mjs like the share page
+async function checkShare() {
+  const WS = require('ws')
+  const { RTCPeerConnection } = require('werift')
+  const rtc = await import(path.join(ROOT, 'share/lia-rtc.mjs'))
+  const SIG = 4711
+  const PAGE = 4712
+  const signalling = () => signallingServer(SIG)
+  let wss = signalling()
+  const page = sharePage(PAGE, SIG)
+  const HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'liascript-share-'))
+  const host = spawn(process.execPath, [path.join(ROOT, 'dist/index.js'), '-p', 4713, '-i', path.join(ROOT, 'README.md'), '--share', 'http://127.0.0.1:' + PAGE + '/'], { cwd: HOME, env: { ...process.env, HOME } })
+  let out = ''
+  host.stdout.on('data', (d) => (out += d))
+  host.stderr.on('data', (d) => (out += d))
+  const until = async (f, what, ms = 10000) => {
+    for (const t = Date.now(); Date.now() - t < ms; await sleep(100)) if (await f()) return
+    throw new Error('--share: ' + what + '\n' + out)
+  }
+  await until(() => /signalling:/.test(out), 'no host')
+  const link = new URLSearchParams(/share: (\S+)/.exec(out)[1].split('#')[1])
+
+  // a tab: offer, answer, a channel that GETs a path
+  async function tab(key) {
+    const me = Math.random().toString(36).slice(2)
+    const pc = new RTCPeerConnection({ iceServers: [] })
+    const dc = pc.createDataChannel('lia')
+    const open = new Promise((resolve) => (dc.onopen = resolve))
+    const answers = new Map()
+    const ch = rtc.channel(
+      dc,
+      (m) => (m.kind == 'ping' ? ch.json({ kind: 'pong' }) : m.kind == 'res' && answers.get(m.id)(m)),
+      () => {},
+    )
+    let from = null
+    let answered = null
+    const sig = await rtc.signal({
+      urls: ['ws://127.0.0.1:' + SIG],
+      room: link.get('room'),
+      key,
+      WebSocket: WS,
+      onMessage(m) {
+        if (m.to != me) return
+        if (m.sdp?.type == 'answer' && !from) (from = m.from), (answered = pc.setRemoteDescription(m.sdp))
+        else if (m.candidate && m.from == from) answered.then(() => pc.addIceCandidate(m.candidate))
+      },
+    })
+    pc.onicecandidate = ({ candidate }) => candidate && sig.send({ from: me, candidate })
+    await sleep(300)
+    await pc.setLocalDescription(await pc.createOffer())
+    sig.send({ from: me, sdp: pc.localDescription })
+    let id = 0
+    const get = (p) =>
+      new Promise((resolve) => {
+        answers.set(++id, (m) => m.status && resolve(m.status))
+        ch.json({ kind: 'req', id, method: 'GET', path: p, headers: [], origin: 'http://x' })
+      })
+    const linked = await Promise.race([open.then(() => true), sleep(5000).then(() => false)])
+    return { linked, get, close: () => (pc.close(), sig.close()) }
+  }
+
+  try {
+    const a = await tab(link.get('key'))
+    assert.ok(a.linked, 'a tab with the key of the link gets a channel')
+    assert.strictEqual(await a.get('/'), 302, 'a request through the channel')
+    const b = await tab('0'.repeat(32))
+    assert.strictEqual(b.linked, false, 'a tab with another key gets no answer')
+    b.close()
+    // Trystero lost the room here: the host subscribes again
+    for (const c of wss.clients) c.terminate()
+    await new Promise((resolve) => wss.close(resolve))
+    wss = signalling()
+    await sleep(2500)
+    const c = await tab(link.get('key'))
+    assert.ok(c.linked, 'a new tab after a restart of the signalling server')
+    assert.strictEqual(await a.get('/'), 302, 'the first channel lives on meanwhile')
+    a.close()
+    c.close()
+  } finally {
+    host.kill()
+    page.close()
+    wss.close()
+    fs.rmSync(HOME, { recursive: true, force: true })
+  }
+}
+
+// --mcp without --share: the 📱 of the chat and the tool share switch it at
+// runtime, the project remembers it, and of two twin instances (Copilot next
+// to Claude Code) the one in use gets the room
+async function checkShareSwitch() {
+  const SIG = 4741
+  const wss = signallingServer(SIG)
+  const HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'liascript-switch-'))
+  const CONF = path.join(HOME, '.config', 'liascript')
+  fs.mkdirSync(CONF, { recursive: true })
+  // servers of its own: no fetch of the published lists, no network
+  fs.writeFileSync(path.join(CONF, 'share.json'), JSON.stringify({ turn: [], signaling: ['ws://127.0.0.1:' + SIG] }))
+  const saved = () => JSON.parse(fs.readFileSync(path.join(CONF, 'share.json'), 'utf8'))
+  const locks = () => fs.readdirSync(CONF).filter((f) => f.startsWith('share-'))
+  const lockPid = () => Number(fs.readFileSync(path.join(CONF, locks()[0]), 'utf8'))
+  const listened = () => [...wss.topics.values()].some((set) => set.size > 0)
+
+  // an MCP instance of its own, with a JSON-RPC client of its own
+  function instance(port) {
+    const p = spawn(process.execPath, [path.join(ROOT, 'dist/index.js'), '--mcp', '-p', port, '-i', path.join(ROOT, 'README.md')], { cwd: HOME, env: { ...process.env, HOME } })
+    const waiting = new Map()
+    let buf = ''
+    let id = 0
+    p.out = ''
+    p.stderr.on('data', (d) => (p.out += d))
+    p.stdout.on('data', (d) => {
+      buf += d
+      let nl
+      while ((nl = buf.indexOf('\n')) >= 0) {
+        const msg = JSON.parse(buf.slice(0, nl))
+        buf = buf.slice(nl + 1)
+        if (waiting.has(msg.id)) waiting.get(msg.id)(msg), waiting.delete(msg.id)
+      }
+    })
+    p.rpc = (method, params) => new Promise((resolve) => (waiting.set(++id, resolve), p.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n')))
+    p.tool = async (name, args) => JSON.parse((await p.rpc('tools/call', { name, arguments: args })).result.content[0].text)
+    p.port = port
+    return p
+  }
+  const until = async (f, what, p, ms = 8000) => {
+    for (const t = Date.now(); Date.now() - t < ms; await sleep(100)) if (await f()) return
+    throw new Error('share switch: ' + what + '\n' + (p ? p.out : ''))
+  }
+  const switchIt = (p, on, headers) =>
+    request('POST', '/share', { 'Content-Type': 'application/json', Origin: 'http://127.0.0.1:' + p.port, ...headers }, JSON.stringify({ on }), p.port)
+  // the replay of a ?chat stream, read for a moment
+  const replay = (p, headers = {}) =>
+    new Promise((resolve) => {
+      let text = ''
+      const req = http.get({ host: '127.0.0.1', port: p.port, path: '/gotoLine?chat', headers }, (res) => res.on('data', (d) => (text += d)))
+      setTimeout(() => (req.destroy(), resolve(text)), 500)
+    })
+
+  const a = instance(4740)
+  let b = null
+  try {
+    await a.rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'check', version: '0' } })
+    await until(async () => (await request('GET', '/', {}, undefined, 4740).catch(() => ({}))).status, 'A does not listen', a)
+    assert.ok((await a.rpc('tools/list', {})).result.tools.some((t) => t.name == 'share'), 'the tool share')
+    assert.deepStrictEqual(locks(), [], 'not shared without a request')
+    assert.ok(!(await replay(a)).includes('"on":true'), 'the chat offers it, off')
+    assert.ok((await replay(a)).includes('"share":{"on":false}'), 'the replay of a local shell names the switch')
+
+    // only a tab on this machine switches
+    assert.strictEqual((await switchIt(a, true, { Origin: 'https://evil.com' })).status, 403, 'another origin')
+    assert.strictEqual((await switchIt(a, true, { 'X-Lia-Origin': 'https://liascript.github.io/share' })).status, 403, 'not through the tunnel')
+    assert.ok(!(await replay(a, { 'X-Lia-Origin': 'https://liascript.github.io/share' })).includes('"share"'), 'a phone sees no switch')
+
+    const on = await a.tool('share', { on: true })
+    assert.ok(/#room=[0-9a-f]{32}&key=[0-9a-f]{32}/.test(on.link), 'the tool hands out the link')
+    assert.strictEqual((await a.tool('get_state', {})).share, on.link, 'get_state.share')
+    assert.strictEqual(saved().rooms[ROOT].on, true, 'remembered')
+    assert.strictEqual(lockPid(), a.pid, 'A holds the room')
+    await until(listened, 'A does not listen in the room', a)
+    assert.ok((await replay(a)).includes('<svg'), 'the replay carries the QR code')
+
+    const off = await switchIt(a, false)
+    assert.strictEqual(off.status, 200, 'the 📱 switches off')
+    assert.deepStrictEqual(locks(), [], 'off: the room is free')
+    assert.strictEqual(saved().rooms[ROOT].on, false, 'off is remembered')
+    assert.strictEqual((await a.tool('get_state', {})).share, undefined, 'no link any more')
+    await until(() => !listened(), 'A still listens', a)
+
+    const again = JSON.parse((await switchIt(a, true)).data)
+    assert.ok(again.link == on.link && again.qr.startsWith('<svg'), 'the same link again, with QR code')
+
+    // a twin starts with the room remembered: it takes it only when used,
+    // and never from a living holder unless asked
+    b = instance(4742)
+    await b.rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'check', version: '0' } })
+    await until(async () => (await request('GET', '/', {}, undefined, 4742).catch(() => ({}))).status, 'B does not listen', b)
+    await sleep(500)
+    assert.strictEqual(lockPid(), a.pid, 'an idle twin leaves the room alone')
+    await b.tool('get_state', {})
+    assert.strictEqual(lockPid(), a.pid, 'a used twin does not take it from a living holder')
+    assert.ok(!(await b.tool('get_state', {})).share, 'B is not shared')
+    const took = await b.tool('share', { on: true })
+    assert.strictEqual(took.link, on.link, 'the 📱 of B takes the room')
+    assert.strictEqual(lockPid(), b.pid, 'B holds it')
+    await until(() => /another instance shares this folder now/.test(a.out), 'A does not step aside', a)
+    assert.ok(!(await a.tool('get_state', {})).share, 'A is no longer shared')
+    assert.strictEqual(saved().rooms[ROOT].on, true, 'still on for the project')
+  } finally {
+    a.kill()
+    b?.kill()
+    wss.close()
+    await sleep(200)
+    fs.rmSync(HOME, { recursive: true, force: true })
+  }
 }
 
 main().catch(die)

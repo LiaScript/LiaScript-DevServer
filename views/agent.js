@@ -1,5 +1,5 @@
 // Loaded into the player in agent mode (--mcp), after activity.js and the
-// inline gotoScript of lib.ts, whose filename__ and events it reuses. Reports
+// inline gotoScript of lib.ts, whose filename__, base__ and events it reuses. Reports
 // what the user looks at and does, handles goto messages and agent: links.
 
 ;(function () {
@@ -61,7 +61,7 @@
   }
 
   function post(msg) {
-    return fetch('/agent', {
+    return fetch(base__ + '/agent', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(msg),
@@ -227,7 +227,7 @@
     // on the page load. Two goto calls do it; hand it over in sessionStorage
     // if that gets annoying.
     if (go.file && go.file != file) {
-      location.href = location.pathname + '?' + location.origin + '/' + encodeURI(go.file) + (go.slide ? '#' + go.slide : '')
+      location.href = location.pathname + '?' + location.origin + base__ + '/' + encodeURI(go.file) + (go.slide ? '#' + go.slide : '')
       return
     }
     // not LIA.goto: its dedup guard remembers the last requested slide, not

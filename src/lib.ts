@@ -13,6 +13,7 @@ import * as chats from './chats'
 import * as git from './git'
 import * as web from './web'
 import { startFull, Full } from './full'
+import { qr } from './qr'
 
 const cors = require('cors')
 const handlebars = require('express-handlebars')
@@ -64,6 +65,71 @@ export const bus = new EventEmitter()
 
 var origin = ''
 var home = ''
+
+// The addresses the browser sees: --share (src/share.ts) names those of its
+// page (x-lia-origin) and of the page for web pages (x-lia-web-origin), with
+// the folder of the page (https://liascript.github.io/share), a tab on this
+// machine sees ours. Every path the server hands out starts with it.
+function validOrigin(o: any) {
+  return typeof o == 'string' && /^https?:\/\/[\w.-]+(:\d+)?(\/[\w.~-]+)*$/.test(o) ? o : ''
+}
+function originOf(req: express.Request) {
+  return validOrigin(req.headers['x-lia-origin']) || origin
+}
+
+// the servers for src/share.ts, and the link it hands out
+var shared = ''
+export function localOrigin() {
+  return origin
+}
+export function proxyOrigin() {
+  return proxyMode == 'read' ? webOrigin : ''
+}
+
+// --share at runtime, the 📱 of the chat and the tool share: index.ts hands in
+// the switch, lib.ts never loads WebRTC (the tsc build of the library would
+// pull it in). Without one, as a library, the chat offers none.
+export type ShareSwitch = {
+  // take: a twin instance that holds the room steps aside; lost: it took it back
+  on(take: boolean, lost: () => void): { link?: string; error?: string }
+  off(): void
+  remembered: boolean // the project was shared when its last host stopped
+}
+var shareSwitch: ShareSwitch | null = null
+// a remembered share starts once this instance is used: twins (Copilot next to
+// Claude Code) would otherwise race for the room
+var wakeShare = false
+export function onShare(s: ShareSwitch) {
+  shareSwitch = s
+  wakeShare = s.remembered
+}
+export function setShare(on: boolean, take = true, show = false): { link?: string; error?: string } {
+  if (!shareSwitch) return { error: 'Sharing is not available in this instance.' }
+  wakeShare = false
+  if (on && !shared) {
+    const r = shareSwitch.on(take, () => ((shared = ''), toShells(shareMessage())))
+    if (!r.link) return { error: r.error || 'Not shared.' }
+    shared = r.link
+  } else if (!on && shared) {
+    shareSwitch.off()
+    shared = ''
+  }
+  toShells(shareMessage(show))
+  return shared ? { link: shared } : {}
+}
+function wake() {
+  if (wakeShare) {
+    const r = setShare(true, false)
+    if (r.error) console.log('🔗 not shared: ' + r.error)
+  }
+}
+// only for a shell on this machine: the phone must not switch off its own link
+function shareMessage(show = false) {
+  return { share: { on: !!shared, ...(shared ? { link: shared, qr: qr(shared) } : {}), ...(show ? { show } : {}) } }
+}
+function toShells(msg: object) {
+  clients.forEach((client: any) => client.chat && !client.remote && client.write(`data: ${JSON.stringify(msg)}\n\n`))
+}
 // in agent mode the chat shell, which shows the player in an iframe
 var player = '/liascript/index.html'
 // --test: the course in the player of the LiaScript website
@@ -173,6 +239,7 @@ var quiet: any = null
 
 export function activity() {
   pending = false
+  wake()
   if (progress === WAITING || progress === LOOKING) send({ status: THINKING })
   else watchQuiet()
 }
@@ -228,6 +295,8 @@ function reloadNow() {
   changedAt = 0
   console.log('🔄 reloading')
   reloadInstance.reload()
+  // the WebSocket of reload does not pass the tunnel of --share, its stream does
+  clients.forEach((client) => client.remote && client.write('data: {"reload":true}\n\n'))
 }
 
 // Does the preview show this file? Another Markdown file changes nothing in
@@ -377,6 +446,7 @@ export function getState() {
     view: agents.view,
     session: session && chats.summary(session),
     proxy: proxyMode,
+    ...(shared ? { share: shared } : {}),
     // a change waits for its reload, held while the agent works: title and
     // slide are those of the old version
     ...(changedAt ? { reload_pending: true } : {}),
@@ -425,10 +495,12 @@ if (!window.LIA) {
   window.LIA = {}
 }
 
-var filename__ = document.location.search.replace("?"+document.location.origin, "")
+// '' here, the folder of the share page through --share (e.g. /share)
+var base__ = document.location.pathname.slice(0, document.location.pathname.lastIndexOf("/liascript/"))
+var filename__ = document.location.search.replace("?"+document.location.origin+base__, "")
 
 window.LIA.lineGoto = function(linenumber) {
-  fetch("/lineGoto", {
+  fetch(base__ + "/lineGoto", {
     method: "POST",
     headers: {'Content-Type': 'application/json'}, 
     body: JSON.stringify({
@@ -440,12 +512,14 @@ window.LIA.lineGoto = function(linenumber) {
   });
 }
 
-const events = new EventSource('/gotoLine');
+const events = new EventSource(base__ + '/gotoLine');
 events.onmessage = (event) => {
   // the server opens every stream with an empty message
   if (!event.data) return
   try {
     const data = JSON.parse(event.data);
+    // live reload in a browser elsewhere (--share)
+    if (data.reload) return location.reload()
     if (data.filename == filename__) {
       console.log("goto line:", data.linenumber);
       window.LIA.gotoLine(data.linenumber)
@@ -599,7 +673,7 @@ export async function start(
           res.writeHead(403)
           return res.end()
         }
-        if (req.url === '/web.js') {
+        if ((req.url || '').split('?')[0] === '/web.js') {
           return fs.readFile(path.join(dirname, 'views/web.js'), function (err, data) {
             res.writeHead(err ? 404 : 200, {
               'Content-Type': 'text/javascript',
@@ -618,13 +692,17 @@ export async function start(
               res.writeHead(302, { Location: page.url })
               return res.end()
             }
+            // through --share the page of the share link is the shell, and
+            // web.js comes from the other page that tunnels the web pages
+            const shell = validOrigin(req.headers['x-lia-origin']) && new URL(req.headers['x-lia-origin'] as string).origin
+            const own = validOrigin(req.headers['x-lia-web-origin']) || webOrigin
             // only these headers: the site's CSP, frame options and cookies stay out
             res.writeHead(200, {
               'Content-Type': page.type,
               'Cache-Control': 'no-store',
-              'Content-Security-Policy': 'frame-ancestors ' + ancestors,
+              'Content-Security-Policy': 'frame-ancestors ' + (shell ? shell + ' ' : '') + ancestors,
             })
-            res.end(web.inject(page.body, page.url, webOrigin + '/web.js'))
+            res.end(web.inject(page.body, page.url, own + '/web.js' + (shell ? '?shared' : '')))
           })
           .catch(function (e) {
             res.writeHead(502, { 'Content-Type': 'text/plain; charset=utf-8' })
@@ -679,7 +757,9 @@ export async function start(
   // the course of --input, a folder lists its files. With a course the
   // listing showed technical files, and users had to guess which is theirs.
   app.get('/', function (req: express.Request, res: express.Response) {
-    res.redirect(project.readme ? home : '/home')
+    // through --share every address starts with the share page
+    const o = originOf(req)
+    res.redirect(project.readme ? (testOnline ? ONLINE : o + player) + '?' + o + '/' + project.readme : o + '/home')
   })
 
   app.get('/gotoLine', eventsHandler)
@@ -694,13 +774,13 @@ export async function start(
 
     // Is it a directory?
     if (agent && stats.isDirectory() && dest === 'document') {
-      res.redirect(player + '?' + req.path)
+      res.redirect(originOf(req) + player + '?' + req.path)
     } else if (stats.isDirectory()) {
       const files = fs.readdirSync(currentPath).filter((e: string) => {
         return e[0] !== '.'
       })
 
-      let basePath = '/home'
+      let basePath = originOf(req) + '/home'
       let pathNames = req.params[0].split('/').filter((e: string) => {
         return e !== ''
       })
@@ -713,12 +793,16 @@ export async function start(
 
       res.render('main', {
         layout: 'index',
+        root: originOf(req),
+        // in agent mode the listing sits in the frame of the shell, where /
+        // would load a second shell with a second chat
+        home: originOf(req) + (agent ? '/home' : '/'),
         path: paths,
         file: files
           .map((file: string) => {
             return {
               name: file,
-              href: `${origin}/home${req.params[0]}/${file}`,
+              href: `${originOf(req)}/home${req.params[0]}/${file}`,
               isDirectory: fs.lstatSync(currentPath + '/' + file).isDirectory(),
             }
           })
@@ -732,7 +816,7 @@ export async function start(
     } else if (stats.isFile()) {
       if (req.params[0].toLocaleLowerCase().endsWith('.md')) {
         res.redirect(
-          (testOnline ? ONLINE : agent && dest === 'iframe' ? '/liascript/index.html' : player) + '?' + origin + '/' + req.params[0],
+          (testOnline ? ONLINE : originOf(req) + (agent && dest === 'iframe' ? '/liascript/index.html' : player)) + '?' + originOf(req) + '/' + req.params[0].replace(/^\/+/, ''),
         )
       } else {
         // the listing is for looking at a file: a LICENSE, .py or .ts was a
@@ -750,7 +834,7 @@ export async function start(
   app.get(
     '/liascript/',
     function (req: express.Request, res: express.Response) {
-      res.redirect('/liascript/index.html')
+      res.redirect(originOf(req) + '/liascript/index.html')
     },
   )
 
@@ -767,7 +851,8 @@ export async function start(
           }
 
           const head =
-            (liveReload
+            // elsewhere (--share) the stream of gotoScript reloads instead
+            (liveReload && !req.headers['x-lia-origin']
               ? `<script type='text/javascript' src='/reload/reload.js'></script>`
               : '') +
             (responsiveVoice
@@ -794,7 +879,7 @@ export async function start(
   // scripts of agentScript
   if (agent) {
     app.get(
-      '/liascript/:file(chat.html|chat.js|chat.css|avatar.js|teachers.js|activity.js|agent.js)',
+      '/liascript/:file(chat.html|chat.js|chat.css|avatar.js|teachers.js|activity.js|agent.js|nested.js|phone.js)',
       function (req: express.Request, res: express.Response) {
         res.sendFile(req.params.file, {
           root: path.resolve(path.join(dirname, 'views')),
@@ -826,9 +911,10 @@ export async function start(
     // the address field come here and need not know the port of the proxy
     app.get('/web', function (req: express.Request, res: express.Response) {
       const url = web.webURL(req.query.url)
-      if (proxyMode == 'off') return res.sendStatus(404)
+      // through --share only with a page for web pages, see src/share.ts
+      if (proxyMode == 'off' || (req.headers['x-lia-origin'] && !req.headers['x-lia-web-origin'])) return res.sendStatus(404)
       if (!url) return res.sendStatus(400)
-      res.redirect(fullProxy ? fullProxy.url(url.href) : webOrigin + '/?' + url.href)
+      res.redirect(fullProxy ? fullProxy.url(url.href) : (validOrigin(req.headers['x-lia-web-origin']) || webOrigin) + '/?' + url.href)
     })
 
     // the LiaScript chat that renders the messages: element.js and its app
@@ -840,6 +926,15 @@ export async function start(
         })
       },
     )
+
+    // the 📱 of the chat: {on}, only a tab on this machine
+    app.post('/share', function (req: express.Request, res: express.Response) {
+      if (!shareSwitch) return res.sendStatus(404)
+      if (req.headers.origin !== 'http://' + req.headers.host || req.headers['x-lia-origin']) return res.sendStatus(403)
+      const r = setShare(!!(req.body && req.body.on))
+      if (r.error) return res.status(409).json(r)
+      res.json(shared ? { link: shared, qr: qr(shared) } : {})
+    })
 
     // browser -> agent: {type, agent, cmd, params, context}
     app.post('/agent', function (req: express.Request, res: express.Response) {
@@ -1420,6 +1515,8 @@ function eventsHandler(
 
   // the chat shell connects with ?chat, a bare player cannot show messages
   ;(response as any).chat = request.query.chat !== undefined
+  // a browser elsewhere, through the tunnel of --share
+  ;(response as any).remote = !!request.headers['x-lia-origin']
   // a reloaded shell has to know its chat, who it talks to and what is going on
   if ((response as any).chat) {
     const replay: object[] = []
@@ -1427,12 +1524,16 @@ function eventsHandler(
     if (agents.list.length) replay.push(agentsMessage())
     if (progress) replay.push({ status: progress })
     if (hint) replay.push({ hint })
-    replay.push({ proxy: proxyMode })
+    // through --share without a page for web pages there are none
+    replay.push({ proxy: request.headers['x-lia-origin'] && !request.headers['x-lia-web-origin'] ? 'off' : proxyMode })
     // the course of --input, the shell offers a way back to it
     if (inputFile) replay.push({ home: inputFile })
+    if (shareSwitch && !(response as any).remote) replay.push(shareMessage())
     replay.forEach((msg) => response.write(`data: ${JSON.stringify(msg)}\n\n`))
   }
   clients.push(response)
+  // a shell here: this instance is the one in use, its remembered share starts
+  if ((response as any).chat && !(response as any).remote) wake()
   connectionChanged()
   // the shell takes a stream that stays silent for a dead one, see chat.js
   const ping = (response as any).chat ? setInterval(() => response.write('data: {"ping":true}\n\n'), PING_MS) : null
