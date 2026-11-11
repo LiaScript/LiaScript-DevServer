@@ -473,6 +473,37 @@
         border-color: rgba(var(--hl), 0.6);
         box-shadow: 0 0 0 4px rgba(var(--hl), 0.15);
       }
+      #attach {
+        display: grid;
+        place-items: center;
+        width: 30px;
+        height: 38px;
+        color: var(--muted);
+        cursor: pointer;
+      }
+      #attach:hover,
+      #attach:has(:focus-visible),
+      #say.drop #attach {
+        color: rgb(var(--hl));
+      }
+      #attach input {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        opacity: 0;
+      }
+      #attach svg {
+        width: 20px;
+        height: 20px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      #say.drop textarea {
+        border-color: rgb(var(--hl));
+      }
       #send {
         display: grid;
         place-items: center;
@@ -947,6 +978,13 @@
           </div>
         </div>
         <form id="say">
+          <label id="attach" title="Attach a file" data-t-title="Attach a file">
+            <input type="file" multiple aria-label="Attach a file" data-t-aria-label="Attach a file" />
+            <!-- Lucide paperclip -->
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551" />
+            </svg>
+          </label>
           <textarea
             name="text"
             rows="2"

@@ -275,6 +275,18 @@ function needsHelp(p: { [key: string]: string | string[] }, file: string) {
   return true
 }
 
+const UPLOAD_MAX = '25mb'
+// letters, digits, . _ - of the name only: no folder, no hidden file, and no
+// space or bracket that breaks the Markdown link to it
+export function uploadName(name: string) {
+  const base = path
+    .basename(name.replace(/\\/g, '/'))
+    .normalize('NFC')
+    .replace(new RegExp('[^\\p{L}\\p{N}._-]+', 'gu'), '_') // a literal /…/u fails the ES5 target of tsc
+    .replace(/^[._]+/, '')
+  return base.slice(-100) || 'file'
+}
+
 // One reload for a burst of changes, and while an agent works (a progress line
 // shows, and it reacted) at most every HOLD_MS: an agent that edits section by section made
 // the preview flicker and lose its scroll position with every step. Its first write
@@ -997,6 +1009,35 @@ export async function start(
       if (r.error) return res.status(409).json(r)
       res.json(shared ? { link: shared, qr: qr(shared) } : {})
     })
+
+    // a file the user put into the chat (📎 or dropped), also from the phone of
+    // --share: it lands in uploads/ and the chat sends a link to it as a message
+    app.post(
+      '/upload',
+      (req: express.Request, res: express.Response, next: express.NextFunction) =>
+        req.headers.origin === 'http://' + req.headers.host ? next() : res.sendStatus(403),
+      express.raw({ type: () => true, limit: UPLOAD_MAX }),
+      function (req: express.Request, res: express.Response) {
+        if (!Buffer.isBuffer(req.body) || !req.body.length) return res.sendStatus(400)
+        const name = uploadName(String(req.query.name || ''))
+        const dir = path.join(state.root, 'uploads')
+        try {
+          fs.mkdirSync(dir, { recursive: true })
+          // never over another file: foto.jpg, foto-1.jpg, …
+          for (let i = 0; ; i++) {
+            const file = i ? name.replace(/(\.[^.]*)?$/, '-' + i + '$1') : name
+            try {
+              fs.writeFileSync(path.join(dir, file), req.body, { flag: 'wx' })
+              return res.json({ path: 'uploads/' + file })
+            } catch (e: any) {
+              if (e.code !== 'EEXIST') throw e
+            }
+          }
+        } catch (e: any) {
+          res.status(500).json({ error: e.message })
+        }
+      },
+    )
 
     // browser -> agent: {type, agent, cmd, params, context}
     app.post('/agent', function (req: express.Request, res: express.Response) {
