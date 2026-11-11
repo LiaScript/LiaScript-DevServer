@@ -167,6 +167,13 @@ async function main() {
     assert.ok(t.description.length <= LIMIT, 'the description of ' + t.name + ' has ' + t.description.length + ' characters')
   }
 
+  // --- the user's line breaks stay, as a \ at the end of the line, not before Markdown blocks
+  const chatJs = fs.readFileSync(path.join(ROOT, 'views/chat.js'), 'utf8')
+  const breaks = vm.runInNewContext('(' + /function breaks[\s\S]*?\n}\n/.exec(chatJs)[0] + ')')
+  assert.strictEqual(breaks('Hallo\nzweite Zeile'), 'Hallo\\\nzweite Zeile')
+  for (const text of ['a\n\nb', 'Liste:\n- a\n- b', '1. a\n2. b', '# T\ntext', 'x\n| a |\n|---|', 'end\\\nnext', 'x\n```\ny\n```'])
+    assert.strictEqual(breaks(text), text, 'no break: ' + JSON.stringify(text))
+
   // --- teacher personas: the bundle the chat loads, run as the browser would
   const bundle = await request('GET', '/liascript/teachers.js', {})
   assert.strictEqual(bundle.status, 200, 'the chat gets teachers.js')

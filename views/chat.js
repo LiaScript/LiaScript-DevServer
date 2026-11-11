@@ -454,7 +454,7 @@ function add(who, text, extra, agent, t) {
     user: who == 'ai' ? (agent ? agent.label || agent.name : 'AI') : '',
     self: who != 'ai',
     time: Date.parse(time.dateTime),
-    message: text,
+    message: who == 'me' ? breaks(text) : text,
   })
 
   var msg = document.createElement('div')
@@ -484,6 +484,22 @@ function add(who, text, extra, agent, t) {
   parts.push(msg)
   place()
   return msg
+}
+
+// A line break the user typed stays one: LiaScript joins lines like Markdown,
+// a \ at the end of a line is its <br>. Not before a list, quote, heading or
+// table, and not in a message with code.
+function breaks(text) {
+  if (text.indexOf('```') >= 0) return text
+  var lines = text.split('\n')
+  return lines
+    .map(function (line, i) {
+      var next = lines[i + 1]
+      var plain = !/^[ \t]*(#|\|)/.test(line) && !/\\$/.test(line) && line.trim()
+      var goesOn = next && next.trim() && !/^[ \t]*([-*+>][ \t]|\d+[.)][ \t]|#|\|)/.test(next)
+      return plain && goesOn ? line + '\\' : line
+    })
+    .join('\n')
 }
 
 // what LiaScript rendered of the message, next to the part of the shell
@@ -699,7 +715,7 @@ function showEntry(entry, n) {
   } else if (entry.type == 'command') {
     // a click on an agent: link, in the course or in the chat, as a statement:
     // the ▶ and arrows of the link text made it look like a button
-    var label = entry.label.replace(/^[\p{So}\p{Sm}\s]+|[\p{So}\p{Sm}\s]+$/gu, '') || entry.label
+    var label = entry.label.replace(/^[\p{So}\p{Sm}\p{M}\u200D\s]+|[\p{So}\p{Sm}\p{M}\u200D\s]+$/gu, '') || entry.label
     add('me act', '✓ ' + label, null, null, entry.t)
   }
 }

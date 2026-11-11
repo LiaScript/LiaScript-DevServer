@@ -300,11 +300,13 @@
         margin: 0;
         opacity: 0;
       }
+      /* not the muted speaker of #mute when off: it read as cannot read aloud */
       #autoread + .icon::before {
-        content: '\ea58';
+        content: '\ea59';
+        opacity: 0.6;
       }
       #autoread:checked + .icon::before {
-        content: '\ea59';
+        opacity: 1;
       }
       #autoread-box:has(:checked) {
         color: var(--accent);
