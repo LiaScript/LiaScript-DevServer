@@ -110,7 +110,7 @@ export function title(session: Session) {
       .map((line) => line.replace(/[#*_`>]/g, ''))[0] || ''
   }
   // a link or an image (a file the user attached) by its text
-  text = text.replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/\s+/g, ' ').trim()
+  text = text.replace(/[!?]*\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/\s+/g, ' ').trim()
   if (!text) return session.created.slice(0, 16).replace('T', ' ')
   return text.length > 60 ? text.slice(0, 59) + '…' : text
 }

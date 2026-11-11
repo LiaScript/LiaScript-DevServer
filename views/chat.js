@@ -1537,7 +1537,9 @@ function upload(files) {
         return r.ok ? r.json() : Promise.reject(r.status)
       })
       .then(function (r) {
-        var text = (/^image\//.test(file.type) ? '!' : '') + '[' + r.path.split('/').pop() + '](' + r.path + ')'
+        // LiaScript embeds ![image], !?[video] and ?[audio], the rest is a link
+        var kind = { image: '!', video: '!?', audio: '?' }[file.type.split('/')[0]] || ''
+        var text = kind + '[' + r.path.split('/').pop() + '](' + r.path + ')'
         var unsent = { session: chatId, text: text, t: new Date().toISOString() }
         deliver(add('me', text, null, null, unsent.t), unsent)
       })

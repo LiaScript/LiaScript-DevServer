@@ -222,7 +222,7 @@ async function main() {
   const chats = require(path.join(ROOT, 'dist/chats.js'))
   const opening = { created: '2026-10-16T12:00:00Z', entries: [{ type: 'ai', markdown: '<!--\nlanguage: de\n-->\n\n**Hallo**' }] }
   assert.strictEqual(chats.title(opening), 'Hallo')
-  assert.strictEqual(chats.title({ entries: [{ type: 'user', text: '![foto.jpg](uploads/foto.jpg) und [blatt](b.pdf)' }] }), 'foto.jpg und blatt', 'an attached file by its name')
+  assert.strictEqual(chats.title({ entries: [{ type: 'user', text: '![foto.jpg](uploads/foto.jpg) und [blatt](b.pdf) !?[film](f.mp4)' }] }), 'foto.jpg und blatt film', 'an attached file by its name')
 
   // --- web pages: the proxy reaches public addresses only, on its own origin
   const web = require(path.join(ROOT, 'dist/web.js'))
