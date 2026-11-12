@@ -1,5 +1,5 @@
 {
-  "name": "@liascript/devserver",
+  "name": "@liascript/lms",
   "version": "1.4.0--2.6.2",
   "description": "Run a development server for LiaScript locally",
   "main": "dist/index.js",
@@ -25,8 +25,8 @@
   },
   "homepage": "https://github.com/LiaScript/LiaScript-DevServer/blob/main/README.md",
   "bin": {
-    "liascript-devserver": "dist/index.js",
-    "liadev": "dist/index.js",
+    "liascript-lms": "dist/index.js",
+    "lialms": "dist/index.js",
     "liascript-codex": "dist/codex-bridge.js"
   },
   "files": [
