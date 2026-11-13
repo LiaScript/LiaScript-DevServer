@@ -248,7 +248,9 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   project in `~/.config/liascript/share.json`, `0600`, until `--share-new`). `werift` is the `RTCPeerConnection` of
   the host, `ws` its WebSocket under Node 20; `share.ts` loads them through `createRequire`, because parcel hoists
   every `require(`. One host per room (a pid lock next to `share.json`). On the channel: JSON heads
-  (`req|res|abort|ping|pong`), binary pieces of 16 KB; the host replays a request with `fetch` against the local
+  (`req|res|abort|ping|pong`), binary pieces of 16 KB. A lost link (15 s silent) is dialed anew without
+  reloading the shell: requests wait up to 20 s for it (`WAIT_MS`), a GET without an answer yet goes again, the
+  event stream reconnects (`chat.js` reopens one the browser gave up on). The host replays a request with `fetch` against the local
   server, `Origin` set to it, `X-Lia-Origin` the page (with its folder and the `tab-<id>` of the tab) and reads
   every answer but an event stream at once (gzip when the page can unpack). `originOf()` in `lib.ts` puts
   `X-Lia-Origin` in front of every address it hands out (redirects, the listing), the scripts compute the same

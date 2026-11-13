@@ -152,6 +152,9 @@ function localize() {
   var now = language()
   if (now == lang) return
   lang = now
+  try {
+    localStorage.setItem(LANG, lang)
+  } catch (e) {}
   document.documentElement.lang = lang
   // the shell, its parts in the messages, and the parts of a replay that
   // wait for their message: built before the course told its language
@@ -212,14 +215,14 @@ course.addEventListener('load', function () {
   } catch (e) {}
 })
 
-// the player sets its language once the course is parsed, again after a reload
+// the player sets its language and title once the course is parsed, again
+// after a reload
 course.addEventListener('load', function () {
   localize()
   try {
-    new MutationObserver(localize).observe(course.contentDocument.documentElement, {
-      attributes: true,
-      attributeFilter: ['lang'],
-    })
+    var doc = course.contentDocument
+    new MutationObserver(localize).observe(doc.documentElement, { attributes: true, attributeFilter: ['lang'] })
+    new MutationObserver(localize).observe(doc.head, { childList: true, subtree: true, characterData: true })
   } catch (e) {}
 })
 
@@ -391,8 +394,27 @@ function place() {
     moved = true
     msg.resolve()
   })
-  if (moved) doc.scrollingElement.scrollTop = doc.scrollingElement.scrollHeight
+  if (moved) (stick = true), bottom()
 }
+
+// The newest message stays in view while the reader is at the bottom, also
+// when a message grows later (images, quizzes, a replay) and when a phone
+// shows the chat again: hidden, its frame had no height to scroll in.
+var stick = true
+function bottom() {
+  var el = frame() && frame().scrollingElement
+  if (el && stick) el.scrollTop = el.scrollHeight
+}
+new ResizeObserver(bottom).observe(lia.iframe)
+lia.iframe.addEventListener('load', function () {
+  var doc = frame()
+  if (!doc) return
+  doc.addEventListener('scroll', function () {
+    var el = doc.scrollingElement
+    if (el.clientHeight) stick = el.scrollHeight - el.scrollTop - el.clientHeight < 48
+  })
+  new ResizeObserver(bottom).observe(doc.body)
+})
 
 // Elm keeps the nodes of the old messages for the new ones and shows clear()
 // and the add()s after it in one go: the old parts go at once, the new ones
@@ -998,12 +1020,22 @@ function responsive() {
   } catch (e) {}
 }
 
-// the player puts the language of the course on its document
+// The player puts the language of the course on its document, once parsed
+// and only if it is not en: until then <html lang="en"><title>Lia</title> of
+// its index.html is no answer, the last language known is. Every (live)
+// reload of a German course flickered de, en, de.
+var LANG = 'liascript-chat-lang'
 function language() {
+  var known = lang
   try {
-    return course.contentDocument.documentElement.lang || navigator.language
+    known = known || localStorage.getItem(LANG)
+  } catch (e) {}
+  known = known || navigator.language
+  try {
+    if (isPlayer() && course.contentDocument.title == 'Lia') return known
+    return course.contentDocument.documentElement.lang || known
   } catch (e) {
-    return navigator.language
+    return known
   }
 }
 
@@ -1866,6 +1898,12 @@ function connect() {
   }
   stream.onerror = function () {
     hint('The connection to the server is lost, connecting again…')
+    // an answer that is no stream (a 502 of the tunnel of --share) ends the
+    // retries of the browser
+    var dead = stream
+    if (dead.readyState == EventSource.CLOSED) setTimeout(function () {
+      if (stream == dead) connect()
+    }, 3000)
   }
   stream.onmessage = message
 }
