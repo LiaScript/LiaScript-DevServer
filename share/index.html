@@ -8,7 +8,8 @@
     :root { color-scheme: light dark; --bg: #fff; --fg: #222; }
     @media (prefers-color-scheme: dark) { :root { --bg: #1b1b1b; --fg: #ddd; } }
     html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); }
-    #status { font: 16px/1.5 system-ui, sans-serif; padding: 1rem; }
+    /* over the frame: shown at every lost link, it pushed the whole UI down */
+    #status { position: fixed; top: 0; left: 0; right: 0; z-index: 1; margin: 0; background: var(--bg); font: 16px/1.5 system-ui, sans-serif; padding: .5rem 1rem; box-shadow: 0 1px 4px #0004; }
     iframe { display: block; border: 0; width: 100%; height: 100%; }
   </style>
 </head>

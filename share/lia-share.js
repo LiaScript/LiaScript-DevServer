@@ -7,6 +7,9 @@
 // here, and they go to the proxy of the DevServer.
 import { signal, channel, SIGNALING, STUN, SILENT_MS } from './lia-rtc.mjs'
 
+// a request waits this long for a lost link to come back
+const WAIT_MS = 20000
+
 const status = document.getElementById('status')
 const link = new URLSearchParams(location.hash.slice(1))
 const web = link.get('web') ? new URL(link.get('web')) : null
@@ -96,15 +99,20 @@ async function start() {
   let probe = 0 // a ping sent after a network change
   let dialed = 0
   let next = 0
-  const pending = new Map()
+  const pending = new Map() // id → the request, until its answer ends
+  let waiting = [] // requests while no channel is open, sent over the next one
   let frame = null
-  let lost = false
 
-  // the requests of a link that died fail, their pages ask again
+  // A link that died: what got no answer yet and changes nothing goes again
+  // over the next one, the rest fails and its page asks again (an event
+  // stream reconnects by itself). The frame stays, a reload of the shell
+  // showed the chat from its top and flickered the language every time.
   function gone() {
-    for (const port of pending.values()) port.postMessage({ error: 'The teacher’s server is gone.' })
+    for (const r of pending.values()) {
+      if (!r.head && /^(GET|HEAD)$/i.test(r.data.method)) (r.since = Date.now()), waiting.push(r)
+      else r.port.postMessage({ error: 'The teacher’s server is gone.' })
+    }
     pending.clear()
-    lost = true
   }
 
   function hangUp() {
@@ -145,11 +153,10 @@ async function start() {
         // the name of a link of the admin page (&user=), the login fills it in
         frame.src = here + '/' + (link.get('user') ? '?user=' + encodeURIComponent(link.get('user')) : '')
         document.body.append(frame)
-      } else if (lost) {
-        // back after a restart: an event stream that failed does not retry
-        lost = false
-        frame.contentWindow.location.reload()
       }
+      const now = waiting
+      waiting = []
+      now.forEach(send)
     }
     dc.onclose = () => pc == p && lose('channel closed')
     p.createOffer()
@@ -196,6 +203,8 @@ async function start() {
     if (ch && now - heard > SILENT_MS) lose('silent for ' + Math.round((now - heard) / 1000) + ' s')
     else if (ch && probe && heard < probe && now - probe > 3000) lose('no answer after the network changed')
     else if (!ch && now - dialed > 8000) dial()
+    for (const r of waiting) if (now - r.since > WAIT_MS) r.port.postMessage({ error: 'Not connected.' })
+    waiting = waiting.filter((r) => !r.aborted && now - r.since <= WAIT_MS)
   }, 1000)
   // the network changed or the page is back: signalling and link are asked
   const back = () => {
@@ -212,11 +221,12 @@ async function start() {
     heard = Date.now()
     if (data.kind == 'ping') return ch?.json({ kind: 'pong' }).catch(() => {})
     if (data.kind != 'res') return
-    const port = pending.get(data.id)
-    if (!port) return
+    const r = pending.get(data.id)
+    if (!r) return
+    if (data.status) r.head = true
     // the room names the cache of the worker: files of one teacher's server
     // never answer for another
-    port.postMessage(data.status ? { ...data, room: link.get('room') } : data)
+    r.port.postMessage(data.status ? { ...data, room: link.get('room') } : data)
     const t = trace.get(data.id)
     if (t && data.status) (t.status = data.status), (t.gzip = data.gzip)
     if (t && (data.end || data.error)) {
@@ -230,7 +240,7 @@ async function start() {
     heard = Date.now()
     const t = trace.get(id)
     if (t) t.bytes += bytes.length
-    pending.get(id)?.postMessage({ chunk: bytes })
+    pending.get(id)?.port.postMessage({ chunk: bytes })
   }
 
   // a request of a service worker, its answer goes back through port
@@ -238,14 +248,25 @@ async function start() {
     if (!port) return
     // a request of another share tab
     if (data.tab !== tab) return port.postMessage({ notMine: true })
-    if (!ch) return port.postMessage({ error: 'Not connected.' })
-    const via = ch
-    const id = ++next
-    pending.set(id, port)
+    const r = { data, port, isWeb, since: Date.now() }
+    // the page gave up on it (the worker's stream was cancelled)
     port.onmessage = () => {
-      pending.delete(id)
-      via.json({ kind: 'abort', id }).catch(() => {})
+      r.aborted = true
+      if (pending.get(r.id) != r) return
+      pending.delete(r.id)
+      r.via.json({ kind: 'abort', id: r.id }).catch(() => {})
     }
+    if (ch) send(r)
+    else waiting.push(r)
+  }
+
+  // over the open channel, under a new id each time
+  function send(r) {
+    if (r.aborted) return
+    const via = (r.via = ch)
+    const id = (r.id = ++next)
+    pending.set(id, r)
+    const { data, isWeb } = r
     const { body, tab: _, ...meta } = data
     // the login of a server with users (liadev --users), its page sets it
     let token = null
