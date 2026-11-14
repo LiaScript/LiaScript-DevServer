@@ -106,7 +106,7 @@ const TOOLS = [
         reply_to: {
           type: 'number',
           description:
-            'entry of the event this message answers (chat, answer and command events carry it): the result gets newer_user_messages if the user wrote, answered or clicked since, then answer that too',
+            'entry of the event this message answers (chat, answer and command events carry it): the result gets newer_user_messages if the user wrote, answered or clicked since, then answer that too, and answered: the ask ids of forms answered since, never call them open',
         },
         agent: {
           type: 'string',
@@ -799,7 +799,9 @@ async function chat(args: any, request: any) {
   if (args.reply_to !== undefined && !Number.isInteger(args.reply_to)) throw new Error('reply_to must be an entry number')
   // what the user did while this message was written
   const newer = args.reply_to === undefined ? 0 : server.newerThan(args.reply_to)
-  const late = (result: object) => (newer ? { ...result, newer_user_messages: newer } : result)
+  const answered = newer ? server.answeredSince(args.reply_to) : []
+  const late = (result: object) =>
+    newer ? { ...result, newer_user_messages: newer, ...(answered.length ? { answered } : {}) } : result
   // withdraws the open form, also the one a call of this agent waits on
   const close = () => {
     const closed = args.close ? server.closeForm(args.reason) : ''

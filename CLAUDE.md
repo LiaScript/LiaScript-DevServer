@@ -218,7 +218,8 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   of blocking, otherwise the answer would arrive twice (tool result and stream line). `send()` puts `language:` of the course header into the header comment of a message (`withLanguage()`) unless
   the chat says it already: `@liascript/chat` takes the language of a header in any message for all of them, quiz
   buttons and feedback were English in a German course. `chat`, `answer` and `command` events carry `entry`, their number in the chat: `chat({reply_to})` answers
-  with `newer_user_messages` when the user wrote, answered or clicked since (`newerThan()`), a message formulated
+  with `newer_user_messages` when the user wrote, answered or clicked since (`newerThan()`), and `answered` with the
+  ask ids of the forms answered since (`answeredSince()`), a message formulated
   before a newer one came is then no longer silently out of place. `close` takes a `reason`, shown under the form
   (live only, not saved). `chat` with only `status`
   sets the progress line below the messages (the SSE message `{status}`, no browser is opened for it); a message
@@ -509,6 +510,15 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   visible because a tooltip is out of reach on a tablet).
   The stage (`#stage`) below the log shows the robot of the current agent next to the progress line: a running
   light in its bottom row while a progress line shows, a pulse while the newest form is open (`stageState()`).
+  After 20 s the progress line counts the seconds (`data-since`, `#status::after`). `#jump` next to it leads to the
+  open form when it is out of sight (`Open question ↑/↓`), else to messages below the anchor (`New ↓`), `jumpState()`.
+  The anchor (`anchor` in `chat.js`) is the bubble of the first live message of the AI since the user last wrote,
+  clicked, scrolled or typed in the messages: `bottom()` keeps its top in view instead of the end, and the scroll
+  handler pulls it back when `@liascript/chat` scrolls to its newest message by itself. An answer and a form right
+  after it had pushed the answer out of sight. `lia-rise` moves without `opacity`: a covered window stopped the
+  animation at its start and messages stayed pale for up to 80 s. An hour without a message or a new day puts a
+  label above the next one (`gapBefore()`, a `time.gap` in its part, with the day if it changed, `localize()`
+  keeps that). In a message a table has no switch to a chart (`.lia-plot__switch` hidden).
   While a message is read aloud the stage shows the robot of its agent and moves its mouth (`data-mouth`): with
   the words where the voice fires `boundary` events, else in a beat estimated from the text (`Avatar.babble`,
   also for `responsiveVoice`). Every robot has a voice profile (`Avatar.voice()`: gender, pitch, rate, spread so
@@ -560,7 +570,8 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   `showSession()` clears the log, hands `session.db` to the iframe with `lia.load({messages: [], db})` before the
   entries (there the n-th entry is the n-th message, so the states land in their quizzes; `report(…, true)` only
   remembers them, F5 reports nothing again) and replays the entries: `answered()` locks a form of the history and shows the
-  choice, `closed()` locks every other form but `session.open` with a note. A message whose `POST` fails goes into a `localStorage` outbox and
+  choice, `closed()` locks every other form but `session.open` with a note. Both fold the form: a closed one shows
+  only its note (a click unfolds it), an answered one only what was chosen. A message whose `POST` fails goes into a `localStorage` outbox and
   gets a `Send again` button; after a replay it shows up in its chat, or in the current one if its chat was never
   saved. 📎 (`#attach`) and a file dropped on the chat (shell or messages iframe) go to `POST /upload?name=` (agent
   mode, same `Origin`, also through `--share`, 25 MB): `uploadName()` keeps letters, digits and `._-`, the file lands in

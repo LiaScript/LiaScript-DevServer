@@ -433,6 +433,21 @@
           background-position: -250% 0;
         }
       }
+      /* how long the agent works already, after 20 s (chat.js) */
+      #status::after {
+        content: attr(data-since);
+      }
+      /* the way to the open form or to new messages out of sight */
+      #jump {
+        flex: none;
+        padding: 0.2rem 0.7rem;
+        border-radius: 999px;
+        border-color: transparent;
+        background: rgb(var(--hl));
+        color: #fff;
+        font-size: 0.85em;
+        white-space: nowrap;
+      }
       #hint {
         margin-top: 0.3rem;
         padding-left: 0.5rem;
@@ -976,6 +991,7 @@
             <div id="status" role="status" hidden></div>
             <div id="hint" role="status" hidden></div>
           </div>
+          <button id="jump" type="button" hidden></button>
         </div>
         <form id="say">
           <label id="attach" title="Attach a file" data-t-title="Attach a file">

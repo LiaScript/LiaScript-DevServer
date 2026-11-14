@@ -81,6 +81,9 @@ var TEXTS = {
     'Could not upload the file': 'Die Datei konnte nicht hochgeladen werden',
     'not delivered': 'nicht zugestellt',
     'No longer open': 'Nicht mehr offen',
+    'Open question ↑': 'Offene Frage ↑',
+    'Open question ↓': 'Offene Frage ↓',
+    'New ↓': 'Neu ↓',
     BC: 'v. Chr.',
     'Read aloud': 'Vorlesen',
     'Read this message aloud': 'Diese Nachricht vorlesen',
@@ -180,7 +183,7 @@ function translate(root) {
     })
   })
   root.querySelectorAll('.msg time, #class time').forEach(function (el) {
-    el.textContent = clock(el.dateTime)
+    el.textContent = el.classList.contains('gap') ? gapText(el) : clock(el.dateTime)
   })
 }
 
@@ -393,6 +396,9 @@ function place() {
     if (msg.lang) bubble.lang = msg.lang
     moved = true
     msg.resolve()
+    // what the user did themselves: the newest is what they look for
+    if (msg.classList.contains('me')) anchor = null
+    else if (msg.live && !anchor) anchor = bubble
   })
   if (moved) (stick = true), bottom()
 }
@@ -400,20 +406,73 @@ function place() {
 // The newest message stays in view while the reader is at the bottom, also
 // when a message grows later (images, quizzes, a replay) and when a phone
 // shows the chat again: hidden, its frame had no height to scroll in.
+// anchor: the first message of the AI since the user last wrote, clicked or
+// scrolled. It stays in view: an answer and a form right after it
+// pushed the answer out of sight, and the user asked whether anything came.
 var stick = true
+var anchor = null
 function bottom() {
   var el = frame() && frame().scrollingElement
-  if (el && stick) el.scrollTop = el.scrollHeight
+  if (el && stick) {
+    var end = el.scrollHeight - el.clientHeight
+    if (anchor && !anchor.isConnected) anchor = null
+    var top = anchor ? anchor.getBoundingClientRect().top + el.scrollTop - 12 : end
+    el.scrollTop = Math.min(end, top)
+  }
+  jumpState()
 }
 new ResizeObserver(bottom).observe(lia.iframe)
 lia.iframe.addEventListener('load', function () {
   var doc = frame()
   if (!doc) return
+  // the user scrolls, clicks or types: from now on they decide what is seen
+  ;['wheel', 'touchmove', 'keydown', 'pointerdown'].forEach(function (type) {
+    doc.addEventListener(type, function () {
+      anchor = null
+    }, { passive: true })
+  })
   doc.addEventListener('scroll', function () {
     var el = doc.scrollingElement
-    if (el.clientHeight) stick = el.scrollHeight - el.scrollTop - el.clientHeight < 48
+    if (!el.clientHeight) return
+    // the chat app scrolls to its newest message by itself: the anchor wins
+    var top = anchor ? anchor.getBoundingClientRect().top : 0
+    if (top < 0) return (el.scrollTop += top - 12)
+    stick = el.scrollHeight - el.scrollTop - el.clientHeight < 48
+    jumpState()
   })
   new ResizeObserver(bottom).observe(doc.body)
+})
+
+// Below the messages: the way to the open form when it is out of sight, else
+// to new messages below the anchor.
+var jump = document.getElementById('jump')
+function jumpState() {
+  if (!jump) return
+  var el = frame() && frame().scrollingElement
+  var height = el && el.clientHeight
+  var text = ''
+  var last = forms[forms.length - 1]
+  if (height && waitingForm() && last.isConnected) {
+    var box = last.getBoundingClientRect()
+    if (box.bottom < 40) text = 'Open question ↑'
+    else if (box.top > height - 40) text = 'Open question ↓'
+  }
+  if (!text && height && anchor && el.scrollHeight - el.scrollTop - height > 48) text = 'New ↓'
+  if (text) tr(jump, text)
+  jump.hidden = !text
+}
+jump.addEventListener('click', function () {
+  var el = frame() && frame().scrollingElement
+  if (!el) return
+  var last = forms[forms.length - 1]
+  // the user moves on: the anchor would pull the view back
+  anchor = null
+  if (/^Open/.test(jump.dataset.t) && waitingForm()) {
+    last.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  } else {
+    stick = true
+    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+  }
 })
 
 // Elm keeps the nodes of the old messages for the new ones and shows clear()
@@ -426,6 +485,8 @@ function clear() {
   parts = []
   forms = []
   seen = {}
+  anchor = null
+  lastTime = 0
   Activity.reset()
   synced = false
   var round = ++rounds
@@ -476,6 +537,7 @@ function add(who, text, extra, agent, t) {
   var time = document.createElement('time')
   time.dateTime = (t ? new Date(t) : new Date()).toISOString()
   time.textContent = clock(time.dateTime)
+  var gap = gapBefore(Date.parse(time.dateTime))
   lia.add({
     user: who == 'ai' ? (agent ? agent.label || agent.name : 'AI') : '',
     self: who != 'ai',
@@ -485,6 +547,9 @@ function add(who, text, extra, agent, t) {
 
   var msg = document.createElement('div')
   msg.className = 'msg ' + who
+  // a message as it comes, not one of the history
+  msg.live = who == 'ai' && !t
+  if (gap) msg.append(gap)
   if (extra) msg.append(extra)
 
   var stamp = document.createElement('span')
@@ -510,6 +575,27 @@ function add(who, text, extra, agent, t) {
   parts.push(msg)
   place()
   return msg
+}
+
+// An hour without a message or a new day: a label with the time, the day
+// too if it changed. A user who came back the next day read the last message
+// of yesterday as the current one.
+var lastTime = 0
+var GAP_MS = 60 * 60 * 1000
+function gapBefore(time) {
+  var before = lastTime
+  lastTime = time
+  if (!before || time - before < GAP_MS && new Date(time).toDateString() == new Date(before).toDateString()) return null
+  var label = document.createElement('time')
+  label.className = 'gap'
+  label.dateTime = new Date(time).toISOString()
+  if (new Date(time).toDateString() != new Date(before).toDateString()) label.dataset.day = ''
+  label.textContent = gapText(label)
+  return label
+}
+function gapText(label) {
+  if (!label.hasAttribute('data-day')) return clock(label.dateTime)
+  return when(label.dateTime, { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })
 }
 
 // A line break the user typed stays one: LiaScript joins lines like Markdown,
@@ -607,6 +693,7 @@ function stageState() {
   var state = !document.getElementById('status').hidden ? 'thinking' : waitingForm() ? 'waiting' : ''
   if (state) stageBot.setAttribute('data-state', state)
   else stageBot.removeAttribute('data-state')
+  jumpState()
 }
 
 // the newest form, if it can still be answered
@@ -1843,8 +1930,12 @@ function closed(el, reason) {
   el.classList.remove('failed')
   el.classList.add('closed')
   lock(el)
+  // folded to this line, a click shows the questions again
   var note = document.createElement('p')
-  note.className = 'note'
+  note.className = 'note fold'
+  note.addEventListener('click', function () {
+    el.classList.toggle('unfolded')
+  })
   el.append(tr(note, 'No longer open'))
   if (reason) {
     var why = document.createElement('p')
@@ -1859,12 +1950,24 @@ function closed(el, reason) {
 function status(text) {
   var line = document.getElementById('status')
   tr(line, text || '')
+  if (text && line.hidden) since = Date.now()
+  if (!text) delete line.dataset.since
   line.hidden = !text
   if (text) document.getElementById('chat').open = true
   stageState()
   readStatus(text || '')
   shell({ kind: 'status', text: text || '' })
 }
+
+// After 20 s the progress line counts the seconds: a small grey line that
+// stood still for a minute looked like a hang.
+var since = 0
+setInterval(function () {
+  var line = document.getElementById('status')
+  var s = Math.round((Date.now() - since) / 1000)
+  if (line.hidden || s < 20) return delete line.dataset.since
+  line.dataset.since = ' \u00B7 ' + (s < 120 ? s + ' s' : Math.floor(s / 60) + ' min')
+}, 1000)
 
 // what happened, for views/phone.js; replay: the first 1.5 s of a stream
 function shell(detail) {

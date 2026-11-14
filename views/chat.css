@@ -193,9 +193,10 @@
     animation: lia-rise 0.35s ease-out both;
   }
 }
+/* no opacity: a hidden or covered window may stop the animation at its
+   start, and a pale message reads as "not there yet" (seen for 30-80 s) */
 @keyframes lia-rise {
   from {
-    opacity: 0;
     transform: translateY(8px);
   }
 }
@@ -277,8 +278,50 @@
   border: 0;
   padding: 0;
 }
+/* an old form takes one line: replaced or withdrawn ones fold their
+   questions away (the note unfolds them), an answered one keeps only what
+   was chosen */
+.msg form.closed:not(.unfolded) fieldset {
+  display: none;
+}
 .msg form.closed fieldset {
   opacity: 0.5;
+}
+.msg form.closed .note.fold {
+  cursor: pointer;
+}
+.msg form.closed .note.fold::after {
+  content: ' \25B8';
+}
+.msg form.closed.unfolded .note.fold::after {
+  content: ' \25BE';
+}
+.msg form.answered fieldset button:not(.chosen),
+.msg form.answered fieldset label:has(input:not(:checked)),
+.msg form.answered > button {
+  display: none;
+}
+/* a gap of an hour or a new day: when the conversation went on */
+.lia-chat__msg:has(> .msg > .gap) {
+  position: relative;
+  margin-top: 2.2em;
+}
+.msg > .gap {
+  position: absolute;
+  bottom: 100%;
+  margin-bottom: 0.5em;
+  padding: 0.1em 0.7em;
+  border-radius: 999px;
+  background: rgba(var(--color-text), 0.1);
+  color: rgb(var(--color-text));
+  font-size: 0.8em;
+  white-space: nowrap;
+}
+.msg.ai > .gap {
+  left: 0;
+}
+.msg.me > .gap {
+  right: 0;
 }
 .msg form .note {
   margin: 0;
@@ -354,6 +397,11 @@
   max-height: none;
   overflow-y: hidden;
   overflow-x: auto;
+}
+/* a table of the AI is a table: the switch to a bar chart was never wanted
+   in a chat */
+.lia-chat__msg .lia-plot__switch {
+  display: none;
 }
 /* the command an agent: link stands for, e.g. `:create-session`, is noise
    for the user next to the link */
