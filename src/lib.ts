@@ -214,6 +214,13 @@ export function newerThan(n: number) {
   return session.entries.slice(n + 1).filter((e) => e.type !== 'ai').length
 }
 
+// the forms answered after entry n: a message written meanwhile must not call
+// one of them open ("I am waiting for the form")
+export function answeredSince(n: number) {
+  if (!session) return []
+  return session.entries.slice(n + 1).flatMap((e) => (e.type === 'answer' && e.ask ? [e.ask] : []))
+}
+
 // Is anybody there? A plain "Thinking…" kept users waiting for minutes while
 // no agent listened, or while one waited for a permission in the terminal.
 // So the progress line says only what the server knows: the message waits,

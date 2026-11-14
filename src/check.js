@@ -729,6 +729,18 @@ async function main() {
   assert.deepStrictEqual(await tool('chat', { markdown: 'about hello', reply_to: hello }), { sent: true, newer_user_messages: 1 })
   assert.deepStrictEqual(await tool('chat', { markdown: 'about both', reply_to: hello + 1 }), { sent: true })
 
+  // a form answered while the agent wrote: the result names it
+  const meanwhile = await tool('chat', { markdown: 'pick once more', inputs, wait: false })
+  await post({ type: 'answer', params: { ask: meanwhile.ask, level: 'hard', topics: [] } })
+  await sleep(100)
+  notifications.pop()
+  await tool('wait_for_event', {})
+  assert.deepStrictEqual(await tool('chat', { markdown: 'about the form', reply_to: hello + 1 }), {
+    sent: true,
+    newer_user_messages: 1,
+    answered: [meanwhile.ask],
+  })
+
   // a stuck learner gets help: the 3rd wrong check, once per task until solved
   const quiz = (trial, solved, extra) =>
     post({
