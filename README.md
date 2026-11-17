@@ -84,8 +84,8 @@ updated separately, we use two different version, one for the devServer and one
 for LiaScript.
 
 ```text
-DevServer: 1.3.0
-LiaScript: 2.6.2
+DevServer: 1.3.1
+LiaScript: 2.7.0
 ```
 
 ### `--input`
