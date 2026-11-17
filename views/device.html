@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LiaScript-DevServer · Devices</title>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; font: 14px system-ui, sans-serif; background: #e9ecef; }
+    #bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 4px 8px; background: #2b2b2b; color: #eee; }
+    #bar select, #bar button { font: inherit; padding: 2px 6px; border: 1px solid #555; border-radius: 4px; background: #3a3a3a; color: #eee; cursor: pointer; }
+    #bar button:disabled, #bar select:disabled { opacity: .4; cursor: default; }
+    #bar button[aria-pressed="true"] { background: #60b5cc; border-color: #60b5cc; color: #000; }
+    #size { opacity: .7; margin-right: auto; }
+    #stage { position: absolute; inset: var(--bar, 36px) 0 0 0; display: flex; overflow: hidden; }
+    #stage.scroll { overflow: auto; padding: 16px; box-sizing: border-box; }
+    /* margin:auto centers without clipping the left edge when the device is larger than the stage */
+    #holder { margin: auto; flex: none; overflow: hidden; }
+    #holder.device { box-shadow: 0 0 0 6px #222, 0 8px 30px rgba(0,0,0,.4); border-radius: 4px; }
+    iframe { border: 0; display: block; transform-origin: 0 0; background: #fff; }
+  </style>
+</head>
+<body>
+  <div id="bar">
+    <select id="device" title="Preview device" aria-label="Preview device"></select>
+    <button id="rotate" title="Rotate device" aria-label="Rotate device">Rotate</button>
+    <button id="fit" title="Scale the device to fit the window">Fit</button>
+    <button id="actual" title="Show at actual size (scroll)">100 %</button>
+    <select id="scaling" title="Display scaling inside the device" aria-label="Display scaling inside the device"></select>
+    <span id="size"></span>
+    <button id="close" title="Close the device preview" aria-label="Close the device preview">✕</button>
+  </div>
+  <div id="stage"><div id="holder"><iframe id="frame" allow="autoplay; fullscreen; microphone; camera; clipboard-write"></iframe></div></div>
+
+  <script>
+    // same presets as LiveEdit (src/ts/previewDevices.ts), sizes in CSS pixels
+    const DEVICES = [
+      { id: 'responsive', name: 'Responsive (fill window)', w: 0, h: 0 },
+      { id: 'iphone', name: 'iPhone 15', group: 'Phones', w: 393, h: 852, rotatable: true },
+      { id: 'iphone-se', name: 'iPhone SE', group: 'Phones', w: 375, h: 667, rotatable: true },
+      { id: 'android', name: 'Android', group: 'Phones', w: 412, h: 915, rotatable: true },
+      { id: 'kaios', name: 'KaiOS (Nokia 2780)', group: 'Phones', w: 240, h: 320 },
+      { id: 'tablet', name: 'Tablet', group: 'Tablets', w: 820, h: 1180, rotatable: true },
+      { id: 'laptop', name: 'Laptop', group: 'Desktop & beamer', w: 1366, h: 768 },
+      { id: 'fullhd', name: 'Full HD monitor / beamer', group: 'Desktop & beamer', w: 1920, h: 1080 },
+      { id: 'ultrawide', name: 'Ultrawide monitor', group: 'Desktop & beamer', w: 3440, h: 1440 },
+      { id: 'beamer4k', name: '4K beamer', group: 'Desktop & beamer', w: 3840, h: 2160 },
+    ]
+    const SCALINGS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3]
+    const KEY = 'liascript-devserver:previewDevice'
+    const $ = (id) => document.getElementById(id)
+
+    let state = { device: 'iphone', landscape: false, zoom: 'fit', scaling: 1 }
+    try {
+      const saved = JSON.parse(localStorage.getItem(KEY) || '{}')
+      if (DEVICES.some((d) => d.id === saved.device)) state.device = saved.device
+      state.landscape = saved.landscape === true
+      state.zoom = saved.zoom === '100' ? '100' : 'fit'
+      if (SCALINGS.includes(saved.scaling)) state.scaling = saved.scaling
+    } catch (e) {
+      // storage blocked or corrupt: keep the defaults
+    }
+
+    // build the device and scaling menus
+    const groups = {}
+    for (const d of DEVICES) {
+      const option = new Option(d.w ? `${d.name} (${d.w}×${d.h})` : d.name, d.id)
+      if (!d.group) { $('device').add(option); continue }
+      if (!groups[d.group]) {
+        groups[d.group] = document.createElement('optgroup')
+        groups[d.group].label = d.group
+        $('device').add(groups[d.group])
+      }
+      groups[d.group].appendChild(option)
+    }
+    for (const s of SCALINGS) $('scaling').add(new Option(`Scaling ${s * 100} %`, s))
+
+    function layout() {
+      const d = DEVICES.find((x) => x.id === state.device)
+      const holder = $('holder'), frame = $('frame'), stage = $('stage')
+      stage.style.setProperty('--bar', $('bar').offsetHeight + 'px')
+      $('device').value = d.id
+      $('scaling').value = state.scaling
+      $('rotate').disabled = !d.rotatable
+      $('rotate').setAttribute('aria-pressed', !!(d.rotatable && state.landscape))
+      $('fit').setAttribute('aria-pressed', state.zoom === 'fit')
+      $('actual').setAttribute('aria-pressed', state.zoom === '100')
+      for (const id of ['scaling', 'fit', 'actual']) $(id).disabled = !d.w
+
+      if (!d.w) {
+        holder.className = ''
+        stage.className = ''
+        holder.style.width = holder.style.height = frame.style.width = frame.style.height = '100%'
+        frame.style.transform = ''
+        $('size').textContent = `${stage.clientWidth} × ${stage.clientHeight}`
+        return
+      }
+
+      const [w, h] = d.rotatable && state.landscape ? [d.h, d.w] : [d.w, d.h]
+      const PAD = 32
+      const fit = state.zoom === '100'
+        ? 1
+        : Math.max(0.02, Math.min((stage.clientWidth - PAD) / w, (stage.clientHeight - PAD) / h))
+
+      holder.className = 'device'
+      stage.className = state.zoom === '100' ? 'scroll' : ''
+      holder.style.width = w * fit + 'px'
+      holder.style.height = h * fit + 'px'
+      // display scaling: a smaller CSS viewport, magnified back to the device size
+      frame.style.width = w / state.scaling + 'px'
+      frame.style.height = h / state.scaling + 'px'
+      frame.style.transform = `scale(${fit * state.scaling})`
+      $('size').textContent = `${w} × ${h} · ${Math.round(fit * 100)} %`
+    }
+
+    function update(change) {
+      Object.assign(state, change)
+      try { localStorage.setItem(KEY, JSON.stringify(state)) } catch (e) {}
+      layout()
+    }
+
+    $('device').onchange = (e) => update({ device: e.target.value })
+    $('scaling').onchange = (e) => update({ scaling: Number(e.target.value) })
+    $('rotate').onclick = () => update({ landscape: !state.landscape })
+    $('fit').onclick = () => update({ zoom: 'fit' })
+    $('actual').onclick = () => update({ zoom: '100' })
+    $('close').onclick = () => {
+      // back to the plain preview, on the slide that is currently open
+      let url = $('frame').src
+      try { url = $('frame').contentWindow.location.href } catch (e) {}
+      location.href = url
+    }
+
+    // the iframe is only resized, never moved, so switching devices keeps the course state
+    $('frame').src = '/liascript/index.html' + location.search + location.hash
+    new ResizeObserver(layout).observe($('stage'))
+    layout()
+  </script>
+</body>
+</html>
