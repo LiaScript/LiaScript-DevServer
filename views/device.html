@@ -14,7 +14,9 @@
     #stage { position: absolute; inset: var(--bar, 36px) 0 0 0; display: flex; overflow: hidden; }
     #stage.scroll { overflow: auto; padding: 16px; box-sizing: border-box; }
     /* margin:auto centers without clipping the left edge when the device is larger than the stage */
-    #holder { margin: auto; flex: none; overflow: hidden; }
+    /* clip, not hidden: a hidden box still scrolls when LiaScript's scrollIntoView
+       reaches out of the iframe, which shifted the screen inside the device */
+    #holder { margin: auto; flex: none; overflow: clip; }
     #holder.device { box-shadow: 0 0 0 6px #222, 0 8px 30px rgba(0,0,0,.4); border-radius: 4px; }
     iframe { border: 0; display: block; transform-origin: 0 0; background: #fff; }
   </style>
