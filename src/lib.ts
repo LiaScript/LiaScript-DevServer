@@ -555,6 +555,28 @@ events.onmessage = (event) => {
 const agentScript =
   '<script src="/liascript/activity.js"></script><script src="/liascript/agent.js"></script>'
 
+// small button on a top-level course page that opens it in the device preview
+// (views/device.html); not shown inside that preview's iframe or without a course
+const deviceButtonScript = `<script>
+if (window === window.top && document.location.search) {
+  window.addEventListener('DOMContentLoaded', function () {
+    var b = document.createElement('button')
+    b.title = 'Preview on different devices'
+    b.setAttribute('aria-label', b.title)
+    b.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="2" y="4" width="14" height="10" rx="1"/><rect x="15" y="9" width="7" height="12" rx="1"/><path d="M5 18h7"/></svg>'
+    b.style.cssText = 'position:fixed;left:6px;bottom:6px;z-index:100000;padding:4px;line-height:0;border:1px solid #888;border-radius:4px;background:#fff;color:#333;opacity:.35;cursor:pointer'
+    b.onmouseenter = b.onfocus = function () { b.style.opacity = 1 }
+    b.onmouseleave = b.onblur = function () { b.style.opacity = .35 }
+    b.onclick = function () {
+      // base__ of gotoScript: the folder of the share page through --share
+      window.location.href = base__ + '/device' + document.location.search + document.location.hash
+    }
+    // outside <body>, which LiaScript's Elm runtime owns and would clear
+    document.documentElement.appendChild(b)
+  })
+}
+</script>`
+
 var serverPointer: any
 
 init(__dirname)
@@ -856,6 +878,11 @@ export async function start(
     }
   })
 
+  // device preview: the course from the query string in a resizable iframe
+  app.get('/device', function (req: express.Request, res: express.Response) {
+    res.sendFile('device.html', { root: path.join(dirname, 'views') })
+  })
+
   app.get(
     '/liascript/',
     function (req: express.Request, res: express.Response) {
@@ -884,6 +911,7 @@ export async function start(
               ? `<script type='text/javascript' src='https://code.responsivevoice.org/responsivevoice.js?key=${responsiveVoice}'></script>`
               : '') +
             gotoScript +
+            deviceButtonScript +
             (agent ? agentScript : '')
 
           if (agent) {
