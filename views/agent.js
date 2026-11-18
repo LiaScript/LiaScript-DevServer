@@ -92,7 +92,7 @@
     function (e) {
       if (e.origin != location.origin) e.stopImmediatePropagation()
     },
-    true,
+    true
   )
 
   // slide changes are history.pushState, which fires no event at all
@@ -159,7 +159,7 @@
       command.context = ctx()
       post(command)
     },
-    true,
+    true
   )
 
   // What the learner does with quizzes, surveys, tasks and code: LiaScript
