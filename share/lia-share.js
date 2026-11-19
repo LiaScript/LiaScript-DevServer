@@ -192,7 +192,9 @@ async function start() {
     key: link.get('key'),
     WebSocket,
     onMessage: onSignal,
-    onOpen: () => !ch && Date.now() - dialed > 2000 && dial(),
+    // also an offer without an answer: after a sleep the tick replaces the
+    // socket the offer went out on, the answer came to the old one (10 s on a phone)
+    onOpen: () => !ch && (!host || Date.now() - dialed > 2000) && dial(),
   })
 
   // No answer, or a link that went silent (the host pings every 5 s): Chrome
