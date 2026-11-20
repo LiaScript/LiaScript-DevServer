@@ -1404,9 +1404,18 @@ function sentences(text) {
 // single letters for z. B., d. h., e. g.; numbers for 1. and dates
 var ABBREVIATION = /(^|[\s(])(ca|bzw|usw|vgl|Nr|Min|Std|Mio|Mrd|Dr|Prof|etc|evtl|ggf|inkl|Abb|Kap|vs|Fig|No|Mr|Mrs|Ms|\p{L}|\d+)\.\s*$/u
 
+// Stop next to the agent on the stage: with several messages read one after
+// the other the button of the one that is read can be out of sight
+var hush = document.getElementById('hush')
+hush.addEventListener('click', function () {
+  queue = []
+  stop()
+})
+
 function stop() {
   var item = reading
   reading = undefined
+  if (hush) hush.hidden = true
   if (item && item.button) idle(item.button)
   if (item && item.msg) item.msg.classList.remove('reading')
   try {
@@ -1487,6 +1496,7 @@ function read(item) {
   }
 
   reading = item
+  hush.hidden = false
   var button = item.button
   if (button) {
     button.textContent = '\uEA5B' // stop
