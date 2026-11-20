@@ -710,13 +710,14 @@ async function main() {
 
   // no form waiting: chat text is an event
   stream = ''
-  await post({ type: 'chat', params: { text: 'hello' } })
+  const posted = await post({ type: 'chat', params: { text: 'hello' } })
   await sleep(100)
   msg = notifications.pop()
   assert.deepStrictEqual(msg.params.meta, { type: 'chat' })
   assert.strictEqual(JSON.parse(msg.params.content).params.text, 'hello')
   const hello = JSON.parse(msg.params.content).entry
   assert.ok(Number.isInteger(hello), 'a chat event has its entry: ' + msg.params.content)
+  assert.deepStrictEqual(JSON.parse(posted.data), { entry: hello }, 'the shell that sent it learns its number')
   // nobody took it yet: the chat does not claim that anybody thinks
   assert.ok(stream.endsWith('data: {"status":"Waiting for the assistant…"}\n\n'), 'waiting: ' + stream)
   await tool('wait_for_event', {}) // drain the fallback queue
@@ -859,7 +860,7 @@ async function main() {
   assert.strictEqual((await tool('get_state', {})).agent, 'examiner', 'the switch takes effect at once')
   assert.ok(stream.includes('data: {"agents":{"current":' + JSON.stringify(examiner) + ',"list":[{"name":"tutor","emoji":"🦉"},' + JSON.stringify(examiner) + '],"view":"author"}}\n\n'), 'and the shell hears of it')
   // the menu sends no link text: the bubble and the history take the name
-  assert.ok(/data: \{"entry":\{[^}]*"type":"command","agent":"examiner","cmd":"switch","label":"examiner"\}\}\n\n$/.test(stream), 'a bubble: ' + stream.slice(-300))
+  assert.ok(/data: \{"entry":\{[^}]*"type":"command","agent":"examiner","cmd":"switch","label":"examiner"\},"n":\d+\}\n\n$/.test(stream), 'a bubble: ' + stream.slice(-300))
   assert.deepStrictEqual(notifications.pop().params.meta, { type: 'command', agent: 'examiner', cmd: 'switch' }, 'the agents hear of it')
   await post({ type: 'command', agent: 'nobody', cmd: 'switch', params: {} })
   await sleep(100)

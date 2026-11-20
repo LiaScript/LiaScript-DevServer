@@ -57,6 +57,7 @@ function post(msg) {
     body: JSON.stringify(msg),
   }).then(function (res) {
     if (!res.ok) throw new Error(res.status)
+    return res
   })
 }
 
@@ -752,7 +753,29 @@ document.getElementById('new').addEventListener('click', function () {
   sessions.dispatchEvent(new Event('change'))
 })
 
+// the numbers of the entries this shell shows, so that a reconnect to the
+// same chat appends what it missed instead of drawing a long chat anew
+var shown = {}
+
 function showSession(session) {
+  var have = Object.keys(shown).map(Number)
+  var missing = []
+  session.entries.forEach(function (entry, n) {
+    if (!shown[n]) missing.push(n)
+  })
+  // only what is newer than everything shown: something older (a message
+  // of another shell, which is not broadcast) needs the whole chat in order
+  if (session.id == chatId && have.length && Math.min.apply(null, missing) > Math.max.apply(null, have)) {
+    // shortcut: quiz states of the appended messages from another device are not loaded, F5 loads them
+    missing.forEach(function (n) {
+      showEntry(session.entries[n], n)
+    })
+    forms.forEach(function (el) {
+      if (el.dataset.ask != session.open) closed(el)
+    })
+    return stageState()
+  }
+  shown = {}
   chatId = session.id
   selectSession()
   queue = []
@@ -802,6 +825,7 @@ function showSession(session) {
 // one entry of the saved chat, from the history or as it happens. n: its
 // number in the chat, which the states of its quizzes refer to
 function showEntry(entry, n) {
+  if (typeof n == 'number') shown[n] = true
   if (entry.type == 'ai') {
     showAI(
       {
@@ -874,7 +898,11 @@ function outbox(list) {
 
 function deliver(msg, unsent) {
   post({ type: 'chat', params: { text: unsent.text } })
-    .then(function () {
+    .then(function (res) {
+      // its number in the chat: shown already, a reconnect must not add it again
+      res.json().then(function (r) {
+        if (typeof r.entry == 'number') shown[r.entry] = true
+      }, function () {})
       outbox(
         outbox().filter(function (other) {
           return other.t != unsent.t
@@ -2048,7 +2076,7 @@ function message(event) {
   if (data.agents) return showAgents(data.agents)
   if (data.sessions) return showSessions(data.sessions)
   if (data.session) return showSession(data.session)
-  if (data.entry) return showEntry(data.entry)
+  if (data.entry) return showEntry(data.entry, data.n)
   // run_in_page: views/web.js runs it, the frame may have moved on to
   // another page by now, which only learns the code
   if (data.page) return course.contentWindow.postMessage({ page: data.page }, '*')
@@ -2082,6 +2110,7 @@ function showAI(chat, t) {
     t,
   )
   msg.entry = chat.n
+  if (typeof chat.n == 'number') shown[chat.n] = true
   lastLang = typeof chat.lang == 'string' ? chat.lang : ''
   if (typeof chat.lang == 'string') {
     msg.lang = chat.lang
