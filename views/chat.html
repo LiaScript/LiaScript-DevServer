@@ -437,6 +437,34 @@
       #status::after {
         content: attr(data-since);
       }
+      /* stops reading aloud, next to the agent that reads, whichever message
+         it is (chat.js) */
+      #hush {
+        flex: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        min-height: 2.25rem;
+        padding: 0.2rem 0.8rem 0.2rem 0.6rem;
+        border-radius: 999px;
+        border-color: rgba(var(--hl), 0.55);
+        color: rgb(var(--hl));
+        font-size: 0.9em;
+        white-space: nowrap;
+      }
+      #hush[hidden] {
+        display: none;
+      }
+      #hush .icon {
+        font-size: 1.25em;
+      }
+      #hush:hover,
+      #hush:focus-visible {
+        background: rgba(var(--hl), 0.12);
+      }
+      .lia-variant-dark #hush {
+        color: color-mix(in srgb, rgb(var(--hl)) 60%, white);
+      }
       /* the way to the open form or to new messages out of sight */
       #jump {
         flex: none;
@@ -856,6 +884,17 @@
         <div id="log" role="log" aria-live="polite"></div>
         <div id="stage">
           <span id="bot"></span>
+          <button
+            id="hush"
+            type="button"
+            title="Stop reading"
+            data-t-title="Stop reading"
+            aria-label="Stop reading"
+            data-t-aria-label="Stop reading"
+            hidden
+          >
+            <i class="icon" aria-hidden="true">&#xEA5B;</i><span data-t="Stop">Stop</span>
+          </button>
           <div class="lines">
             <div id="status" role="status" hidden></div>
             <div id="hint" role="status" hidden></div>
