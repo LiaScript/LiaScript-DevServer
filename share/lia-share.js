@@ -128,7 +128,8 @@ async function start() {
     log('lost: ' + why)
     hangUp()
     gone()
-    say('Connection lost, waiting for the teacher’s server…')
+    // only when it lasts: a phone that wakes up is back within 1-2 s
+    setTimeout(() => ch || say('Connection lost, waiting for the teacher’s server…'), 2500)
     dial()
   }
 

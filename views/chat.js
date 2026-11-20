@@ -2000,7 +2000,11 @@ function connect() {
     hint('')
   }
   stream.onerror = function () {
-    hint('The connection to the server is lost, connecting again…')
+    // only when it lasts: the line pushed the messages up and down at every
+    // short break, a phone that wakes up is back within 1-2 s
+    setTimeout(function () {
+      if (stream.readyState != EventSource.OPEN) hint('The connection to the server is lost, connecting again…')
+    }, 3000)
     // an answer that is no stream (a 502 of the tunnel of --share) ends the
     // retries of the browser
     var dead = stream
