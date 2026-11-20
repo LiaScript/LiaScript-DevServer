@@ -325,11 +325,18 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   (``/``), the speaker of the bar is the hidden `#autoread` box; globe, folder, home and dock are inline
   Lucide SVGs. A green dot marks the current agent. Light or dark is LiaScript's, not the system's: `theme()` reads
   `light` of `localStorage.settings` (player and chat app share it) and sets `lia-variant-dark/light` on the shell
-  and the messages, again on every `storage` event. Every agent is a pixel robot (`avatar.js`, inline SVG, no
-  library): the 12 x 12 LED matrix of DiceBear's CC0 style Pixelbot, its eyes and mouths copied as cell numbers.
+  and the messages, again on every `storage` event. The faces are inline SVG of `avatar.js`, no library.
+  The four roles of the Teaching-Agent are figures with a round head (`FIGURES`, design canvas "Agenten-Avatare"),
+  told apart by what they wear and by lightness, also in grey: `teaching` a mortarboard (teal), `artist` a beret
+  and brush (lilac), `development` horn-rimmed glasses and headphones (slate, green terminal eyes), `learner` a
+  sprout (lime). Shaded like a sphere, they turn up to 35° (`pose()` moves the parts marked `data-p` around the
+  head); only a figure of 40 px or more (the stage) moves, one timer for all (`animate()`): slowly while idle,
+  towards the upper right while thinking, a sway while reading aloud, never with `prefers-reduced-motion`. A
+  figure shows thinking and waiting as a badge (`.think`, `.wait`). Every other agent is a pixel robot: the
+  12 x 12 LED matrix of DiceBear's CC0 style Pixelbot, its eyes and mouths copied as cell numbers.
   `Avatar.role()` takes the role from the name (`teaching`, `artist`, `learner`, `development`, `reviewer`,
   `translator`, `research`, or a word of the name in `ALIASES`), else from the emoji (`EMOJI`), else LED colour,
-  case and eyes come from a hash of the name; a role adds its symbol in the three rows above the eyes. The
+  case and eyes come from a hash of the name; a robot's role adds its symbol in the three rows above the eyes. The
   button shows robot and name of the current agent, a row of robots in the bar (`#agents`) appears with two or
   more agents, and every message ends in a footer with the read-aloud button and `robot label HH:MM` (arrival time, the label
   visible because a tooltip is out of reach on a tablet).

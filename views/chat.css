@@ -28,15 +28,21 @@
   line-height: 1;
 }
 
-/* the pixel robots of avatar.js: the mouth and the bottom row switch with
-   data-mouth and data-state */
+/* the faces of avatar.js, pixel robots and figures: the mouth, the bottom
+   row of a robot and the badge of a figure switch with data-mouth and
+   data-state */
 .bot {
   flex: none;
   border-radius: 22%;
   vertical-align: middle;
 }
+.bot.figure {
+  border-radius: 0;
+  overflow: visible;
+}
 .bot .m,
 .bot .tick,
+.bot .think,
 .bot .wait {
   visibility: hidden;
 }
@@ -45,6 +51,7 @@
 .bot[data-mouth='1'] .m1,
 .bot[data-mouth='2'] .m2,
 .bot[data-state='thinking'] .tick,
+.bot[data-state='thinking'] .think,
 .bot[data-state='waiting'] .wait {
   visibility: visible;
 }
