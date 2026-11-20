@@ -1226,7 +1226,7 @@ export async function start(
         openAsk = ''
         // every shell shows the choice as what the user said
         entry = record({ type: 'answer', ask, values })
-        if (entry) send({ entry })
+        if (entry) send({ entry, n: session!.entries.indexOf(entry) })
       } else if (command) {
         // a click on a link too, as its text: the user sees that it arrived,
         // and the history says what happened
@@ -1236,7 +1236,7 @@ export async function start(
         if (!label && to) label = to.label || to.name
         const params = Object.keys(checked).length ? { params: checked } : {}
         entry = label ? record({ type: 'command', agent: agentName, cmd: body.cmd, label, ...params }) : undefined
-        if (entry) send({ entry })
+        if (entry) send({ entry, n: session!.entries.indexOf(entry) })
       }
 
       // the user sees at once that it arrived, until the agent sends its own
@@ -1283,6 +1283,8 @@ export async function start(
         context: eventContext(),
       })
 
+      // the shell that sent it shows it already, by its number (showSession)
+      if (body.type === 'chat' && entry && session) return res.json({ entry: session.entries.indexOf(entry) })
       return res.sendStatus(204)
     })
 

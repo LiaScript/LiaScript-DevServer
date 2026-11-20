@@ -730,13 +730,14 @@ async function main() {
 
   // no form waiting: chat text is an event
   stream = ''
-  await post({ type: 'chat', params: { text: 'hello' } })
+  const posted = await post({ type: 'chat', params: { text: 'hello' } })
   await sleep(100)
   msg = notifications.pop()
   assert.deepStrictEqual(msg.params.meta, { type: 'chat' })
   assert.strictEqual(JSON.parse(msg.params.content).params.text, 'hello')
   const hello = JSON.parse(msg.params.content).entry
   assert.ok(Number.isInteger(hello), 'a chat event has its entry: ' + msg.params.content)
+  assert.deepStrictEqual(JSON.parse(posted.data), { entry: hello }, 'the shell that sent it learns its number')
   // nobody took it yet: the chat does not claim that anybody thinks
   assert.ok(stream.endsWith('data: {"status":"Waiting for the assistant…"}\n\n'), 'waiting: ' + stream)
   await tool('wait_for_event', {}) // drain the fallback queue
@@ -879,7 +880,7 @@ async function main() {
   assert.strictEqual((await tool('get_state', {})).agent, 'examiner', 'the switch takes effect at once')
   assert.ok(await streamHas('data: {"agents":{"current":' + JSON.stringify(examiner) + ',"list":[{"name":"tutor","emoji":"🦉"},' + JSON.stringify(examiner) + '],"view":"author"}}\n\n'), 'and the shell hears of it')
   // the menu sends no link text: the bubble and the history take the name
-  assert.ok(/data: \{"entry":\{[^}]*"type":"command","agent":"examiner","cmd":"switch","label":"examiner"\}\}\n\n$/.test(stream), 'a bubble: ' + stream.slice(-300))
+  assert.ok(/data: \{"entry":\{[^}]*"type":"command","agent":"examiner","cmd":"switch","label":"examiner"\},"n":\d+\}\n\n$/.test(stream), 'a bubble: ' + stream.slice(-300))
   assert.deepStrictEqual(notifications.pop().params.meta, { type: 'command', agent: 'examiner', cmd: 'switch' }, 'the agents hear of it')
   await post({ type: 'command', agent: 'nobody', cmd: 'switch', params: {} })
   await sleep(100)
@@ -1612,7 +1613,7 @@ async function main() {
   assert.ok(/<tr id="u-anna" data-name="anna" data-role="student" data-online="[01]" data-help="[01]"/.test(rowsQr), 'rows carry what the filter needs')
   assert.ok(/data-role="author"/.test(rowsQr), 'erik is an author')
   // warnings: anna writes, her agent tries a command and refuses something itself
-  assert.strictEqual((await request('POST', '/agent', { ...TAB, ...JSON_, 'X-Lia-Token': token3, Origin: 'http://127.0.0.1:' + front3 }, JSON.stringify({ type: 'chat', params: { text: 'hi' } }), front3)).status, 204)
+  assert.strictEqual((await request('POST', '/agent', { ...TAB, ...JSON_, 'X-Lia-Token': token3, Origin: 'http://127.0.0.1:' + front3 }, JSON.stringify({ type: 'chat', params: { text: 'hi' } }), front3)).status, 200, 'a chat message answers with its entry')
   const warningsFile = path.join(USERS, '.class', 'warnings.jsonl')
   const warningsOf = () => (fs.existsSync(warningsFile) ? fs.readFileSync(warningsFile, 'utf8').trim().split('\n').map(JSON.parse) : [])
   for (let i = 0; i < 100 && warningsOf().length < 2; i++) await sleep(100)
