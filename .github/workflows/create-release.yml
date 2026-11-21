@@ -18,6 +18,19 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v5
+      # one repository, three packages: @liascript/devserver is tagged 1.4.0--2.7.0, @liascript/mcp mcp-1.5.0--2.7.0
+      - name: Version
+        id: version
+        run: |
+          name=$(node -p "require('./package.json').name.split('/')[1]")
+          version=$(node -p "require('./package.json').version")
+          if [ "$name" = devserver ]; then tag="$version"; else tag="$name-$version"; fi
+          if [ "${{ github.ref_type }}" = tag ] && [ "${{ github.ref_name }}" != "$tag" ]; then
+            echo "::error::the tag ${{ github.ref_name }} does not match package.json, expected $tag"
+            exit 1
+          fi
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
       - name: Setup Node
         uses: actions/setup-node@v5
         with:
@@ -31,19 +44,17 @@ jobs:
           npm run release
       # ponytail: a push of the branch replaces the assets of the release of its version, the tag stays on the
       # first commit of that version; bump package.json for a release of its own
-      - name: Version
-        id: version
-        run: echo "tag=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || steps.version.outputs.tag }}
+          tag_name: ${{ steps.version.outputs.tag }}
           target_commitish: ${{ github.sha }}
-          # three lines: main is the release, a version with -mcp. or -lms. a prerelease of its branch
-          prerelease: ${{ github.ref_type != 'tag' || contains(steps.version.outputs.tag, '-mcp.') || contains(steps.version.outputs.tag, '-lms.') }}
+          prerelease: ${{ github.ref_type != 'tag' }}
+          # latest stays the plain devserver of main
+          make_latest: ${{ github.ref_type == 'tag' && steps.version.outputs.name == 'devserver' }}
           body: |
             Download your OS specific binary from below
           files: |
-            ./release/linux/liascript-devserver-linux
-            ./release/macos/liascript-devserver-macos
-            ./release/windows/liascript-devserver.exe
+            ./release/linux/liascript-${{ steps.version.outputs.name }}-linux
+            ./release/macos/liascript-${{ steps.version.outputs.name }}-macos
+            ./release/windows/liascript-${{ steps.version.outputs.name }}.exe

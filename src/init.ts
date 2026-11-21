@@ -1,4 +1,4 @@
-// `liadev init` and `liadev update`: the teaching agent, the LiaScript skills and
+// `liamcp init` and `liamcp update`: the teaching agent, the LiaScript skills and
 // a .mcp.json in the current folder. isomorphic-git fetches them, so it works
 // where git cannot be installed, like git.ts.
 import * as fs from 'fs'
@@ -53,8 +53,8 @@ function mcpJson(root: string) {
   config.mcpServers = config.mcpServers || {}
   if (config.mcpServers.liascript) return console.log('kept   ', '.mcp.json')
   config.mcpServers.liascript = {
-    // a standalone binary is not on the PATH as liadev
-    command: (process as any).pkg ? process.execPath : 'liadev',
+    // a standalone binary is not on the PATH as liamcp
+    command: (process as any).pkg ? process.execPath : 'liamcp',
     args: ['--mcp', '--live', '-i', 'journal.md'],
   }
   fs.writeFileSync(file, JSON.stringify(config, null, 2) + '\n')
@@ -74,7 +74,7 @@ function claudeSettings(root: string) {
 }
 
 export async function init(update: boolean, root = process.cwd()) {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'liadev-'))
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'liamcp-'))
   try {
     const agent = await fetchRepo('https://github.com/LiaScript/teaching-agent', tmp)
     const skills = path.join(await fetchRepo('https://github.com/LiaScript/skills', tmp), 'skills')

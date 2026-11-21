@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-LiaScript-DevServer (`@liascript/devserver`, CLI names `liascript-devserver` / `liadev`) is a small Express-based
+LiaScript-DevServer (`@liascript/mcp`, CLI names `liascript-mcp` / `liamcp`) is a small Express-based
 local development server for previewing [LiaScript](https://LiaScript.github.io) Markdown courses in the browser,
 with optional live-reload on file change.
 
@@ -48,10 +48,12 @@ Pushing a git tag triggers two independent GitHub Actions workflows (`.github/wo
 - Builds standalone binaries with `@yao-pkg/pkg` (Node 22, `vercel/pkg` stops at 18, too old for hammerhead) for win/linux/macos (`npm run release_*`) and attaches them to a GitHub Release
 - Publishes the npm package (`npm run build` then `npm publish`)
 
-Three lines, each tagged on its own branch (the workflows run from the tagged commit): `main` is the release
-(`1.4.0--2.7.0`, npm `latest`), `mcp` and `lms` are prereleases with `-mcp.<n>` or `-lms.<n>` in the version
-(`1.5.0-mcp.1--2.7.0`), the npm dist-tag `mcp` or `lms` (`npm i -g @liascript/devserver@mcp`). The tag is the
-version. Only the public `LiaScript/LiaScript-DevServer` publishes to npm.
+Three lines, three npm packages from one repository, each tagged on its own branch (the workflows run from the
+tagged commit and read name and version from its `package.json`): `main` is `@liascript/devserver` (tag
+`1.4.0--2.7.0`, the GitHub release marked latest), `mcp` is `@liascript/mcp` and `lms` is `@liascript/lms`
+(tag `mcp-1.5.0--2.7.0` / `lms-…`, commands `liascript-mcp`/`liamcp`, `liascript-lms`/`lialms`, binaries
+named alike). A tag that does not match name and version fails both workflows. Only the public
+`LiaScript/LiaScript-DevServer` publishes to npm.
 
 Both the CLI version string (in `src/index.ts`'s `--version` output and `package.json`'s `version` field, formatted
 `<devserver-version>--<liascript-version>`) and the version banner rendered in `views/main.hbs` need to stay in sync
@@ -238,7 +240,7 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   (`ttsHint()` in `lib.ts`). `--responsiveVoice` without a key injects `key=true`, which the service rejects.
   Automation tools start Chrome with `--disable-component-extensions-with-background-pages`, which removes its
   online voices.
-- **`src/init.ts`** — `liadev init` / `liadev update` (positional commands in `index.ts`, no server starts): shallow
+- **`src/init.ts`** — `liamcp init` / `liamcp update` (positional commands in `index.ts`, no server starts): shallow
   clones of `LiaScript/teaching-agent` and `LiaScript/skills` with `isomorphic-git` into a temp folder, then copies of a
   whitelist (`AGENT`, never README.md or journal.md) and of every skill into `.claude/skills/` and `.agents/skills/`
   (copies, Windows symlinks need rights). `init` keeps what exists, `update` replaces, a single file that does not

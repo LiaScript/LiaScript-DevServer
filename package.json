@@ -1,7 +1,7 @@
 {
-  "name": "@liascript/devserver",
-  "version": "1.5.0-mcp.1--2.7.0",
-  "description": "Run a development server for LiaScript locally",
+  "name": "@liascript/mcp",
+  "version": "1.5.0--2.7.0",
+  "description": "LiaScript DevServer with the chat and the bridge to AI agents (MCP)",
   "main": "dist/index.js",
   "scripts": {
     "build": "npx parcel build src/index.ts --target main && npx parcel build --target teachers && npm run shebang && npm run lib && cp src/codex-bridge.js dist/codex-bridge.js",
@@ -11,9 +11,9 @@
     "test:codex": "node src/check-codex.js",
     "shebang": "head -c2 dist/index.js | grep -q '#!' || sed -i '1i #!/usr/bin/env node\\n' dist/index.js && chmod +x dist/index.js",
     "release": "npm run release_win && npm run release_linux && npm run release_macos",
-    "release_win": "pkg . -t node22-win --output release/windows/liascript-devserver -C GZip --no-bytecode --public-packages \"*\" --public",
-    "release_linux": "pkg . -t node22-linux --output release/linux/liascript-devserver-linux -C GZip",
-    "release_macos": "pkg . -t node22-macos --output release/macos/liascript-devserver-macos -C GZip --no-bytecode --public-packages \"*\" --public"
+    "release_win": "pkg . -t node22-win --output release/windows/liascript-mcp -C GZip --no-bytecode --public-packages \"*\" --public",
+    "release_linux": "pkg . -t node22-linux --output release/linux/liascript-mcp-linux -C GZip",
+    "release_macos": "pkg . -t node22-macos --output release/macos/liascript-mcp-macos -C GZip --no-bytecode --public-packages \"*\" --public"
   },
   "repository": {
     "type": "git",
@@ -25,9 +25,9 @@
   },
   "homepage": "https://github.com/LiaScript/LiaScript-DevServer/blob/main/README.md",
   "bin": {
-    "liascript-devserver": "dist/index.js",
-    "liadev": "dist/index.js",
-    "liascript-codex": "dist/codex-bridge.js"
+    "liascript-mcp": "dist/index.js",
+    "liamcp": "dist/index.js",
+    "liascript-mcp-codex": "dist/codex-bridge.js"
   },
   "files": [
     "dist",

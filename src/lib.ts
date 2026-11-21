@@ -640,7 +640,7 @@ export async function start(
   }
 
   // a file: its folder is the project, the file the course. A missing .md is
-  // one the agent writes yet (journal.md right after `liadev init`)
+  // one the agent writes yet (journal.md right after `liamcp init`)
   const project: { path: string; readme?: string } = { path: input }
   if ((/\.md$/i.test(input) && !fs.existsSync(input)) || fs.lstatSync(input).isFile()) {
     project.path = path.dirname(input)

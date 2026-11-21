@@ -1,4 +1,8 @@
-# LiaScript-DevServer
+# LiaScript-DevServer: mcp
+
+> This is the `mcp` line of the LiaScript-DevServer (`@liascript/mcp`, the commands `liascript-mcp` and `liamcp`).
+> The plain server without it is
+> [@liascript/devserver](https://www.npmjs.com/package/@liascript/devserver).
 
 This project is intended to support the development of interactive courses with
 [LiaScript](https://LiaScript.github.io). This projects implements a development
@@ -17,7 +21,7 @@ or install it via the NodeJS package manager `npm` ...
 If you haven't installed it yet, you will have to install NodeJS for your
 system. This is the actual runtime environment for your local server and also
 contains the package manager that we will need for installing the
-[LiaScript-DevServer](https://www.npmjs.com/package/@liascript/devserver).
+[LiaScript-DevServer](https://www.npmjs.com/package/@liascript/mcp).
 
 https://nodejs.org/en/download/
 
@@ -26,7 +30,7 @@ https://nodejs.org/en/download/
 Open the terminal on your system and type the following command.
 
 ```bash
-npm install -g @liascript/devserver
+npm install -g @liascript/mcp
 ```
 
 This will automatically install all dependencies and the devServer as well ...
@@ -36,12 +40,12 @@ This will automatically install all dependencies and the devServer as well ...
 
 ## Usage
 
-You can run the devServer by typing `liascript-devserver` or the short-cut
-`liadev` into your terminal. The following command will print out some help
+You can run the devServer by typing `liascript-mcp` or the short-cut
+`liamcp` into your terminal. The following command will print out some help
 information on command-line parameters that you can use:
 
 ```bash
-liascript-devserver --help
+liascript-mcp --help
 ```
 
 ```text
@@ -91,7 +95,7 @@ Use this to identify the current version, but you can alternatively also use the
 shortcut `-v`:
 
 ```bash
-liascript-devserver --version
+liascript-mcp --version
 ```
 
 At the moment this should give the following results. Since LiaScript gets
@@ -105,11 +109,11 @@ LiaScript: 2.7.0
 
 ### `--input`
 
-If you run the command `liascript-devserver` without any commands, the server
+If you run the command `liascript-mcp` without any commands, the server
 will run from your current directory and give you the following output.
 
 ```text
-$ liascript-devserver
+$ liascript-mcp
 
  _     _       ____            _       _
 | |   (_) __ _/ ___|  ___ _ __(_)_ __ | |_
@@ -133,7 +137,7 @@ However, if you add the `--input` parameter (shortcut `-i`) and pass it another
 folder, this will be used as the root folder for the subsequent navigation.
 
 ```bash
-liascript-devserver --input ../LiaBooks
+liascript-mcp --input ../LiaBooks
 ```
 
 But you can also refer to a specific Markdown file, in this case, the course
@@ -141,7 +145,7 @@ will be rendered immediately by the LiaScript interpreter, if you open the
 following link in your browser.
 
 ```bash
-liascript-devserver --input ../LiaBooks/docs/README.md
+liascript-mcp --input ../LiaBooks/docs/README.md
 
 ...
 📡 starting server
@@ -158,7 +162,7 @@ liascript-devserver --input ../LiaBooks/docs/README.md
 will open your default browser with the displayed URL automatically.
 
 ```bash
-liascript-devserver --open -i ../LiaBooks
+liascript-mcp --open -i ../LiaBooks
 ```
 
 ### `--live`
@@ -169,7 +173,7 @@ reload will be automatically triggered. If you prefer to reload your changes
 manually via pressing `F5` do not use this option.
 
 ```bash
-liascript-devserver --live -o -i ../LiaBooks/docs/README.md
+liascript-mcp --live -o -i ../LiaBooks/docs/README.md
 ```
 
 ![live-update](pics/live-update.gif)
@@ -188,7 +192,7 @@ extensions, and turns on `--live`. It replaces the default list, `*` watches
 every visible file.
 
 ```bash
-liascript-devserver --watch md,css,png -i ../LiaBooks
+liascript-mcp --watch md,css,png -i ../LiaBooks
 ```
 
 ### `--port`
@@ -199,7 +203,7 @@ folders or the port-number is already occupied by another process or server,
 this will will be shown by the following error message:
 
 ```bash
-liascript-devserver -o -i ../LiaBooks
+liascript-mcp -o -i ../LiaBooks
 
 ...
 📡 starting server
@@ -213,7 +217,7 @@ However, by using `--port 3001` or `-p 3001` you can redefine this number and
 run different servers separately:
 
 ```bash
-liascript-devserver --port 3001 -o -i ../LiaBooks
+liascript-mcp --port 3001 -o -i ../LiaBooks
 
 ...
 📡 starting server
@@ -230,7 +234,7 @@ online on the LiaScript project website: https://LiaScript.github.io
 See how the URL changes by setting the parameter `--test`:
 
 ```bash
-liascript-devserver --test -o -i ../LiaBooks/docs/README.md
+liascript-mcp --test -o -i ../LiaBooks/docs/README.md
 
 ...
 📡 starting server
@@ -251,14 +255,14 @@ LiaScript project key is automatically injected. However, you can also pass your
 own key from your own project/website like this:
 
 ```bash
-$ liascript-devserver --responsiveVoice YOURKEY -i ../LiaBooks
+$ liascript-mcp --responsiveVoice YOURKEY -i ../LiaBooks
 ```
 
 ### `init` and `update`
 
 ```bash
-$ liadev init     # in the folder of a new course
-$ liadev update   # later, to get newer versions
+$ liamcp init     # in the folder of a new course
+$ liamcp update   # later, to get newer versions
 ```
 
 `init` puts the [Teaching-Agent](https://github.com/LiaScript/teaching-agent)
@@ -282,7 +286,7 @@ course:
 {
   "mcpServers": {
     "liascript": {
-      "command": "liadev",
+      "command": "liamcp",
       "args": ["--mcp", "--live", "-i", "README.md"]
     }
   }
@@ -295,7 +299,7 @@ answer:
 
 ```toml
 [mcp_servers.liascript]
-command = "liadev"
+command = "liamcp"
 args = ["--mcp", "--live", "-i", "/path/to/README.md"]
 tool_timeout_sec = 3600
 ```
@@ -427,7 +431,7 @@ With Codex CLI installed and signed in (`codex login`), run the bridge from
 the course project folder. After installing this package:
 
 ```bash
-liascript-codex -- --live --open -i README.md -p 3001
+liascript-mcp-codex -- --live --open -i README.md -p 3001
 ```
 
 From this repository, build first and run:
