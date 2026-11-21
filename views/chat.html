@@ -492,14 +492,45 @@
         cursor: pointer;
       }
       #say {
+        position: relative;
         display: flex;
         align-items: flex-end;
         gap: 0.5rem;
         padding: 0.6rem;
         border-top: 1px solid var(--line);
       }
+      /* the input grows upwards: a pill on the top edge of the form to drag
+         (chat.js), arrow keys on it, a double click resets */
+      #stretch {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: -6px;
+        height: 12px;
+        cursor: ns-resize;
+        touch-action: none;
+        outline: none;
+      }
+      #stretch::after {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: 4px;
+        width: 36px;
+        height: 4px;
+        margin-left: -18px;
+        border-radius: 2px;
+        background: var(--line);
+      }
+      #stretch:hover::after,
+      #stretch:focus-visible::after,
+      body.dragging #stretch::after {
+        background: rgba(var(--hl), 0.7);
+      }
       #say textarea {
         flex: 1;
+        box-sizing: border-box;
+        min-height: 2.6rem;
         font: inherit;
         resize: none;
         border: 1px solid var(--line);
@@ -1033,6 +1064,16 @@
           <button id="jump" type="button" hidden></button>
         </div>
         <form id="say">
+          <div
+            id="stretch"
+            role="separator"
+            aria-orientation="horizontal"
+            tabindex="0"
+            title="Drag to resize the input"
+            data-t-title="Drag to resize the input"
+            aria-label="Resize the input"
+            data-t-aria-label="Resize the input"
+          ></div>
           <label id="attach" title="Attach a file" data-t-title="Attach a file">
             <input type="file" multiple aria-label="Attach a file" data-t-aria-label="Attach a file" />
             <!-- Lucide paperclip -->

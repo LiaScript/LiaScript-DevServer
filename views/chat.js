@@ -79,6 +79,8 @@ var TEXTS = {
     'New chat': 'Neuer Chat',
     'Send again': 'Erneut senden',
     'Attach a file': 'Datei anhängen',
+    'Drag to resize the input': 'Ziehen, um die Eingabe zu vergrößern',
+    'Resize the input': 'Eingabe vergrößern oder verkleinern',
     'Could not upload the file': 'Die Datei konnte nicht hochgeladen werden',
     'not delivered': 'nicht zugestellt',
     'No longer open': 'Nicht mehr offen',
@@ -1729,6 +1731,46 @@ function dropOn(target) {
 dropOn(document.getElementById('chat'))
 
 // Enter sends, Shift+Enter breaks the line
+// The input grows upwards: the pill on the top edge of the form, dragged or
+// with the arrow keys, at most to 60 % of the chat; a double click goes back
+// to the two rows of the HTML. Kept per browser.
+var stretch = document.getElementById('stretch')
+var INPUT = 'liascript-chat-input'
+
+function inputHeight(height) {
+  var most = Math.max(120, Math.min(panel.offsetHeight, innerHeight) * 0.6)
+  height = Math.round(Math.min(height, most))
+  say.text.style.height = height + 'px'
+  try {
+    localStorage.setItem(INPUT, height)
+  } catch (e) {}
+}
+
+try {
+  var keptInput = parseInt(localStorage.getItem(INPUT), 10)
+  if (keptInput > 0) say.text.style.height = Math.min(keptInput, innerHeight * 0.5) + 'px'
+} catch (e) {}
+
+drag(stretch, {
+  start: function () {
+    return { height: say.text.offsetHeight }
+  },
+  to: function (start, dx, dy) {
+    inputHeight(start.height - dy)
+  },
+})
+stretch.addEventListener('keydown', function (e) {
+  if (e.key != 'ArrowUp' && e.key != 'ArrowDown') return
+  e.preventDefault()
+  inputHeight(say.text.offsetHeight + (e.key == 'ArrowUp' ? 24 : -24))
+})
+stretch.addEventListener('dblclick', function () {
+  say.text.style.height = ''
+  try {
+    localStorage.removeItem(INPUT)
+  } catch (e) {}
+})
+
 say.text.addEventListener('keydown', function (e) {
   if (e.key == 'Enter' && !e.shiftKey && !e.isComposing) {
     e.preventDefault()

@@ -583,7 +583,9 @@ The server lives in two files, the agent bridge (`--mcp`) adds a third and a cha
   saved. 📎 (`#attach`) and a file dropped on the chat (shell or messages iframe) go to `POST /upload?name=` (agent
   mode, same `Origin`, also through `--share`, 25 MB): `uploadName()` keeps letters, digits and `._-`, the file lands in
   `uploads/` of root and never over another one, then the chat sends `![name](uploads/name)` (`!?[…]` a video, `?[…]`
-  audio, `[…]` the rest) as an ordinary chat message. `base` of `<lia-chat>` is the folder of the course: the app appends relative
+  audio, `[…]` the rest) as an ordinary chat message. The input grows upwards: the pill `#stretch` on the top edge
+  of the form (drag, arrow keys, a double click resets), at most 60 % of the chat, kept as `liascript-chat-input`.
+  While anything is read aloud, `#hush` next to the agent on the stage stops it and empties the queue. `base` of `<lia-chat>` is the folder of the course: the app appends relative
   links to it. The files of the shell are served with `Cache-Control: no-cache`, a heuristically cached `chat.js` from an older
   version would not understand the messages of a newer server.
 
