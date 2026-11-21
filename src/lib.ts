@@ -607,7 +607,7 @@ export function init(serverPath?: string, nodeModulesPath?: string) {
   dirname = serverPath || path.join(__dirname, '..')
 
   // the player in node_modules of the package, or next to it (npx and npm
-  // install put the dependencies up, beside @liascript/devserver)
+  // install put the dependencies up, beside @liascript/lms)
   node_modules = nodeModulesPath || path.join(dirname, 'node_modules')
   if (!nodeModulesPath)
     for (let d = dirname; ; d = path.dirname(d)) {
@@ -672,7 +672,7 @@ export async function start(
   }
 
   // a file: its folder is the project, the file the course. A missing .md is
-  // one the agent writes yet (journal.md right after `liadev init`)
+  // one the agent writes yet (journal.md right after `lialms init`)
   const project: { path: string; readme?: string } = { path: input }
   if ((/\.md$/i.test(input) && !fs.existsSync(input)) || fs.lstatSync(input).isFile()) {
     project.path = path.dirname(input)

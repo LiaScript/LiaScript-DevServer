@@ -1,4 +1,4 @@
-// The class channel of a DevServer with users (liadev --users, src/gateway.ts):
+// The class channel of a DevServer with users (lialms --users, src/gateway.ts):
 // messages between people beside the chat with the AI, which never sees them.
 // The teacher writes to all or to one, a user to the teacher, and users to
 // each other once the teacher allows it. Without a gateway /class/state is

@@ -271,7 +271,7 @@ async function start() {
     pending.set(id, r)
     const { data, isWeb } = r
     const { body, tab: _, ...meta } = data
-    // the login of a server with users (liadev --users), its page sets it
+    // the login of a server with users (lialms --users), its page sets it
     let token = null
     try {
       token = sessionStorage.getItem('lia-share-token')
