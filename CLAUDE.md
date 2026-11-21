@@ -48,6 +48,11 @@ Pushing a git tag triggers two independent GitHub Actions workflows (`.github/wo
 - Builds standalone binaries with `@yao-pkg/pkg` (Node 22, `vercel/pkg` stops at 18, too old for hammerhead) for win/linux/macos (`npm run release_*`) and attaches them to a GitHub Release
 - Publishes the npm package (`npm run build` then `npm publish`)
 
+Three lines, each tagged on its own branch (the workflows run from the tagged commit): `main` is the release
+(`1.4.0--2.7.0`, npm `latest`), `mcp` and `lms` are prereleases with `-mcp.<n>` or `-lms.<n>` in the version
+(`1.5.0-mcp.1--2.7.0`), the npm dist-tag `mcp` or `lms` (`npm i -g @liascript/devserver@mcp`). The tag is the
+version. Only the public `LiaScript/LiaScript-DevServer` publishes to npm.
+
 Both the CLI version string (in `src/index.ts`'s `--version` output and `package.json`'s `version` field, formatted
 `<devserver-version>--<liascript-version>`) and the version banner rendered in `views/main.hbs` need to stay in sync
 when bumping versions.

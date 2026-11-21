@@ -33,7 +33,17 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_PUBLISH_KEY }}
 
+      # the dist-tag follows the version: 1.5.0-mcp.1--2.7.0 is @mcp, -lms. is @lms, else latest
+      - name: Channel
+        id: channel
+        run: |
+          case "$(node -p "require('./package.json').version")" in
+            *-mcp.*) echo "tag=mcp" >> "$GITHUB_OUTPUT" ;;
+            *-lms.*) echo "tag=lms" >> "$GITHUB_OUTPUT" ;;
+            *) echo "tag=latest" >> "$GITHUB_OUTPUT" ;;
+          esac
+
       - name: Publish to npm
-        run: npm publish --access public --tag latest
+        run: npm publish --access public --tag ${{ steps.channel.outputs.tag }}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_PUBLISH_KEY }}

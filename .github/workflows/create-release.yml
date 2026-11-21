@@ -39,7 +39,8 @@ jobs:
         with:
           tag_name: ${{ github.ref_type == 'tag' && github.ref_name || steps.version.outputs.tag }}
           target_commitish: ${{ github.sha }}
-          prerelease: ${{ github.ref_type != 'tag' }}
+          # three lines: main is the release, a version with -mcp. or -lms. a prerelease of its branch
+          prerelease: ${{ github.ref_type != 'tag' || contains(steps.version.outputs.tag, '-mcp.') || contains(steps.version.outputs.tag, '-lms.') }}
           body: |
             Download your OS specific binary from below
           files: |
