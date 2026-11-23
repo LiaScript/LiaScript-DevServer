@@ -1,6 +1,6 @@
 {
   "name": "@liascript/mcp",
-  "version": "1.5.0--2.7.0",
+  "version": "1.5.1--2.7.0",
   "description": "LiaScript DevServer with the chat and the bridge to AI agents (MCP)",
   "main": "dist/index.js",
   "scripts": {
