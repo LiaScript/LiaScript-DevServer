@@ -1,12 +1,80 @@
 # LiaScript-DevServer: mcp
 
-> This is the `mcp` line of the LiaScript-DevServer (`@liascript/mcp`, the commands `liascript-mcp` and `liamcp`).
-> The plain server without it is
-> [@liascript/devserver](https://www.npmjs.com/package/@liascript/devserver).
+Write, teach and learn [LiaScript](https://LiaScript.github.io) courses together
+with an AI agent such as Claude Code, Codex, Gemini CLI or GitHub Copilot. The
+devServer shows the course in your browser with a chat on top: the agent sees
+which slide you are on and what you have selected, it can move the preview, ask
+you questions with buttons, quiz you and rewrite the course while you watch.
 
-This project is intended to support the development of interactive courses with
-[LiaScript](https://LiaScript.github.io). This projects implements a development
-server that can be used locally to preview courses within the browser.
+This is the package `@liascript/mcp`, its commands are `liascript-mcp` and the
+shortcut `liamcp`.
+
+## Which package do I need?
+
+| Package                                                                    | Command                     | For                                                                                                            |
+| -------------------------------------------------------------------------- | --------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| [@liascript/devserver](https://www.npmjs.com/package/@liascript/devserver) | `liascript-devserver`, `liadev` | Previewing a course on your own computer with live reload. No AI.                                          |
+| [@liascript/mcp](https://www.npmjs.com/package/@liascript/mcp)             | `liascript-mcp`, `liamcp`   | **You and one AI agent**: the agent runs on your computer and talks to you in a chat over the course.          |
+| [@liascript/lms](https://www.npmjs.com/package/@liascript/lms)             | `liascript-lms`, `lialms`   | **A whole class**: one computer serves many learners and authors, each with a login and an agent of their own. |
+
+All three can do everything the one above them does.
+
+## Quick start
+
+You need [NodeJS](https://nodejs.org/en/download/) and an AI agent that speaks
+[MCP](https://modelcontextprotocol.io). The steps are for Claude Code, the
+other agents follow below.
+
+1. Install the devServer:
+
+   ```bash
+   npm install -g @liascript/mcp
+   ```
+
+2. Make a folder for your course and prepare it:
+
+   ```bash
+   mkdir my-course
+   cd my-course
+   liamcp init
+   ```
+
+   `init` needs no git. It writes into the folder:
+
+   - the [Teaching-Agent](https://github.com/LiaScript/teaching-agent), the
+     instructions that turn your agent into a course author: `CLAUDE.md`,
+     `AGENTS.md`, `.codex/AGENTS.md`, `.github/copilot-instructions.md`,
+     `.cursor/rules/agent.md`, `.windsurfrules` and `specs/`,
+   - the [LiaScript skills](https://github.com/LiaScript/skills), the knowledge
+     about LiaScript's syntax, templates, themes and exports, into
+     `.claude/skills/` (Claude Code) and `.agents/skills/` (Codex, Copilot and
+     others),
+   - `.mcp.json` with the server `liascript` (`liamcp --mcp --live -i journal.md`),
+   - `.claude/settings.json`, which lets Claude Code start that server without
+     asking.
+
+   Files that are already there stay as they are. Later, `liamcp update` fetches
+   the Teaching-Agent and the skills again and replaces their files. Your own
+   files are never touched: a `CLAUDE.md` that does not start with
+   `# Teaching-Agent`, other skills and the other servers in `.mcp.json`.
+
+3. Start your agent in that folder, `claude` in the terminal or Claude Code in
+   VS Code, and say hello. It opens the preview with the chat in your browser:
+   from now on you can talk to it there or in the terminal.
+
+Already have a course? Skip `init` and put the [`.mcp.json`](#--mcp) next to
+it, with your file after `-i`.
+
+Other agents:
+
+- **Codex**: add the server to `~/.codex/config.toml`, see [`--mcp`](#--mcp),
+  or use the [persistent Codex bridge](#persistent-codex-bridge).
+- **GitHub Copilot in VS Code**: VS Code starts the servers of `.mcp.json` by
+  itself. Type `/mcp.liascript.chat` in the Copilot chat, otherwise Copilot does
+  not hear what you write in the browser.
+- **Claude Code in the terminal** reacts at once to a click in the course when
+  started with `claude --dangerously-load-development-channels server:liascript`,
+  see [Links that talk to the agent](#links-that-talk-to-the-agent).
 
 ## Installation
 
@@ -56,9 +124,15 @@ liascript-mcp --help
 |_____|_|\__,_|____/ \___|_|  |_| .__/ \__|
                                 |_|
 
+init             put the teaching agent, the LiaScript skills and a
+                 .mcp.json into this folder, keeps existing files
+update           fetch the teaching agent and the skills again,
+                 replaces their files, keeps .mcp.json
+
 -h  --help       show this help
 -v  --version    show version information
 -i  --input      input README.md file or folder (default: .)
+-n  --hostname   hostname of your server (default: localhost)
 -p  --port       used port number (default: 3000)
 -l  --live       do live reload on file change
 -w  --watch      file types that trigger the live reload,
@@ -78,12 +152,17 @@ liascript-mcp --help
     --share-web  the share page under another origin, for web
                  pages (default: the other one of localhost and
                  127.0.0.1, else none)
+    --proxy      web pages in the chat of --mcp: off, read (default:
+                 the document only, no logins) or full (experimental:
+                 everything, cookies, forms, single page apps; some
+                 sites hang Firefox, the browser extension is safer)
 
 -r  --responsiveVoice  add optional responsiveVoice support,
                        or pass your own responsiveVoice key.
                        Adding this feature might slow down
                        the reloading speed.
                        For more information visit:
+                       https://responsivevoice.org
 ```
 
 > **Note:** `-h` or `--help` will only print out the help, all other parameters
@@ -103,7 +182,7 @@ updated separately, we use two different version, one for the devServer and one
 for LiaScript.
 
 ```text
-DevServer: 1.4.0
+DevServer: 1.5.0
 LiaScript: 2.7.0
 ```
 
@@ -258,21 +337,29 @@ own key from your own project/website like this:
 $ liascript-mcp --responsiveVoice YOURKEY -i ../LiaBooks
 ```
 
-### `init` and `update`
+### `--hostname`
+
+The name the server puts into the addresses it prints and hands out, `localhost`
+by default (shortcut `-n`). Use it when the course should be reached under
+another name, for example the name of your computer in the network:
 
 ```bash
-$ liamcp init     # in the folder of a new course
-$ liamcp update   # later, to get newer versions
+liascript-mcp --hostname my-laptop.local -i ../LiaBooks
 ```
 
-`init` puts the [Teaching-Agent](https://github.com/LiaScript/teaching-agent)
-(`CLAUDE.md`, `AGENTS.md`, `specs/`, …), the
-[LiaScript skills](https://github.com/LiaScript/skills) (into `.claude/skills/`
-and `.agents/skills/`) and a `.mcp.json` with the `liascript` server into the
-current folder, which `.claude/settings.json` enables for Claude Code. It needs no git and keeps files that are there already.
-`update` fetches both again and replaces their files. Your own files are never
-touched: a `CLAUDE.md` that is not the Teaching-Agent's, other skills and the
-other servers of `.mcp.json`.
+With `--mcp` the server listens on this computer only, whatever the name.
+
+### `--share`
+
+Opens the preview on a phone or another computer, see [On a phone](#on-a-phone).
+Without `--mcp` the terminal prints the link; with `--mcp` the 📱 button of the
+chat switches it on and off. `--share-new` replaces the link, the old one stops
+working. `--share-web` is only needed for web pages through the link, see
+[Web pages](#web-pages).
+
+### `init` and `update`
+
+See the [quick start](#quick-start).
 
 ### `--mcp`
 
@@ -324,10 +411,17 @@ The agent gets these tools:
 | Tool             | What it does                                                                                                   |
 | ---------------- | -------------------------------------------------------------------------------------------------------------- |
 | `get_state`      | the open course, the slide (1-based, like `#3` in the URL), its title, the text you have selected, and whether the browser can read aloud |
-| `goto`           | show a `slide`, the slide of a source `line`, or another course `file`; opens the browser if it is not open    |
-| `chat`           | write into the chat on top of the course, optionally with buttons, radio buttons and checkboxes for you to answer |
+| `goto`           | show a `slide`, the slide of a source `line` or `section`, another course `file`, or a web page `url`; opens the browser if it is not open |
+| `chat`           | write into the chat on top of the course, optionally with buttons, radio buttons, checkboxes or teacher portraits for you to answer; with only `status` it sets the progress line |
+| `set_agent`      | who you talk to: the name, label and robot of the current agent, the list of agents in the menu, a teacher persona and its voice, the author or learner view |
+| `find_teacher`   | the historical teacher personas, filtered by topic, gender and region, see [Teacher personas](#teacher-personas) |
 | `read_chat`      | read the saved chat, so that an agent can continue a conversation it did not start                               |
 | `wait_for_event` | fallback for agents that cannot be notified, see below                                                         |
+| `outline`        | the table of contents of a long Markdown file: every heading with its slide, line and size                    |
+| `read_section`   | one section of a Markdown file, by heading path, slide or line, by default the slide you look at               |
+| `write_section`  | replace or append one section; it refuses if you changed that section since the agent read it                  |
+| `run_in_page`    | run JavaScript in a web page shown in the chat, to read or mark it; only when you ask for it                   |
+| `share`          | the 📱 link for a phone, see [On a phone](#on-a-phone)                                                          |
 | `git_login`      | log in to GitHub: the agent gives you a link to a local page where you paste a [token](https://github.com/settings/tokens/new?scopes=repo&description=LiaScript%20DevServer), the agent never sees it |
 | `git_status`, `git_clone`, `git_sync`, `git_tag` | git without an installed git: changes and last commits, clone, commit + pull + push, tag a version |
 | `git_publish`    | a new GitHub repository for the course, with description, topics and the LiaScript link as website            |
@@ -510,16 +604,102 @@ you type goes to the agent, and its answers are LiaScript, rendered by
 [@liascript/chat](https://www.npmjs.com/package/@liascript/chat) like a course:
 formulas, quizzes, surveys and tasks, executable code, ASCII art, and templates
 imported in a header comment. Your answers to its quizzes reach the agent too, so
-it can help when you are stuck. While the agent works on an answer, a line below
-the messages tells what it is doing.
+it can help when you are stuck. The chat speaks the language of the course
+(English and German so far).
+
+![The chat docked at the right edge of the course, every control numbered](https://raw.githubusercontent.com/LiaScript/LiaScript-DevServer/mcp/pics/chat/overview.png)
+
+| #  | Control                    | What it does |
+| -- | -------------------------- | ------------ |
+| 1  | **Agent button**           | Robot and name of the agent you talk to; the green dot marks it. A click closes the chat to this button and opens it again. While the chat floats, drag it here to move it. |
+| 2  | **Chat menu**              | Every saved conversation, titled with your first message, and `+ New chat`. Pick one to continue it: the agent is told and reads it first. |
+| 3  | **Agents**                 | One robot per agent, shown when the agent works with two or more (e.g. a tutor and an author). A click switches whom you talk to. |
+| 4  | **New chat**               | Starts a new conversation, the same as `+ New chat` in the menu. An empty chat is not saved. |
+| 5  | **Read everything aloud**  | When switched on, every new message and the agent's progress lines are read aloud as they arrive. Remembered in this browser. Without speech voices a muted speaker shows here instead, see below. |
+| 6  | **Web page** 🌐            | Opens an address field: type an address and the page opens in place of the course, the chat stays. See [Web pages](#web-pages). |
+| 7  | **Files** 📁               | The file listing of the folder of the course in the frame. Its links open other courses and files of the project. |
+| 8  | **Back to the course** ⌂   | Shows only while the frame shows something else than the course the server started with; leads back to it. |
+| 9  | **Phone** 📱               | Shows a QR code and a link that opens this course and chat on a phone, see [On a phone](#on-a-phone). Highlighted while sharing. |
+| 10 | **Dock / float**           | Docked, the chat is a column at the right edge and the course ends left of it; floating, it hovers over the course. Only on windows of 768 px and wider. Remembered. |
+| 11 | **Messages**               | The conversation. Each message of the agent has a read-aloud button ▷ and a footer with the agent's robot, name and time. A link to `#3` moves the course to slide 3. |
+| 12 | **Stage**                  | The robot of the current agent. Its bottom row runs while the agent works, it pulses while a question waits for you, and it moves its mouth while a message is read aloud. |
+| 13 | **Progress line**          | What the agent is doing, e.g. `Reading the course …`. After 20 s it counts the seconds. |
+| 14 | **Input height**           | Drag the small bar to make the input taller (up to 60 % of the chat), or use the arrow keys on it; a double click resets it. Remembered. |
+| 15 | **Attach** 📎              | Sends files to the agent (up to 25 MB each). They land in `uploads/` of the project and appear in the chat as image, video, audio or link. Dropping a file on the chat does the same. |
+| 16 | **Input**                  | Your message. `Enter` sends, `Shift`+`Enter` starts a new line. |
+| 17 | **Send**                   | Sends the message. A message that does not reach the server, e.g. while it restarts, is kept and gets a `Send again` button. |
+
+The chat floating over the course (10), and closed to its button (1):
+
+![The chat floating over the course](https://raw.githubusercontent.com/LiaScript/LiaScript-DevServer/mcp/pics/chat/floating.png)
+
+![The chat closed to its button](https://raw.githubusercontent.com/LiaScript/LiaScript-DevServer/mcp/pics/chat/closed.png)
+
+Floating, the grip in the top left corner resizes the chat; docked, the left
+edge of the column moves the border between course and chat. Place, size and
+mode are remembered in this browser.
+
+##### Questions of the agent
+
+The agent can ask with buttons, radio buttons and checkboxes. A form with a
+single row of buttons is answered by a click; a form with more than one
+question has `Send answer`. Only the newest question can be answered: when the
+agent asks again or you answer by typing, the older form is closed with a note.
+
+![A question with buttons, radio buttons and checkboxes](https://raw.githubusercontent.com/LiaScript/LiaScript-DevServer/mcp/pics/chat/panel.png)
+
+After the answer the form folds to what you chose, and your choice appears as
+your own message:
+
+![The answered form, folded](https://raw.githubusercontent.com/LiaScript/LiaScript-DevServer/mcp/pics/chat/answered.png)
+
+##### Below the messages
+
+- **`New ↓`** shows when new messages arrived below what you are reading, and
+  jumps to them. The chat keeps the first new answer of the agent in view
+  instead of scrolling to the very end.
+- **`Open question ↓`** (or `↑`) shows when a question of the agent waits for
+  you out of sight, and jumps to it.
+- **`Stop`** next to the robot shows while something is read aloud. It stops
+  reading and drops what was still queued.
+- **Hints below the progress line**: `Waiting for the assistant…` appears as
+  soon as your message arrived. If the agent did not react after 30 s, a hint
+  says it may not be connected; the message is saved and answered once it
+  starts. If a working agent is silent for a minute (e.g. it waits for a
+  permission in the terminal), the hint says it is still working.
+- A gap of an hour or a new day puts the time above the next message.
+
+##### Reading aloud and the muted speaker
+
+The ▷ button of a message reads it aloud, ■ stops it. Code and diagrams are
+skipped; tables, the options of a quiz (never its solution) and formulas are
+read, an image by its alt text. A
+browser without speech voices shows a muted speaker instead of (5); a click
+explains why and what helps, see [Reading aloud](#reading-aloud):
+
+![The muted speaker and its explanation](https://raw.githubusercontent.com/LiaScript/LiaScript-DevServer/mcp/pics/chat/mute.png)
+
+##### Files, other courses and web pages
+
+The address field of 🌐 (6):
+
+![The address field for a web page](https://raw.githubusercontent.com/LiaScript/LiaScript-DevServer/mcp/pics/chat/address.png)
+
+While another file is open, ⌂ (8) leads back to the course and 📁 (7) to the
+folder:
+
+![Another course in the frame: home and files](https://raw.githubusercontent.com/LiaScript/LiaScript-DevServer/mcp/pics/chat/home.png)
+
+![The file listing in the frame](https://raw.githubusercontent.com/LiaScript/LiaScript-DevServer/mcp/pics/chat/listing.png)
+
+##### Where the chats are saved
 
 Every chat is saved as a file in `.chats/` of the folder the agent works in, one
-file per conversation, together with your answers to its forms. A reload of the
-page, a restart of the agent or the server continue the last chat; the menu at
-the top of the chat starts a new one or reopens an older one, and the agent is
-told which. Commit `.chats/` so that others can continue your conversations, or
-add it to `.gitignore` to keep them to yourself. A message that does not reach
-the server, e.g. while it restarts, is marked and can be sent again.
+file per conversation, together with your answers to its forms and the states
+of the quizzes in its messages. A reload of the page, a restart of the agent or
+the server continue the last chat; the chat menu (2) starts a new one or reopens
+an older one, and the agent is told which. Commit `.chats/` so that others can
+continue your conversations, or add it to `.gitignore` to keep them to yourself.
 
 #### On a phone
 
@@ -533,14 +713,67 @@ the same for the project and the sharing comes back after a restart, until you
 stop it with the same button. Anyone with the link sees the course and the chat
 and can write to the agent. Web pages of `--proxy full` do not pass.
 
+![The share panel with QR code, Copy link and Stop sharing](https://raw.githubusercontent.com/LiaScript/LiaScript-DevServer/mcp/pics/chat/share.png)
+
+`Copy link` copies the link, `Stop sharing` ends it: the link stops working
+until you switch it on again, then it is the same link.
+
+On a screen narrower than 768 px course and chat take turns. The bar at the
+bottom switches: `Course` with the number of the slide, `Chat` with the number
+of messages you have not seen yet. While the course shows, the newest message
+of the agent (or its progress line) peeks above the bar; a tap opens the chat.
+In the chat, the strip at the top tells where the course is and leads back
+with `To the course`. A question of the agent opens the chat by itself, a
+`goto` of the agent the course.
+
+<p>
+<img alt="Phone: the course with the newest message above the bar" src="https://raw.githubusercontent.com/LiaScript/LiaScript-DevServer/mcp/pics/chat/phone-course.png" width="300">
+<img alt="Phone: the chat with the way back to the course" src="https://raw.githubusercontent.com/LiaScript/LiaScript-DevServer/mcp/pics/chat/phone-chat.png" width="300">
+</p>
+
+#### Web pages
+
+The chat can show any web page in place of the course, so you can read it
+together with the agent: open it with 🌐, ask the agent, or click a link to
+another site in a course. `--proxy` decides how:
+
+- `read` (default): the devServer fetches the page for the frame, without your
+  cookies or logins. Styles, images and scripts load from the site itself.
+  Single page apps may break.
+- `off`: no web pages; 🌐 is hidden and links to other sites open in a new tab.
+- `full` (experimental): everything goes through the devServer, with cookies,
+  forms and single page apps, in memory only. Some sites hang Firefox.
+
+For pages with your own logins (a forum, an LMS, social media) the browser
+extension in the folder
+[`extension/`](https://github.com/LiaScript/LiaScript-DevServer/tree/mcp/extension)
+of the repository works better than `full`. It lets the chat load the real page
+directly, in this browser tab only. It is not in the npm package; download the
+folder and load it:
+
+- Chrome, Edge: `chrome://extensions`, switch on *Developer mode*, *Load
+  unpacked*, choose the folder.
+- Firefox (128 or newer): `about:debugging`, *This Firefox*, *Load Temporary
+  Add-on…*, choose `manifest.json` (until Firefox restarts).
+
+The agent can read the whole page or mark parts of it with `run_in_page`, but
+only when you ask it to, and only through the proxy, not with the extension.
+
 #### Teacher personas
 
 An agent can teach as a historical person: Marie Curie, Socrates, Hypatia,
 Paulo Freire and nearly 200 more, with a portrait, a voice and their way of
 teaching. The agent suggests a few that fit the course, the learner picks one in
 the chat. Then the chat switches to the learner view, which shows only that
-teacher; ask the agent to go back to the author mode to see all agents again. A
-course can fix its teacher in the header:
+teacher; ask the agent to go back to the author mode to see all agents again.
+
+<p>
+<img alt="The teacher form: portraits to choose from" src="https://raw.githubusercontent.com/LiaScript/LiaScript-DevServer/mcp/pics/chat/teacher.png" width="380">
+</p>
+
+![The learner view: the chosen teacher on a large stage](https://raw.githubusercontent.com/LiaScript/LiaScript-DevServer/mcp/pics/chat/learner.png)
+
+A course can fix its teacher in the header:
 
 ```markdown
 <!--
