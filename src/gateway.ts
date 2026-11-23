@@ -1228,7 +1228,7 @@ ${cfg.kit ? `<label class="check" title="${esc(L.withKitTitle)}"><input type="ch
 </main>
 <footer class="foot"><span>${esc(L.footer)}</span><a href="https://github.com/LiaScript/LiaScript-DevServer" target="_blank" rel="noopener">${esc(
           L.source,
-        )}</a><a href="https://github.com/LiaScript/LiaScript-DevServer/blob/main/README.md" target="_blank" rel="noopener">${esc(L.docs)}</a></footer>
+        )}</a><a href="https://github.com/LiaScript/LiaScript-DevServer/blob/lms/README.md#lialms-a-whole-class" target="_blank" rel="noopener">${esc(L.docs)}</a></footer>
 <div class="toasts" role="status" aria-live="polite">${
           message ? `<div class="toast">${icon('check')}<p>${esc(message)}</p><button type="button" class="btn quiet xs icon-only" data-dismiss aria-label="${esc(L.close)}">${icon('x')}</button></div>` : ''
         }</div>

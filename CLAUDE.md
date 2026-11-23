@@ -15,7 +15,13 @@ npm run build    # parcel-bundles src/index.ts -> dist/index.js, adds shebang, t
 npm run lib      # tsc-compiles src/lib.ts -> dist/lib.js (+ .d.ts), commonjs module, for programmatic use
 npm run shebang  # prepends #!/usr/bin/env node to dist/index.js and chmods it executable
 node src/check.js  # end-to-end check of --mcp against the BUILT dist/index.js, so run `npm run build` first
+node src/screenshots.js  # the README's pics/chat/*.png and pics/lms/*.png, headless (PLAYWRIGHT_MODULE_PATH, PLAYWRIGHT_CHROMIUM_PATH)
 ```
+
+The README links its screenshots by absolute `raw.githubusercontent.com/…/<branch>/pics/…` URLs: npm resolves relative
+images against the default branch, where the `mcp` and `lms` pictures do not exist. Rerun the script after a change
+of the chat's or the admin page's look and commit the pictures. The LMS part runs `--lan` on port 3991 for about a
+minute and shows the example address 192.168.1.20 (a `--require` preload), never the real one.
 
 `build` always runs `shebang` and `lib` afterward. There is no separate lint or test script. The only automated
 check is `src/check.js`: it spawns `dist/index.js --mcp` in a temporary project folder (the chats land in its
